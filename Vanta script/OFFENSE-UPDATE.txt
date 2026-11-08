@@ -1,0 +1,25 @@
+Vanta autofarm offense update
+
+Execute PracticalComplete.luau or dist/PracticalComplete.luau; both contain the same updated build.
+
+Changes
+- Open shots are no longer blocked by a clear driving lane.
+- Removed the fixed half-second opening wait and 1.2-second post-pressure lockout.
+- Uses current defender distance and estimated closeout time, including ping, to select a shot.
+- Requires feet to settle; no timeout forces a moving shot.
+- Prioritizes a viable rim finish, then an open shot, then an attack or separation move.
+- Keeps attacking after beating the defender; route scoring favors forward progress and avoids predicted collisions.
+- Adds the recorded right-hand X stepback when facing the rim and the landing point is clear, in range and within bounds.
+- Waits for the dribble action/displacement before reevaluating the shot; unknown left-hand stepbacks are not invented.
+- Removes random crossover selection, guessed hand changes, and the fixed 1.5-second move cooldown.
+- Prevents a held guard key or stale lob steering from overriding farm offense.
+- Resets possession-specific plans, releases owned shot/dunk inputs on stop, and limits status-log spam.
+
+Validation
+13 decision/geometry scenarios passed using extracted live planner functions.
+Full generated Luau and the embedded UI compiled successfully.
+No live Roblox match was run: dunk acceptance, animation timing and real contest outcomes still require testing.
+The Shot range control is still respected (default 20 studs). Increase it only to the range your build can make.
+
+Backup: backup_before_offense_20261107_215252
+The scenario file is an extracted snapshot; regenerate it if the corresponding planner functions change.
