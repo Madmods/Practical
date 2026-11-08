@@ -72,8 +72,10 @@ local farmLoaded,farmError=pcall(function()
  local confirmedStepback=false
  local possessionOwner=nil
  local openingUntil=0
+ local farmMove=nil
+ local dribbleFailures={}
  local function resetOffense(service)
-  retreat=nil;driveUntil=0;stepbackShotUntil=0;confirmedStepback=false
+  retreat=nil;driveUntil=0;stepbackShotUntil=0;confirmedStepback=false;farmMove=nil
   releaseSpace(service)
  end
  local peakSpeed=0
@@ -306,14 +308,7 @@ local farmLoaded,farmError=pcall(function()
   return fallback
  end
 
- -- Sprint dribble moves from the recorded profiles, by dribbling hand and the side they take you to.
- -- Shift+Z (right hand, goes left) and Shift+C (left hand, goes right) swap hands, so they chain.
- local MOVES={R={left={"Z"},right={}},L={right={"C"},left={}}} -- Only measured sprint crossovers; no behind-the-back drive inputs.
- local lastHand
- local lastDriveMove=nil
- local driveTransfer=nil
  local rng=Random.new()
- local recentSide,sideRepeats=0,0
  local boundaryAt=-math.huge
  local outZones={}
  local function withinCourt(point)
@@ -349,59 +344,32 @@ local farmLoaded,farmError=pcall(function()
   for i=0,12 do if not withinCourt(a:Lerp(b,i/12))then return false end end
   return true
  end
- local function crossover(own,service,sideSign,direction)
-  local now=os.clock()
-  local hand=attr(own,"Hand")
-  if hand~="R" and hand~="L" then return end
-  -- The hand attribute can lag behind the move: if it still shows the hand we last used,
-  -- either the move is still playing (wait) or it never updated (assume it flipped).
-  if hand==lastHand then
-   if now-lastCross<.18 or attr(own,"Action")=="Dribbling" then return end
-   -- Keep the observed hand; do not invent a hand change after a rejected move.
-  end
-  local ownRoot=rootOf(own)
-  if not ownRoot then return end
-  local keys,sprint=nil,true
-  local preferred=hand=="R"and -1 or 1
-  if driveTransfer and now-driveTransfer.at>1.8 then driveTransfer=nil end
-  if driveTransfer then
-   if hand~=driveTransfer.hand then return end
-   preferred=driveTransfer.side;driveTransfer=nil
-   keys=hand=="R"and "Z"or "C"
-  else
-   local choices={}
-   for _,sign in ipairs({-1,1})do
-    local endpoint=ownRoot.Position+flat(ownRoot.CFrame.RightVector)*sign*6+flat(ownRoot.CFrame.LookVector)*2
-    local gap=12
-    for _,enemy in ipairs(opponents(own))do
-     local er=rootOf(enemy)
-     if er then gap=math.min(gap,flat(endpoint-er.Position-flat(er.AssemblyLinearVelocity)*.35).Magnitude)end
-    end
-    local bounded=clampCourt(endpoint)
-    if gap>=3 and flat(bounded-endpoint).Magnitude<1 and safeMove(ownRoot.Position,endpoint)then
-     choices[#choices+1]={side=sign,score=gap+rng:NextNumber(0,3)-(sign==recentSide and sideRepeats*2 or 0)}
-    end
-   end
-   table.sort(choices,function(a,b)return a.score>b.score end)
-   if #choices==0 then return end
-   preferred=choices[1].side
-   -- Follow the route planner when that side is viable; do not roll an unrelated side.
-   local localSide=direction:Dot(flat(ownRoot.CFrame.RightVector))>=0 and 1 or -1
-   for _,choice in ipairs(choices)do if choice.side==localSide then preferred=localSide;break end end
-   keys=hand=="R"and "Z"or "C"
-   if (hand=="R"and preferred==1)or(hand=="L"and preferred==-1)then
-    -- Sprint crossover changes hands, then the opposite sprint crossover attacks.
-    sprint=true;driveTransfer={hand=hand=="R"and "L"or "R",side=preferred,at=now}
-   end
-  end
-  if preferred==recentSide then sideRepeats=sideRepeats+1 else recentSide=preferred;sideRepeats=1 end
-  lastDriveMove=keys;state.dribbleSide=preferred<0 and "left"or "right"
-  state.dribblePlan=driveTransfer and "Sprint crossover into opposite drive"or "Sprint crossover"
-  lastCrossKeys=keys;lastCross=now;lastHand=hand
+ -- Request one measured move, then wait for native acknowledgement and landing.
+ local function smartEscape(own,root,list,target,now,service,ping)
+  if not settings.farmCrossover or not settings._farmSelectDribble or farmMove
+   or not service or not service.Dribble or now-lastCross<.85
+   or attr(own,"Action")=="Dribbling"or busy[attr(own,"Action")]
+   or attr(own,"CanDribble")==false or attr(own,"CanMove")==false or attr(own,"InPost")==true then return false end
+  local stamina,maximum=tonumber(attr(own,"Stamina")),tonumber(attr(own,"MaxStamina"))
+  if stamina and maximum and maximum>0 then stamina=stamina/maximum*100 end
+  if stamina and stamina<(settings.smartDribbleStamina or 30)then return false end
+  local chosen=settings._farmSelectDribble({origin=root.Position,target=target,
+   facing=root.CFrame.LookVector,right=root.CFrame.RightVector,velocity=root.AssemblyLinearVelocity,
+   hand=attr(own,"Hand"),defenders=list,ping=ping,allowed=withinCourt,now=now,
+   failed=dribbleFailures,lastKeys=lastCrossKeys,lastAt=lastCross})
+  if not chosen then return false end
   if api.CancelCombo then api.CancelCombo()end
-  if pcall(function()service.Dribble:Fire(keys,true,direction)end)then state.crosses=state.crosses+1 end
+  lastCross=now
+  local ok=pcall(function()service.Dribble:Fire(chosen.keys,chosen.sprint,Vector3.zero)end)
+  if not ok then dribbleFailures[chosen.keys]=now+2;return false end
+  lastCrossKeys=chosen.keys
+  farmMove={at=now,origin=root.Position,hand=attr(own,"Hand"),move=chosen,seen=false}
+  state.crosses=state.crosses+1;state.dribblePlan=chosen.package.." ["..chosen.keys.."]"
+  state.dribbleSide=flat(chosen.destination-root.Position):Dot(flat(root.CFrame.RightVector))<0 and "left"or "right"
+  state.visualTarget=chosen.destination;state.status="Create space: "..state.dribblePlan
+  plan.dir=Vector3.zero;plan.reason="Measured dribble: let animation move";guardError=0
+  return true
  end
-
  -- Letting go of the stance is not enough in this game: the guard button has to be clicked once more
  -- to reset it, the same tap the key-up handler sends after you let go of G.
  local function releaseGuard()
@@ -456,7 +424,8 @@ local farmLoaded,farmError=pcall(function()
   for _,enemy in ipairs(opponents(own))do
    local er=rootOf(enemy)
    local velocity=flat(er.AssemblyLinearVelocity or Vector3.zero)
-   list[#list+1]={character=enemy,position=er.Position,velocity=velocity,predicted=er.Position+velocity*.4}
+   if velocity.Magnitude>28 then velocity=velocity.Unit*28 end
+   list[#list+1]={character=enemy,position=er.Position,velocity=velocity,facing=flat(er.CFrame.LookVector),predicted=er.Position+velocity*.4}
   end
   return list
  end
@@ -626,7 +595,7 @@ local farmLoaded,farmError=pcall(function()
  end
  -- BEGIN FARM ARRIVAL
  -- Earliest contest arrival: measured momentum, bounded acceleration, latency reserve.
- local function interceptTime(position,velocity,point,ping)
+ local function interceptTime(position,velocity,point,ping,facing)
   local delta=flat(point-position);local distance=math.max(0,delta.Magnitude-2.1)
   if distance==0 then return 0 end
   local top=math.clamp(math.max(16,velocity.Magnitude),16,26)
@@ -635,7 +604,10 @@ local farmLoaded,farmError=pcall(function()
   local rampDistance=toward*ramp+.5*acceleration*ramp*ramp
   local travel=distance<=rampDistance and(-toward+math.sqrt(toward*toward+2*acceleration*distance))/acceleration
    or ramp+(distance-rampDistance)/top
-  return math.max(0,travel-math.clamp(ping or 0,0,.35))
+  -- Facing is a small reaction cue, never permission to ignore a nearby defender.
+  local turn=facing and facing.Magnitude>.1 and delta.Magnitude>.1
+   and(1-math.clamp(facing.Unit:Dot(delta.Unit),-1,1))*.035 or 0
+  return math.max(0,travel+turn-math.clamp(ping or 0,0,.35))
  end
  -- END FARM ARRIVAL
  local tactics={failures={},choice=nil,choiceAt=0,progress=nil}
@@ -644,10 +616,16 @@ local farmLoaded,farmError=pcall(function()
   if delta.Magnitude<.1 then return {}end
   local forward=delta.Unit;local right=Vector3.new(-forward.Z,0,forward.X)
   local speed=math.clamp(math.max(16,flat(root.AssemblyLinearVelocity).Magnitude),16,26)
+  local velocity=flat(root.AssemblyLinearVelocity)
   local entries={}
   local function drive(name,point,bend)
    point=clampCourt(point);bend=bend or Vector3.zero
    local control=(origin+point)*.5+bend
+   local heading=flat(control-origin)
+   local turn=heading.Magnitude>.1 and velocity.Magnitude>1
+    and(1-math.clamp(velocity.Unit:Dot(heading.Unit),-1,1))*math.min(velocity.Magnitude/80,.25)or 0
+   local facing=flat(root.CFrame.LookVector)
+   if heading.Magnitude>.1 then turn=turn+(1-math.clamp(facing:Dot(heading.Unit),-1,1))*.035 end
    local previous=origin;local length=0;local margin=math.huge;local bounded=true
    local futureMargin=math.huge;local nearProgress=0
    local limiting,intercept,ourTime,theirTime=nil,nil,0,0
@@ -656,10 +634,10 @@ local farmLoaded,farmError=pcall(function()
     local pos=origin*((1-t)^2)+control*(2*(1-t)*t)+point*(t*t)
     if not withinCourt(pos)then bounded=false end
     length=length+flat(pos-previous).Magnitude;previous=pos
-    local ours=length/speed
+    local ours=length/speed+turn*math.min(1,length/3)
     if ours<=.65 then nearProgress=delta.Magnitude-flat(pos-hoop).Magnitude end
     for _,d in ipairs(list)do
-     local theirs=interceptTime(d.position,d.velocity,pos,ping)
+     local theirs=interceptTime(d.position,d.velocity,pos,ping,d.facing)
      futureMargin=math.min(futureMargin,theirs-ours)
      if ours<=.65 and theirs-ours<margin then
       margin=theirs-ours;limiting=d.position;intercept=pos;ourTime=ours;theirTime=theirs
@@ -671,11 +649,12 @@ local farmLoaded,farmError=pcall(function()
    local score=math.clamp(margin,-2,.6)*6+nearProgress*1.5-travel*.4
    -- Do not let a tempting first step hide a covered finish farther along the route.
    score=score+math.clamp(futureMargin,-1,0)*3
-   if tactics.failures[name] and os.clock()<tactics.failures[name] then score=score-8 end
+   local stalled=tactics.failures[name] and os.clock()<tactics.failures[name]
+   if stalled then score=score-8 end
    if not bounded then margin=-math.huge;score=-math.huge end
-   local quality=margin>.15 and "good"or(margin>0 and "uncertain"or "bad")
+   local quality=margin>.15 and not stalled and "good"or(margin>0 and "uncertain"or "bad")
    entries[#entries+1]={kind="drive",name=name,point=point,bend=bend,origin=origin,score=score,
-    margin=margin,defender=limiting,intercept=intercept,ourTime=ourTime,theirTime=theirTime,
+    margin=margin,futureMargin=futureMargin,defender=limiting,intercept=intercept,ourTime=ourTime,theirTime=theirTime,
     quality=quality,text=string.format("%s | score %.1f\nNext 0.65s: you %.2fs / defender %.2fs | margin %+.2fs",name,score,ourTime,theirTime,margin)}
   end
   drive("DRIVE LEFT",origin+forward*8-right*6,-right*1.5)
@@ -762,7 +741,16 @@ local farmLoaded,farmError=pcall(function()
   return best
  end
  local escapePlan,allBlockedAt=nil,nil
+ local coveredSince=nil
  local resetScanAt=-math.huge
+ -- BEGIN FARM RESET POLICY
+ local function shouldReset(now,since,drive,scoring,forced)
+  local strong=drive and drive.quality=="good"and(drive.futureMargin or 0)>-.15
+  if scoring or strong and not forced then return nil,false end
+  since=since or now
+  return since,forced or now-since>=1.2
+ end
+ -- END FARM RESET POLICY
  local function offense(own,root,now,service)
   local hoop=rimFor(own,root,now)
   if not hoop then state.status="Have ball, no rim found";return end
@@ -772,7 +760,7 @@ local farmLoaded,farmError=pcall(function()
   local forward=distance>.1 and toHoop.Unit or(approachDir and -approachDir)or Vector3.new(0,0,-1)
   state.visualOffense=true;state.visualRim=hoop;state.distance=distance
   -- Measure progress toward the chosen waypoint; sideways routes need not approach the rim.
-  if tactics.progress and plan.reason=="Autofarm: driving" and now-tactics.progress.at>=.85 then
+  if tactics.progress and not escapePlan and now-tactics.progress.at>=.85 then
    local p=tactics.progress
    local gain=p.gap-flat(p.point-root.Position).Magnitude
    if gain<.75 and attr(own,"Action")~="Dribbling"then
@@ -780,7 +768,7 @@ local farmLoaded,farmError=pcall(function()
     state.routeRead="Stalled "..p.name..": try another route"
    end
    tactics.progress=nil
-  elseif plan.reason~="Autofarm: driving"then tactics.progress=nil end
+  elseif escapePlan then tactics.progress=nil end
   local right=Vector3.new(-forward.Z,0,forward.X)
   local list=defenders(own)
   if retreat or confirmedStepback then escapePlan=nil;resetting=false;allBlockedAt=nil end
@@ -788,26 +776,48 @@ local farmLoaded,farmError=pcall(function()
    local resetPing=0;pcall(function()resetPing=math.clamp(P:GetNetworkPing(),0,.35)end)
    local fresh=candidatePlans(root,hoop,list,resetPing)
    local drive=bestDrive(fresh)
-   local scoreAvailable=drive~=nil
+   local scoreAvailable=distance<=settings.farmDunkRange or drive and drive.quality=="good"and drive.futureMargin>-.15
    for _,option in ipairs(fresh)do
-    if(option.name=="STEPBACK"or option.name=="SHOOT HERE")and option.quality=="good"then scoreAvailable=true end
+    if option.quality=="good"and attr(own,"CanShoot")~=false and now-lastShot>.75 then
+     if option.name=="SHOOT HERE"then
+      local open,gap=shotWindow(root.Position,list,resetPing,false)
+      if open and gap>=10 then scoreAvailable=true end
+     elseif option.name=="STEPBACK"and now-lastStepback>1.6 and attr(own,"CanDribble")~=false then scoreAvailable=true end
+    end
    end
-   if scoreAvailable and not perimeterNeeded then escapePlan=nil;allBlockedAt=nil;state.status="Space recovered: attack scoring opportunity"end
+   if scoreAvailable then escapePlan=nil;allBlockedAt=nil;coveredSince=nil;perimeterNeeded=false;state.status="Space recovered: attack scoring opportunity"end
   end
   if escapePlan then
    if escapePlan.waypoint and flat(escapePlan.waypoint-root.Position).Magnitude<2 then
     escapePlan.waypoint=nil;escapePlan.progressAt=now;escapePlan.gap=flat(escapePlan.point-root.Position).Magnitude
    end
    local delta=flat((escapePlan.waypoint or escapePlan.point)-root.Position)
-   if delta.Magnitude<1.5 or now-escapePlan.at>5 then escapePlan=nil;allBlockedAt=nil;perimeterNeeded=false
+   local unsafe=not safeMove(root.Position,escapePlan.waypoint or escapePlan.point)
+   local pressure=math.huge
+   for _,d in ipairs(list)do
+    pressure=math.min(pressure,flat(d.position-root.Position).Magnitude)
+    for i=1,4 do
+     local t=i*.1
+     local probe=root.Position+(delta.Magnitude>.1 and delta.Unit or Vector3.zero)*math.min(delta.Magnitude,16*t)
+     if flat(probe-(d.position+d.velocity*t)).Magnitude<2.4 then unsafe=true end
+    end
+   end
+   if delta.Magnitude<1.5 or now-escapePlan.at>5 then escapePlan=nil;allBlockedAt=nil;coveredSince=nil;perimeterNeeded=false
+   elseif unsafe then
+    local target=escapePlan.waypoint or escapePlan.point
+    local resetPing=0;pcall(function()resetPing=math.clamp(P:GetNetworkPing(),0,.35)end)
+    if smartEscape(own,root,list,target,now,service,resetPing)then return end
+    escapePlan=nil;allBlockedAt=now-.5;state.status="Reset path covered: choose another route"
    elseif now-(escapePlan.progressAt or escapePlan.at)>1.2 and (escapePlan.gap or delta.Magnitude)-delta.Magnitude<.5 then
     escapePlan=nil;allBlockedAt=nil;state.status="Reset route stalled: reassess"
    elseif now-(escapePlan.progressAt or escapePlan.at)>1.2 then
     escapePlan.progressAt=now;escapePlan.gap=delta.Magnitude
     plan.dir=delta.Unit;plan.reason="Reset to perimeter";state.visualTarget=escapePlan.point;guardError=60;return
    else
+    local resetPing=0;pcall(function()resetPing=math.clamp(P:GetNetworkPing(),0,.35)end)
+    if pressure<8 and smartEscape(own,root,list,escapePlan.waypoint or escapePlan.point,now,service,resetPing)then return end
     plan.dir=delta.Unit;plan.reason="Reset to perimeter";state.visualTarget=escapePlan.point
-    state.status="All options blocked: retreat and reassess";guardError=60;return
+    state.status="No good opening: reset to the arc";guardError=60;return
    end
   end
   -- How close the nearest defender will be, and whether any defender that is still ahead of us
@@ -1036,6 +1046,7 @@ local farmLoaded,farmError=pcall(function()
    return
   end
   if choice=="shoot" and (wideOpen or(confirmedStepback and now<stepbackShotUntil)) and open and inRange and service and service.Shoot then
+   coveredSince=nil
    plan.dir=Vector3.zero;plan.reason="Autofarm: setting feet"
    -- Never turn the settle timeout into permission to take a running shot.
    local planted
@@ -1049,17 +1060,22 @@ local farmLoaded,farmError=pcall(function()
   end
 
   if choice=="stepback" and not perimeterNeeded then
+   coveredSince=nil
    local ok,err=stepbackAndShoot(service,now)
    if not ok then state.status="Stepback / E input failed: "..tostring(err)end
    return
   end
   local options=evaluated
-  local allRed=bestDrive(options)==nil
-  if allRed or perimeterNeeded then allBlockedAt=allBlockedAt or now else allBlockedAt=nil end
+  local candidateDrive=bestDrive(options)
+  local allRed=candidateDrive==nil
+  local resetWanted
+  coveredSince,resetWanted=shouldReset(now,coveredSince,candidateDrive,choice=="shoot",perimeterNeeded)
+  if allRed or resetWanted then allBlockedAt=allBlockedAt or now else allBlockedAt=nil end
   if allBlockedAt and now-allBlockedAt>.4 and now-resetScanAt>.75 and not spaceHeld and not shotStart then
    resetScanAt=now
    local outward=-forward
-   local radius=settings.farmShotRange
+   local detectedArc=settings.smartDribbleThreeDistance or 0
+   local radius=detectedArc>0 and detectedArc+1.5 or settings.farmShotRange
    local assets=workspace:FindFirstChild("Assets")
    local functionals=assets and assets:FindFirstChild("Functionals")
    local zones=functionals and functionals:FindFirstChild("Zones")
@@ -1101,9 +1117,9 @@ local farmLoaded,farmError=pcall(function()
         local pos=t<=.5 and root.Position:Lerp(waypoint,t*2)or waypoint:Lerp(endpoint,(t-.5)*2)
         local elapsed=(t<=.5 and first*t*2 or first+second*(t-.5)*2)/speed
         for _,d in ipairs(list)do
-         local gap=flat(pos-d.position).Magnitude
+         local gap=flat(pos-(d.position+d.velocity*math.min(elapsed+ping,.4))).Magnitude
          if gap<2.8 then collision=true end
-         local arrival=math.max(0,gap-2.1)/math.clamp(math.max(16,d.velocity.Magnitude),16,26)
+         local arrival=interceptTime(d.position,d.velocity,pos,ping,d.facing)
          margin=math.min(margin,arrival-elapsed)
         end
        end
@@ -1116,7 +1132,8 @@ local farmLoaded,farmError=pcall(function()
    end
    state.resetCandidates=resetCandidates;state.resetUsesArc=arc~=nil
    if point and flat(point-root.Position).Magnitude>2 then
-    escapePlan={point=point,waypoint=resetWaypoint,at=now,gap=flat(point-root.Position).Magnitude,progressAt=now};retreat=nil;confirmedStepback=false;stepbackShotUntil=0
+    escapePlan={point=point,waypoint=resetWaypoint,at=now,gap=flat((resetWaypoint or point)-root.Position).Magnitude,progressAt=now};retreat=nil;confirmedStepback=false;stepbackShotUntil=0
+    state.resets=(state.resets or 0)+1
     plan.dir=flat((resetWaypoint or point)-root.Position).Unit;plan.reason="Reset to perimeter";state.visualTarget=point
     state.status=string.format("Reset: best of %d perimeter destinations",resetCandidates);guardError=60;return
    end
@@ -1135,6 +1152,7 @@ local farmLoaded,farmError=pcall(function()
    state.status=string.format("%s: score %.1f, minimum defender margin %+.2fs",best.name,best.score,best.margin)
   else
    local space=reposition(root,hoop,list)
+   if space and currentGap<10 and smartEscape(own,root,list,space.point,now,service,ping)then return end
    plan.dir=space and space.direction or Vector3.zero
    state.visualTarget=space and space.point or root.Position
    plan.reason=space and "Create reset space"or "No collision-free escape"
@@ -1145,7 +1163,7 @@ local farmLoaded,farmError=pcall(function()
   if service and service.Dribble and settings.farmCrossover and distance>settings.farmDunkRange+2
    and currentGap<8 and not beaten and not laneClear
    and now-lastCross>.65 and action~="Dribbling" and attr(own,"CanDribble")~=false then
-   crossover(own,service,dir:Dot(right)>=0 and 1 or -1,dir)
+   if smartEscape(own,root,list,root.Position+dir*10,now,service,ping)then return end
   end
   plan.dir=dir;plan.reason="Autofarm: driving"
   guardError=60
@@ -1359,17 +1377,27 @@ local farmLoaded,farmError=pcall(function()
   end
   return false
  end
- local bufferedMove=nil
- local bufferedAt=-math.huge
+ -- BEGIN FARM MOVE LIFECYCLE
+ local function movePhase(pending,now,position,hand,action)
+  local elapsed=now-pending.at
+  local moved=flat(position-pending.origin)
+  local expected=flat(pending.move.destination-pending.origin)
+  local confirmedMotion=moved.Magnitude>.75 and expected.Magnitude>.1 and moved.Unit:Dot(expected.Unit)>.6
+  local switched=hand==pending.move.handAfter and hand~=pending.hand
+  if action=="Dribbling"or switched or confirmedMotion then pending.seen=true end
+  if pending.seen and action~="Dribbling"and elapsed>=pending.move.duration*.65 then return "complete"end
+  if elapsed>pending.move.duration+.5 then return "timeout"end
+  return "wait"
+ end
+ -- END FARM MOVE LIFECYCLE
  local function planDuringDribble(own,root,now,service)
   local hoop=rimFor(own,root,now);if not hoop then return false end
   local list=defenders(own);local ping=0
   pcall(function()ping=math.clamp(P:GetNetworkPing(),0,.35)end)
   local options=candidatePlans(root,hoop,list,ping)
   state.planCandidates=options;state.planEvaluatedAt=now
-  local best,straight,step=bestDrive(options),nil,nil
+  local best,step=bestDrive(options),nil
   for _,candidate in ipairs(options)do
-   if candidate.name=="DRIVE RIM"then straight=candidate end
    if candidate.name=="STEPBACK"then step=candidate end
   end
   local distance=flat(hoop-root.Position).Magnitude
@@ -1384,30 +1412,8 @@ local farmLoaded,farmError=pcall(function()
   plan.dir=best and delta.Magnitude>.1 and delta.Unit or(space and space.direction or Vector3.zero)
   if space then state.visualTarget=space.point end
   plan.reason=wantsStep and "Live read: prepare stepback"or "Live read: attack best route"
-  state.status=bufferedMove and("Buffered "..bufferedMove.name..": still evaluating")or "Dribbling: reevaluating drive and shot opportunities"
-  if bufferedMove or now-bufferedAt<.35 or not service or not service.Dribble then return true end
-  local key,name
-  if wantsStep and now-lastStepback>1.6 then key="XX";name="stepback"
-  elseif not dunkOpen and best and straight and best.name~="DRIVE RIM"and best.score>straight.score+2 and settings.farmCrossover then
-   local hand=attr(own,"Hand")
-   if hand=="R"or hand=="L"then key=hand=="R"and "Z"or "C";name="sprint crossover"end
-  end
-  if key then
-   local tag=attr(own,"lastDribble")or attr(own,"LastDribble")
-   if key=="XX"then
-    bufferedMove=nil;bufferedAt=now
-    local ok,err=stepbackAndShoot(service,now)
-    if not ok then state.status="Buffered stepback / E failed: "..tostring(err)end
-    return true
-   end
-   local ok=pcall(function()service.Dribble:Fire(key,true,plan.dir)end)
-   bufferedAt=now
-   if ok then
-    bufferedMove={name=name,key=key,at=now,tag=tag,origin=root.Position,sawEnd=false}
-    if key=="XX"then lastStepback=now end
-    state.status="Queued "..name..": awaiting native move"
-   end
-  end
+  state.status="Dribbling: reevaluating drive and shot opportunities"
+  -- Observe during native dribbles; select the next measured input after landing.
   return true
  end
  local function think(now)
@@ -1420,7 +1426,7 @@ local farmLoaded,farmError=pcall(function()
   local matchFlag=own and attr(own,"InGame")
   local onCourt=own and attr(own,"OnCourt")
   if not testOpponent and state.chatExit then
-   bufferedMove=nil
+   farmMove=nil
    if matchFlag~=true and onCourt~=true and not visibleLeaveButton(leaveButton)and not leavePending then
     state.chatExit=nil;lastReady=-math.huge
    elseif now>=state.chatExit.deadline then
@@ -1530,16 +1536,6 @@ local farmLoaded,farmError=pcall(function()
   settings.catchShoot=false;settings.smartDribble=false;settings.guard=true;settings.rimPress=true;settings.steal=false;settings.rebound=true;settings.reboundChase=true;settings.antiOop=true
   local service=keyboard and keyboard.Services and keyboard.Services.InputService
   local action=attr(own,"Action")
-  if bufferedMove then
-   local queued=bufferedMove
-   local tag=attr(own,"lastDribble")or attr(own,"LastDribble")
-   if not holdsBall(own)or now-queued.at>1.5 then bufferedMove=nil
-   elseif action~="Dribbling"then queued.sawEnd=true
-   elseif now-queued.at>.12 and(queued.sawEnd or(queued.tag~=nil and tag~=nil and tag~=queued.tag))then
-    if queued.key=="XX"then retreat={at=now,origin=root.Position,seen=true};confirmedStepback=false end
-    bufferedMove=nil
-   end
-  end
   if retreat and action=="Dribbling"then retreat.seen=true end
   local motion= root.AssemblyLinearVelocity
   local _,motionAt=stationaryShot(flat(motion).Magnitude,motion.Y,action,attr(own,"CanMove"),now,lastShotMotion)
@@ -1555,15 +1551,15 @@ local farmLoaded,farmError=pcall(function()
   if gainedPossession then
    tactics.failures={};tactics.choice=nil;tactics.progress=nil;state.routeRead=nil
    preferredDrive=preferredDrive=="DRIVE RIGHT"and "DRIVE LEFT"or "DRIVE RIGHT"
-   bufferedMove=nil;escapePlan=nil;allBlockedAt=nil;perimeterNeeded=false
+   escapePlan=nil;allBlockedAt=nil;perimeterNeeded=false
    openingUntil=now+.45
-   cancelThree(nil);driveTransfer=nil
+   cancelThree(nil);farmMove=nil;dribbleFailures={};coveredSince=nil
    -- Discard stale shot bookkeeping; never send a release into a new possession.
    shotStart=nil;shotSawAction=false
    settings._farmAttack=true
    if guarding then guarding=false;releaseGuard()end
    if service and service.Sprint then pcall(function()service.Sprint:Fire(true)end)end
-  elseif not possession then openingUntil=0 end
+  elseif not possession then openingUntil=0;farmMove=nil;escapePlan=nil;coveredSince=nil;allBlockedAt=nil;perimeterNeeded=false end
   if shotStart and action=="Shooting"then
    if not shotSawAction then state.shotActionAt=now end
    shotSawAction=true
@@ -1610,14 +1606,35 @@ local farmLoaded,farmError=pcall(function()
     state.status="Start possession: sprint forward";return
    end
   end
-  if (settings.farmRandomThrees or threeRun)and not retreat and not confirmedStepback and not shotStart then
+  if farmMove and possession then
+   settings._farmAttack=true
+   local clearing=clearDirection(own,root)
+   if clearing or busy[action]then
+    farmMove=nil
+    if clearing then plan.dir=clearing;plan.reason="Autofarm: clearing ball";guardError=60;return end
+   else
+    local pending=farmMove
+    local phase=movePhase(pending,now,root.Position,attr(own,"Hand"),action)
+    if phase~="wait"then
+     if phase=="timeout"then
+      dribbleFailures[pending.move.keys]=now+3;state.dribblePlan="Move not acknowledged: choose another escape"
+     else state.dribblePlan="Move finished: read the new lane"end
+     farmMove=nil;lastCross=now-.4;tactics.progress=nil;tactics.choice=nil
+     if escapePlan then escapePlan.progressAt=now;escapePlan.gap=flat((escapePlan.waypoint or escapePlan.point)-root.Position).Magnitude end
+    else
+     plan.dir=Vector3.zero;plan.reason="Measured dribble: wait for landing";guardError=0
+     state.visualTarget=pending.move.destination;state.status="Creating space with "..pending.move.keys..": reading landing";return
+    end
+   end
+  end
+  if (settings.farmRandomThrees or threeRun)and not escapePlan and not coveredSince and not retreat and not confirmedStepback and not shotStart then
    settings._farmAttack=possession
    if randomThree(own,root,now,service)then return end
   end
   if possession and action=="Dribbling"and not retreat and not confirmedStepback then
    settings._farmAttack=true
    local clearing=clearDirection(own,root)
-   if clearing then bufferedMove=nil;plan.dir=clearing;plan.reason="Autofarm: clearing ball";guardError=60;return end
+   if clearing then farmMove=nil;plan.dir=clearing;plan.reason="Autofarm: clearing ball";guardError=60;return end
    if planDuringDribble(own,root,now,service)then return end
   end
   if possession and (retreat or confirmedStepback) and not busy[action] then
@@ -1632,12 +1649,6 @@ local farmLoaded,farmError=pcall(function()
   if busy[action]or attr(own,"CanMove")==false then
    state.status="Busy: "..tostring(action or "locked")
    return
-  end
-  if bufferedMove and possession and action~="Dribbling"then
-   settings._farmAttack=true
-   local hoop=rimFor(own,root,now);local delta=hoop and flat(hoop-root.Position)
-   plan.dir=bufferedMove.key=="XX"and Vector3.zero or(delta and delta.Magnitude>.1 and delta.Unit or Vector3.zero)
-   plan.reason="Waiting for buffered move";guardError=60;return
   end
   if holdsBall(own)then
    settings._farmAttack=true
@@ -1729,7 +1740,7 @@ local farmLoaded,farmError=pcall(function()
 
  local function disarm(persist)
   cancelThree(keyboard and keyboard.Services and keyboard.Services.InputService)
-  running=false;testOpponent=nil;testPlayer=nil;state.testOpponent=nil;perimeterNeeded=false;escapePlan=nil;releaseSpace(nil);releaseShot(keyboard and keyboard.Services and keyboard.Services.InputService);retreat=nil;resetting=false;possessionOwner=nil;lastShotMotion=os.clock();settings.farm=false;settings._farmGuard=false;settings._farmAttack=false;plan.dir=nil
+  running=false;testOpponent=nil;testPlayer=nil;state.testOpponent=nil;perimeterNeeded=false;escapePlan=nil;farmMove=nil;coveredSince=nil;allBlockedAt=nil;releaseSpace(nil);releaseShot(keyboard and keyboard.Services and keyboard.Services.InputService);retreat=nil;resetting=false;possessionOwner=nil;lastShotMotion=os.clock();settings.farm=false;settings._farmGuard=false;settings._farmAttack=false;plan.dir=nil
   if guarding then guarding=false;releaseGuard()end
   forceDefense(false)
   clearBall=nil;clearRim=nil;clearTarget=nil

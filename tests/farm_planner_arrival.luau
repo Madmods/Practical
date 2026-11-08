@@ -22,4 +22,8 @@ assert(intercept(origin,v(0,0),target,.1)<stopped,"Higher latency requires more 
 assert(intercept(origin,v(0,0),target,10)==intercept(origin,v(0,0),target,.35),"Latency reserve must be bounded")
 assert(intercept(origin,v(26,0),v(2.2,0),.35)>=0,"Arrival cannot be negative")
 assert(math.abs(toward-intercept(origin,v(0,16),v(0,12),0))<1e-9,"Rotation must not alter the estimate")
+local facing=intercept(origin,v(0,0),target,0,v(1,0))
+local turned=intercept(origin,v(0,0),target,0,v(-1,0))
+assert(turned>facing and turned-facing<=.071,"Facing may add only a small bounded turn cost")
+assert(intercept(origin,v(0,0),v(1,0),0,v(-1,0))==0,"Facing away does not make a close defender safe")
 print("Smart farm arrival scenarios passed")

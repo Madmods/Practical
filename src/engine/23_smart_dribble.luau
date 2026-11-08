@@ -15,6 +15,58 @@ local measuredDribbleProfiles={
  {keys="ZXC",sprint=true,hand="L",handAfter="R",forward=2.974,right=2.336,duration=0.515,package="Spin 1",count=1},
 }
 
+-- BEGIN FARM DRIBBLE SELECTOR
+-- Farm owns execution and movement. Share the measured moves without enabling
+-- the independent hold-key controller. Profiles were captured with idle input.
+local function farmDribble(context)
+ local origin=context.origin;local route=flat(context.target-origin)
+ if route.Magnitude<.1 then return nil end
+ local velocity=flat(context.velocity or Vector3.zero)
+ if velocity.Magnitude>28 then velocity=velocity.Unit*28 end
+ local nearest=30
+ for _,d in ipairs(context.defenders)do nearest=math.min(nearest,flat(d.position-origin).Magnitude)end
+ local best,bestScore
+ for _,p in ipairs(measuredDribbleProfiles)do
+  if p.hand==context.hand and context.now>=(context.failed[p.keys]or 0)
+   and not(context.lastKeys==p.keys and context.now-context.lastAt<2)then
+   local motion=flat(context.facing)*p.forward+flat(context.right)*p.right
+   local destination=origin+motion
+   local pathGap,ending=30,30;local safe=true
+   for i=1,8 do
+    local fraction=i/8;local t=p.duration*fraction
+    local point=origin+motion*fraction
+    -- Check a second envelope for residual momentum as the move takes over.
+    local drift=velocity*(.10*math.min(1,t/.15))
+    if not context.allowed(point)or not context.allowed(point+drift)then safe=false;break end
+    for _,d in ipairs(context.defenders)do
+     local v=flat(d.velocity or Vector3.zero)
+     if v.Magnitude>28 then v=v.Unit*28 end
+     local predicted=d.position+v*math.min(t+(context.ping or 0),.4)
+     local gap=math.min(flat(point-predicted).Magnitude,flat(point+drift-predicted).Magnitude)
+     -- Uncertainty grows after the short reliable velocity horizon.
+     gap=gap-math.max(0,t-.25)*1.5
+     pathGap=math.min(pathGap,gap)
+     if i==8 then ending=math.min(ending,gap)end
+    end
+   end
+   local progress=route.Magnitude-flat(context.target-destination).Magnitude
+   local alignment=motion.Magnitude>.1 and route.Unit:Dot(motion.Unit)or 0
+   local gain=ending-nearest
+   local useful=progress>.6 or gain>1 and progress> -1
+   local score=progress*1.8+math.min(pathGap,10)+math.min(ending,12)*.65+alignment*2-p.duration
+   -- Prefer a direct Z/C attack when it genuinely fits the observed hand and route.
+   if(p.keys=="Z"or p.keys=="C")and p.sprint and alignment>.35 then score=score+1.5 end
+   if safe and pathGap>=math.max(1.5,math.min(2.4,nearest-.25))and useful and(not bestScore or score>bestScore)then
+    best={keys=p.keys,sprint=p.sprint,duration=p.duration,handAfter=p.handAfter,
+     destination=destination,package=p.package,gap=pathGap};bestScore=score
+   end
+  end
+ end
+ return best
+end
+-- END FARM DRIBBLE SELECTOR
+settings._farmSelectDribble=farmDribble
+
 local positional=(function()
 -- Positional geometry shared by the live planner and scenario tests.
 local function flat(v)return Vector3.new(v.X,0,v.Z)end
@@ -596,6 +648,7 @@ end)()
     failed[outstanding.key]=now+2;last=now+.15;outstanding=nil
    end
   end
+  if settings.farm then clearOffenseMovement();status.status="Auto farm owns dribble decisions";return end
   if not settings.smartDribble then clearOffenseMovement()end
   if not settings.smartDribble and not settings.ballProtection then status.status="Disabled";return end
   if settings._catchShootOwns then clearOffenseMovement();status.status="Catch-and-shoot owns this possession";return end
@@ -736,7 +789,7 @@ end)()
  end)
  local previous=featureCleanup
  featureCleanup=function()
-  stopped=true;releaseHeld();outstanding=nil;removePractice();settings._smartOffenseDirection=nil
+  stopped=true;releaseHeld();outstanding=nil;removePractice();settings._smartOffenseDirection=nil;settings._farmSelectDribble=nil
   began:Disconnect();ended:Disconnect();blurred:Disconnect();connection:Disconnect()
   previous()
  end
