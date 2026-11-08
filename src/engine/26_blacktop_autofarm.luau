@@ -624,6 +624,21 @@ local farmLoaded,farmError=pcall(function()
   end
   return best
  end
+ -- BEGIN FARM ARRIVAL
+ -- Earliest contest arrival: measured momentum, bounded acceleration, latency reserve.
+ local function interceptTime(position,velocity,point,ping)
+  local delta=flat(point-position);local distance=math.max(0,delta.Magnitude-2.1)
+  if distance==0 then return 0 end
+  local top=math.clamp(math.max(16,velocity.Magnitude),16,26)
+  local toward=delta.Magnitude>.01 and math.clamp(velocity:Dot(delta.Unit),-top,top)or 0
+  local acceleration=60;local ramp=(top-toward)/acceleration
+  local rampDistance=toward*ramp+.5*acceleration*ramp*ramp
+  local travel=distance<=rampDistance and(-toward+math.sqrt(toward*toward+2*acceleration*distance))/acceleration
+   or ramp+(distance-rampDistance)/top
+  return math.max(0,travel-math.clamp(ping or 0,0,.35))
+ end
+ -- END FARM ARRIVAL
+ local tactics={failures={},choice=nil,choiceAt=0,progress=nil}
  local function candidatePlans(root,hoop,list,ping)
   local origin=root.Position;local delta=flat(hoop-origin)
   if delta.Magnitude<.1 then return {}end
@@ -634,6 +649,7 @@ local farmLoaded,farmError=pcall(function()
    point=clampCourt(point);bend=bend or Vector3.zero
    local control=(origin+point)*.5+bend
    local previous=origin;local length=0;local margin=math.huge;local bounded=true
+   local futureMargin=math.huge;local nearProgress=0
    local limiting,intercept,ourTime,theirTime=nil,nil,0,0
    for i=1,20 do
     local t=i/20
@@ -641,20 +657,21 @@ local farmLoaded,farmError=pcall(function()
     if not withinCourt(pos)then bounded=false end
     length=length+flat(pos-previous).Magnitude;previous=pos
     local ours=length/speed
+    if ours<=.65 then nearProgress=delta.Magnitude-flat(pos-hoop).Magnitude end
     for _,d in ipairs(list)do
-     local toPoint=flat(pos-d.position)
-     local speed=math.clamp(math.max(16,d.velocity.Magnitude),16,26)
-     local turn=toPoint.Magnitude>.1 and d.velocity.Magnitude>2 and math.max(0,-d.velocity.Unit:Dot(toPoint.Unit))*.15 or 0
-     local theirs=.12+turn+math.max(0,toPoint.Magnitude-2.1)/speed
+     local theirs=interceptTime(d.position,d.velocity,pos,ping)
+     futureMargin=math.min(futureMargin,theirs-ours)
      if ours<=.65 and theirs-ours<margin then
       margin=theirs-ours;limiting=d.position;intercept=pos;ourTime=ours;theirTime=theirs
      end
     end
    end
    local travel=length/speed
-   local progress=delta.Magnitude-flat(point-hoop).Magnitude
    -- Seconds of minimum interception clearance dominate; progress breaks close ties.
-   local score=math.clamp(margin,-2,.6)*6+progress*1.5-travel*.4
+   local score=math.clamp(margin,-2,.6)*6+nearProgress*1.5-travel*.4
+   -- Do not let a tempting first step hide a covered finish farther along the route.
+   score=score+math.clamp(futureMargin,-1,0)*3
+   if tactics.failures[name] and os.clock()<tactics.failures[name] then score=score-8 end
    if not bounded then margin=-math.huge;score=-math.huge end
    local quality=margin>.15 and "good"or(margin>0 and "uncertain"or "bad")
    entries[#entries+1]={kind="drive",name=name,point=point,bend=bend,origin=origin,score=score,
@@ -664,6 +681,10 @@ local farmLoaded,farmError=pcall(function()
   drive("DRIVE LEFT",origin+forward*8-right*6,-right*1.5)
   drive("DRIVE RIM",hoop-forward*2,Vector3.zero)
   drive("DRIVE RIGHT",origin+forward*8+right*6,right*1.5)
+  drive("WIDE LEFT",origin+forward*4-right*9,-right*2)
+  drive("WIDE RIGHT",origin+forward*4+right*9,right*2)
+  drive("CUT LEFT",origin+forward*11-right*3,-right)
+  drive("CUT RIGHT",origin+forward*11+right*3,right)
   local points={{"STEPBACK",clampCourt(origin-forward*5.6)},{"CROSS LEFT",clampCourt(origin-right*5)},{"CROSS RIGHT",clampCourt(origin+right*5)},{"SHOOT HERE",origin}}
   for _,item in ipairs(points)do
    local name,point=item[1],item[2]
@@ -731,8 +752,11 @@ local farmLoaded,farmError=pcall(function()
   local best=nil
   for _,candidate in ipairs(options)do
    if candidate.kind=="drive"and candidate.quality~="bad"then
-    if not best or candidate.score>best.score+.75
-     or(math.abs(candidate.score-best.score)<=.75 and candidate.name==preferredDrive)then best=candidate end
+    local held=tactics.choice==candidate.name and os.clock()-tactics.choiceAt<.45
+    local candidateScore=candidate.score+(held and .8 or 0)
+    local bestScore=best and(best.score+((tactics.choice==best.name and os.clock()-tactics.choiceAt<.45)and .8 or 0))or -math.huge
+    if not best or candidateScore>bestScore+.75
+     or(math.abs(candidateScore-bestScore)<=.75 and candidate.name==preferredDrive)then best=candidate end
    end
   end
   return best
@@ -747,6 +771,16 @@ local farmLoaded,farmError=pcall(function()
   if distance>8 then approachDir=(-toHoop).Unit end
   local forward=distance>.1 and toHoop.Unit or(approachDir and -approachDir)or Vector3.new(0,0,-1)
   state.visualOffense=true;state.visualRim=hoop;state.distance=distance
+  -- Measure progress toward the chosen waypoint; sideways routes need not approach the rim.
+  if tactics.progress and plan.reason=="Autofarm: driving" and now-tactics.progress.at>=.85 then
+   local p=tactics.progress
+   local gain=p.gap-flat(p.point-root.Position).Magnitude
+   if gain<.75 and attr(own,"Action")~="Dribbling"then
+    tactics.failures[p.name]=now+2.5;tactics.choice=nil
+    state.routeRead="Stalled "..p.name..": try another route"
+   end
+   tactics.progress=nil
+  elseif plan.reason~="Autofarm: driving"then tactics.progress=nil end
   local right=Vector3.new(-forward.Z,0,forward.X)
   local list=defenders(own)
   if retreat or confirmedStepback then escapePlan=nil;resetting=false;allBlockedAt=nil end
@@ -1091,6 +1125,8 @@ local farmLoaded,farmError=pcall(function()
   local dir
   if best then
    state.selectedCandidate=best;state.visualTarget=best.point
+   if tactics.choice~=best.name then tactics.choice=best.name;tactics.choiceAt=now;tactics.progress=nil end
+   if not tactics.progress then tactics.progress={name=best.name,point=best.point,gap=flat(best.point-root.Position).Magnitude,at=now}end
    -- Follow the tangent of the same quadratic route evaluated above.
    local control=(root.Position+best.point)*.5+best.bend
    local toward=flat(control-root.Position)
@@ -1105,9 +1141,10 @@ local farmLoaded,farmError=pcall(function()
    state.status=space and "Drive lanes blocked: increase separation, then reassess"or "No safe movement found"
    guardError=space and 60 or 0;return
   end
-  -- Use driving crossovers in open lanes too, without delaying a nearby dunk.
+  -- Save crossovers for actual pressure; do not interrupt an uncontested run.
   if service and service.Dribble and settings.farmCrossover and distance>settings.farmDunkRange+2
-   and now-lastCross>(laneClear and .45 or .18) and action~="Dribbling" and attr(own,"CanDribble")~=false then
+   and currentGap<8 and not beaten and not laneClear
+   and now-lastCross>.65 and action~="Dribbling" and attr(own,"CanDribble")~=false then
    crossover(own,service,dir:Dot(right)>=0 and 1 or -1,dir)
   end
   plan.dir=dir;plan.reason="Autofarm: driving"
@@ -1516,6 +1553,7 @@ local farmLoaded,farmError=pcall(function()
   end
   possessionOwner=possession and own or nil
   if gainedPossession then
+   tactics.failures={};tactics.choice=nil;tactics.progress=nil;state.routeRead=nil
    preferredDrive=preferredDrive=="DRIVE RIGHT"and "DRIVE LEFT"or "DRIVE RIGHT"
    bufferedMove=nil;escapePlan=nil;allBlockedAt=nil;perimeterNeeded=false
    openingUntil=now+.45
@@ -1562,7 +1600,12 @@ local farmLoaded,farmError=pcall(function()
    local delta=hoop and flat(hoop-root.Position)
    -- Let an immediate dunk go through the normal finishing path.
    if clearing or not delta or delta.Magnitude>settings.farmDunkRange then
-    plan.dir=clearing or(delta and delta.Magnitude>.1 and delta.Unit)or Vector3.zero
+    local direction=clearing
+    if not direction and delta and delta.Magnitude>.1 then
+     direction=chooseHeading(root,hoop,defenders(own),1.5,math.max(16,flat(root.AssemblyLinearVelocity).Magnitude))
+     if direction and not safeMove(root.Position,root.Position+direction*4)then direction=Vector3.zero end
+    end
+    plan.dir=direction or Vector3.zero
     plan.reason="Autofarm: sprint-first possession";guardError=60
     state.status="Start possession: sprint forward";return
    end

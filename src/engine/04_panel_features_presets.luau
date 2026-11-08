@@ -52,6 +52,7 @@ local function featureToggle(button,key,title)
     end)
 end
 featureToggle(boostToggle,"boost","Dribble boost (experimental)")
+featureToggle(latencyToggle,"latencyCompensation","Online latency compensation")
 
 featureToggle(guardToggle,"guard","Auto guard (experimental)")
 featureToggle(contestToggle,"contest","Contest display")

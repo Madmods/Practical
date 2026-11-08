@@ -107,7 +107,7 @@ label(pages.Stats,"Movement features are experimental. The timing predictor is b
 local featureStatus=label(pages.Stats,"Feature controller: waiting",205,80,12)
 local close=row(panel,"Unload  ·  Ctrl + Alt + T hides panel",570)
 local settings={boost=false,boostMultiplier=1.15,boostDuration=0.25,stamina=false,staminaFloor=100,
-    guard=false,guardRange=20,guardGap=5,guardStrength=1,guardReaction=0.16,guardPrediction=0.08,
+    latencyCompensation=false,guard=false,guardRange=20,guardGap=5,guardStrength=1,guardReaction=0.16,guardPrediction=0.08,
     guardHold=true,contest=true,visuals=true,closeout=true,closeGap=1.5,closeReaction=.12,
     steal=false,stealRange=3.5,stealDelay=.18,stealCooldown=1.4,
     blockCommitFilter=false,
@@ -177,6 +177,9 @@ local moreRows={
  setting(defenseAdvanced,"Rebound trajectory lookahead","reboundLead",1627,0,.35,.025,"%.3f s")}
 for _,r in ipairs(moreRows) do table.insert(extraRows,r) end
 label(defenseAdvanced,"Steal/block/rebound use native actions. Results depend on the server; no independent hand placement.",1690,65,11).TextColor3=colors.muted
+local latencyToggle=row(pages.Shooting,"Online latency compensation - OFF",360)
+pages.Shooting.CanvasSize=UDim2.fromOffset(0,414)
+local latencyMetrics=label(pages.Stats,"Latency compensation: OFF",295,75,12)
 local liveToggle=row(pages.Shooting,"Live contest estimate · ON",312)
 local relaxedPreset=row(pages.Defense,"Response · Balanced",312)
 for i,button in ipairs({guardToggle,stealToggle,blockToggle,reboundToggle,holdToggle}) do
@@ -257,6 +260,43 @@ local function updatePing()
     else ping=nil end
     pingAt=os.clock()
 end
+-- Session-local, bounded learning. Trace timestamps are observed locally, not server truth.
+settings._latency={buckets={}}
+function settings._latency.bucket(currentPing)
+    return math.floor(currentPing / .020 + .5)
+end
+function settings._latency.adjust(currentPing,jitter)
+    if not settings.latencyCompensation or not finite(currentPing) then return 0,0,nil end
+    local key=settings._latency.bucket(currentPing)
+    local bucket=settings._latency.buckets[key]
+    return bucket and bucket.correction or 0,math.clamp(jitter or 0,0,.012),key
+end
+function settings._latency.learn(s,record)
+    if not s.compensated or not settings.latencyCompensation or s.cancelled then return end
+    -- Require a near-full, bracketed peak. Frozen/truncated/ambiguous traces cannot train.
+    local trace=s.trace
+    local peakIndex
+    for i=2,#trace-1 do
+        if not peakIndex or trace[i].progress>trace[peakIndex].progress then peakIndex=i end
+    end
+    if not peakIndex then return end
+    local before,peak,after=trace[peakIndex-1],trace[peakIndex],trace[peakIndex+1]
+    if peak.progress<.98 or peak.progress>1.02 or before.progress>=peak.progress
+        or after.progress>=peak.progress or after.time-before.time>.12 then return end
+    local peakAt=s.started+peak.time
+    -- Effective arrival estimate excludes the adaptive advance itself. Positive error = late.
+    local error=s.sentAt+s.ping+s.baseDelay-s.offset-peakAt
+    if not finite(error) or math.abs(error)>.080 then return end
+    local bucket=settings._latency.buckets[s.pingBucket] or {correction=0,count=0,error=0}
+    local target=math.clamp(s.correction+error+s.jitterMargin,-.020,.020)
+    bucket.error=bucket.error*.8+error*.2
+    bucket.correction=math.clamp(bucket.correction*.8+target*.2,-.020,.020)
+    bucket.count=bucket.count+1
+    settings._latency.buckets[s.pingBucket]=bucket
+    record.estimatedPeakTime=peak.time
+    record.estimatedReleaseError=error
+    record.learnedCorrection=bucket.correction
+end
 local function rate(samples)
     if #samples<4 then return nil end
     local first=math.max(1,#samples-8)
@@ -336,10 +376,12 @@ local function result(m,contest,index)
     local record={id=s.id,result=label,contest=tonumber(contest),window=s.window,
         frameTime=s.frameTime,pingJitter=s.jitter,profile=s.profileKey,predictionAtSend=s.forecast,
         progressAtSend=s.sendPhase,rate=s.velocity,ping=s.ping,extraDelay=s.extra,
-        finalProgress=final,trace=s.trace}
+        finalProgress=final,trace=s.trace,latencyCompensated=s.compensated,
+        latencyCorrection=s.correction,jitterMargin=s.jitterMargin,pingBucket=s.pingBucket}
+    settings._latency.learn(s,record)
     -- Good is ambiguous around the peak. Do not train delay from those misses.
     -- A confirmed Perfect can retain a bounded successful operating point.
-    if label=="Perfect" and s.profileKey then
+    if label=="Perfect" and s.profileKey and not s.compensated then
         local profile=profiles[s.profileKey]
         if not profile then profile={delay=s.extra,confirmations=0}; profiles[s.profileKey]=profile end
         profile.confirmations=profile.confirmations+1
@@ -386,6 +428,12 @@ on(Run.Heartbeat,function()
         status.Text="Feedback timed out · still armed."
     end
     if now-pingAt>0.1 then updatePing() end
+    local correction,margin,bucket=settings._latency.adjust(ping,pingJitter)
+    local learned=bucket and settings._latency.buckets[bucket]
+    latencyMetrics.Text=settings.latencyCompensation and string.format(
+        "Latency: %+.1f ms correction / +%.1f ms jitter margin\nBucket %s ms / %d usable peaks",correction*1000,margin*1000,
+        bucket and tostring(bucket*20) or "unavailable",learned and learned.count or 0) or "Latency compensation: OFF"
+    latencyToggle.Text=settings.latencyCompensation and "Online latency compensation - ON" or "Online latency compensation - OFF"
     local s=active
     if not s then return end
     if s.assistOnly and not enabled and not (settings.shotAssist and settings.shotMeterMax>=100) then disconnectShot(s);active=nil;return end
@@ -401,11 +449,16 @@ on(Run.Heartbeat,function()
     local key=profileKey(s.velocity,ping)
     local profile=profiles[key]
     local delay=profile and profile.delay or extraDelay
+    local baseDelay=delay
+    delay=math.clamp(delay+correction+margin,0,.080)
     local forecast=phase+s.velocity*math.max(0,ping+delay-(settings.timingOffsetMs or 0)/1000)
     -- V2's half-frame advance released below-target forecasts on this capture.
     -- Wait for the modeled arrival phase itself to reach the peak.
     if forecast>=1 then
         s.sent=true; s.sentAt=now; s.sendPhase=phase; s.ping=ping; s.extra=delay
+        s.compensated=settings.latencyCompensation==true
+        s.baseDelay=baseDelay; s.offset=(settings.timingOffsetMs or 0)/1000
+        s.correction=correction; s.jitterMargin=margin; s.pingBucket=bucket
         s.profileKey=key; s.frameTime=frameTime; s.jitter=pingJitter; s.forecast=forecast
         table.insert(awaiting,s)
         local ok,err=pcall(function() keyboard.Services.InputService.Shoot:Fire({Shoot=false}) end)
@@ -470,6 +523,7 @@ local function featureToggle(button,key,title)
     end)
 end
 featureToggle(boostToggle,"boost","Dribble boost (experimental)")
+featureToggle(latencyToggle,"latencyCompensation","Online latency compensation")
 
 featureToggle(guardToggle,"guard","Auto guard (experimental)")
 featureToggle(contestToggle,"contest","Contest display")
@@ -6383,6 +6437,21 @@ local farmLoaded,farmError=pcall(function()
   end
   return best
  end
+ -- BEGIN FARM ARRIVAL
+ -- Earliest contest arrival: measured momentum, bounded acceleration, latency reserve.
+ local function interceptTime(position,velocity,point,ping)
+  local delta=flat(point-position);local distance=math.max(0,delta.Magnitude-2.1)
+  if distance==0 then return 0 end
+  local top=math.clamp(math.max(16,velocity.Magnitude),16,26)
+  local toward=delta.Magnitude>.01 and math.clamp(velocity:Dot(delta.Unit),-top,top)or 0
+  local acceleration=60;local ramp=(top-toward)/acceleration
+  local rampDistance=toward*ramp+.5*acceleration*ramp*ramp
+  local travel=distance<=rampDistance and(-toward+math.sqrt(toward*toward+2*acceleration*distance))/acceleration
+   or ramp+(distance-rampDistance)/top
+  return math.max(0,travel-math.clamp(ping or 0,0,.35))
+ end
+ -- END FARM ARRIVAL
+ local tactics={failures={},choice=nil,choiceAt=0,progress=nil}
  local function candidatePlans(root,hoop,list,ping)
   local origin=root.Position;local delta=flat(hoop-origin)
   if delta.Magnitude<.1 then return {}end
@@ -6393,6 +6462,7 @@ local farmLoaded,farmError=pcall(function()
    point=clampCourt(point);bend=bend or Vector3.zero
    local control=(origin+point)*.5+bend
    local previous=origin;local length=0;local margin=math.huge;local bounded=true
+   local futureMargin=math.huge;local nearProgress=0
    local limiting,intercept,ourTime,theirTime=nil,nil,0,0
    for i=1,20 do
     local t=i/20
@@ -6400,20 +6470,21 @@ local farmLoaded,farmError=pcall(function()
     if not withinCourt(pos)then bounded=false end
     length=length+flat(pos-previous).Magnitude;previous=pos
     local ours=length/speed
+    if ours<=.65 then nearProgress=delta.Magnitude-flat(pos-hoop).Magnitude end
     for _,d in ipairs(list)do
-     local toPoint=flat(pos-d.position)
-     local speed=math.clamp(math.max(16,d.velocity.Magnitude),16,26)
-     local turn=toPoint.Magnitude>.1 and d.velocity.Magnitude>2 and math.max(0,-d.velocity.Unit:Dot(toPoint.Unit))*.15 or 0
-     local theirs=.12+turn+math.max(0,toPoint.Magnitude-2.1)/speed
+     local theirs=interceptTime(d.position,d.velocity,pos,ping)
+     futureMargin=math.min(futureMargin,theirs-ours)
      if ours<=.65 and theirs-ours<margin then
       margin=theirs-ours;limiting=d.position;intercept=pos;ourTime=ours;theirTime=theirs
      end
     end
    end
    local travel=length/speed
-   local progress=delta.Magnitude-flat(point-hoop).Magnitude
    -- Seconds of minimum interception clearance dominate; progress breaks close ties.
-   local score=math.clamp(margin,-2,.6)*6+progress*1.5-travel*.4
+   local score=math.clamp(margin,-2,.6)*6+nearProgress*1.5-travel*.4
+   -- Do not let a tempting first step hide a covered finish farther along the route.
+   score=score+math.clamp(futureMargin,-1,0)*3
+   if tactics.failures[name] and os.clock()<tactics.failures[name] then score=score-8 end
    if not bounded then margin=-math.huge;score=-math.huge end
    local quality=margin>.15 and "good"or(margin>0 and "uncertain"or "bad")
    entries[#entries+1]={kind="drive",name=name,point=point,bend=bend,origin=origin,score=score,
@@ -6423,6 +6494,10 @@ local farmLoaded,farmError=pcall(function()
   drive("DRIVE LEFT",origin+forward*8-right*6,-right*1.5)
   drive("DRIVE RIM",hoop-forward*2,Vector3.zero)
   drive("DRIVE RIGHT",origin+forward*8+right*6,right*1.5)
+  drive("WIDE LEFT",origin+forward*4-right*9,-right*2)
+  drive("WIDE RIGHT",origin+forward*4+right*9,right*2)
+  drive("CUT LEFT",origin+forward*11-right*3,-right)
+  drive("CUT RIGHT",origin+forward*11+right*3,right)
   local points={{"STEPBACK",clampCourt(origin-forward*5.6)},{"CROSS LEFT",clampCourt(origin-right*5)},{"CROSS RIGHT",clampCourt(origin+right*5)},{"SHOOT HERE",origin}}
   for _,item in ipairs(points)do
    local name,point=item[1],item[2]
@@ -6490,8 +6565,11 @@ local farmLoaded,farmError=pcall(function()
   local best=nil
   for _,candidate in ipairs(options)do
    if candidate.kind=="drive"and candidate.quality~="bad"then
-    if not best or candidate.score>best.score+.75
-     or(math.abs(candidate.score-best.score)<=.75 and candidate.name==preferredDrive)then best=candidate end
+    local held=tactics.choice==candidate.name and os.clock()-tactics.choiceAt<.45
+    local candidateScore=candidate.score+(held and .8 or 0)
+    local bestScore=best and(best.score+((tactics.choice==best.name and os.clock()-tactics.choiceAt<.45)and .8 or 0))or -math.huge
+    if not best or candidateScore>bestScore+.75
+     or(math.abs(candidateScore-bestScore)<=.75 and candidate.name==preferredDrive)then best=candidate end
    end
   end
   return best
@@ -6506,6 +6584,16 @@ local farmLoaded,farmError=pcall(function()
   if distance>8 then approachDir=(-toHoop).Unit end
   local forward=distance>.1 and toHoop.Unit or(approachDir and -approachDir)or Vector3.new(0,0,-1)
   state.visualOffense=true;state.visualRim=hoop;state.distance=distance
+  -- Measure progress toward the chosen waypoint; sideways routes need not approach the rim.
+  if tactics.progress and plan.reason=="Autofarm: driving" and now-tactics.progress.at>=.85 then
+   local p=tactics.progress
+   local gain=p.gap-flat(p.point-root.Position).Magnitude
+   if gain<.75 and attr(own,"Action")~="Dribbling"then
+    tactics.failures[p.name]=now+2.5;tactics.choice=nil
+    state.routeRead="Stalled "..p.name..": try another route"
+   end
+   tactics.progress=nil
+  elseif plan.reason~="Autofarm: driving"then tactics.progress=nil end
   local right=Vector3.new(-forward.Z,0,forward.X)
   local list=defenders(own)
   if retreat or confirmedStepback then escapePlan=nil;resetting=false;allBlockedAt=nil end
@@ -6850,6 +6938,8 @@ local farmLoaded,farmError=pcall(function()
   local dir
   if best then
    state.selectedCandidate=best;state.visualTarget=best.point
+   if tactics.choice~=best.name then tactics.choice=best.name;tactics.choiceAt=now;tactics.progress=nil end
+   if not tactics.progress then tactics.progress={name=best.name,point=best.point,gap=flat(best.point-root.Position).Magnitude,at=now}end
    -- Follow the tangent of the same quadratic route evaluated above.
    local control=(root.Position+best.point)*.5+best.bend
    local toward=flat(control-root.Position)
@@ -6864,9 +6954,10 @@ local farmLoaded,farmError=pcall(function()
    state.status=space and "Drive lanes blocked: increase separation, then reassess"or "No safe movement found"
    guardError=space and 60 or 0;return
   end
-  -- Use driving crossovers in open lanes too, without delaying a nearby dunk.
+  -- Save crossovers for actual pressure; do not interrupt an uncontested run.
   if service and service.Dribble and settings.farmCrossover and distance>settings.farmDunkRange+2
-   and now-lastCross>(laneClear and .45 or .18) and action~="Dribbling" and attr(own,"CanDribble")~=false then
+   and currentGap<8 and not beaten and not laneClear
+   and now-lastCross>.65 and action~="Dribbling" and attr(own,"CanDribble")~=false then
    crossover(own,service,dir:Dot(right)>=0 and 1 or -1,dir)
   end
   plan.dir=dir;plan.reason="Autofarm: driving"
@@ -7275,6 +7366,7 @@ local farmLoaded,farmError=pcall(function()
   end
   possessionOwner=possession and own or nil
   if gainedPossession then
+   tactics.failures={};tactics.choice=nil;tactics.progress=nil;state.routeRead=nil
    preferredDrive=preferredDrive=="DRIVE RIGHT"and "DRIVE LEFT"or "DRIVE RIGHT"
    bufferedMove=nil;escapePlan=nil;allBlockedAt=nil;perimeterNeeded=false
    openingUntil=now+.45
@@ -7321,7 +7413,12 @@ local farmLoaded,farmError=pcall(function()
    local delta=hoop and flat(hoop-root.Position)
    -- Let an immediate dunk go through the normal finishing path.
    if clearing or not delta or delta.Magnitude>settings.farmDunkRange then
-    plan.dir=clearing or(delta and delta.Magnitude>.1 and delta.Unit)or Vector3.zero
+    local direction=clearing
+    if not direction and delta and delta.Magnitude>.1 then
+     direction=chooseHeading(root,hoop,defenders(own),1.5,math.max(16,flat(root.AssemblyLinearVelocity).Magnitude))
+     if direction and not safeMove(root.Position,root.Position+direction*4)then direction=Vector3.zero end
+    end
+    plan.dir=direction or Vector3.zero
     plan.reason="Autofarm: sprint-first possession";guardError=60
     state.status="Start possession: sprint forward";return
    end
@@ -7927,7 +8024,7 @@ end
 
 -------------------------------------------------------------------- config
 local VERSION = "2.0"
-local DEFAULT_SCALE = 1.5
+local DEFAULT_SCALE = 1.0
 local DEFAULT_KEY = Enum.KeyCode.RightShift
 local FONT_FAMILY = "rbxasset://fonts/families/BuilderSans.json"
 local FONT_ENUM = Enum.Font.BuilderSans -- same family, only used to measure text
@@ -8755,6 +8852,7 @@ local PREF_NOTICE = { id = "hiddenNotice", label = "Remind me of the open key wh
 local PAGES = {
  {name="Shooting",icon="ball",subtitle="Timing and release limits",tabs={"Timing","Shot limits"},controls={
   {id="autoRelease",tab="Timing",name="Auto time",enabled=false,rows={
+   {type="checks",items={{id="latencyCompensation",label="Adapt to ping and jitter (experimental)",value=false}}},
    {type="slider",id="offset",label="Release adjustment",min=-30,max=30,step=1,value=0,format="%.0f",suffix=" ms"},
    {type="slider",id="maxPing",label="Maximum ping",min=50,max=1000,step=25,value=1000,format="%.0f",suffix=" ms"},
    {type="slider",id="freshness",label="Meter freshness",min=60,max=200,step=10,value=120,format="%.0f",suffix=" ms"},
@@ -11454,6 +11552,8 @@ local PROFILES = {
 	UI.preset("Practice", {}),
 }
 local currentProfile = PROFILES[1]
+-- Keep the object reference so renaming preserves the startup choice.
+UI.autoLoadProfile = nil
 
 function UI.profileNames()
 	local names = {}
@@ -11549,6 +11649,37 @@ function UI.renderConfigs()
 		order += 1
 		return order
 	end
+
+	-- Startup preference is separate from the profile currently being edited.
+	local _, startupBody = UI.newSlot(108, nextOrder(), "startupProfile")
+	local startupPanel = UI.make("Frame", {
+		BackgroundColor3 = C.surface,
+		Position = UDim2.fromOffset(2, 2),
+		Size = UDim2.new(1, -4, 0, 104),
+		Parent = startupBody,
+	}, { UI.corner(14), UI.stroke(C.stroke, 1) })
+	text(startupPanel, "Auto-load on execution", 18, 20, 16)
+	local function startupLabel()
+		return UI.autoLoadProfile and ("Config: " .. UI.autoLoadProfile.name) or "Last selected config"
+	end
+	local startupDD
+	startupDD = dropdown(startupPanel, UDim2.fromOffset(18, 68), 340, 40, function()
+		local options = { "Last selected config" }
+		for _, p in ipairs(PROFILES) do options[#options + 1] = "Config: " .. p.name end
+		return options
+	end, startupLabel(), function(choice)
+		local previous = UI.autoLoadProfile
+		UI.autoLoadProfile = nil
+		for _, p in ipairs(PROFILES) do
+			if choice == "Config: " .. p.name then UI.autoLoadProfile = p; break end
+		end
+		if not UI.persistProfiles() then
+			UI.autoLoadProfile = previous
+			startupDD.set(startupLabel(), 0)
+			return
+		end
+		setStatus(UI.autoLoadProfile and (UI.autoLoadProfile.name .. " will auto-load on execution") or "Startup will use the last selected config")
+	end)
 
 	-- new profile
 	if layoutState.captions then
@@ -11778,6 +11909,12 @@ function UI.renderConfigs()
 			local idx = table.find(PROFILES, p)
 			if idx then
 				table.remove(PROFILES, idx)
+                if UI.autoLoadProfile == p then UI.autoLoadProfile = nil end
+                if currentProfile == p then
+                    currentProfile = PROFILES[1]
+                    profileDD.set(currentProfile.name, 0)
+                    UI.restore(currentProfile.snap)
+                end
 			end
 			controlChanged:Fire("profile", "deleted", p.name)
 			setStatus('Deleted "' .. p.name .. '"')
@@ -11785,9 +11922,7 @@ function UI.renderConfigs()
 			-- collapse the row away, then redraw
 			UI.groupFade(body, 1, 0.2)
 			UI.tween(slot, 0.3, { Size = UDim2.new(1, 0, 0, 0) }).Completed:Connect(function()
-				if p == currentProfile then
-					UI.loadProfile(PROFILES[1])
-				end
+
 				if currentPage == "Configs" and renderedQuery == "" then
 					renderPage("Configs", false)
 				end
@@ -12405,7 +12540,7 @@ do (function()
  end
  UI.persistProfiles=function()
   if type(writefile)~="function"then setStatus("File saving unavailable in this environment");return false end
-  local ok,err=pcall(function()writefile(path,http:JSONEncode({version=1,uiSizingVersion=5,selected=currentProfile.name,profiles=encode(PROFILES)}))end)
+  local ok,err=pcall(function()writefile(path,http:JSONEncode({version=1,uiSizingVersion=6,selected=currentProfile.name,autoLoad=UI.autoLoadProfile and UI.autoLoadProfile.name or false,profiles=encode(PROFILES)}))end)
   if not ok then setStatus("Config could not be written");warn("Practical config save failed: "..tostring(err))end
   return ok
  end
@@ -12418,16 +12553,17 @@ do (function()
    if #profiles>=100 then break end
    if type(e)=="table"and type(e.name)=="string"and #e.name>0 and #e.name<=80 and not seen[string.lower(e.name)]then
     local snap=validated(e.snap)
-    -- Keep saved profiles from reopening the interface below the readable default.
-    if snap and snap.interface and snap.interface.values then
-     local scale=snap.interface.values.uiScale
-     if type(scale)=="number"and scale<DEFAULT_SCALE then snap.interface.values.uiScale=DEFAULT_SCALE end
+    -- Reset the previously forced scale once; preserve user choices after migration.
+    if snap and raw.uiSizingVersion~=6 and snap.interface and snap.interface.values then
+     snap.interface.values.uiScale=DEFAULT_SCALE
     end
     if snap then table.insert(profiles,{name=e.name,snap=snap,savedAt=type(e.savedAt)=="number"and e.savedAt or os.time()});seen[string.lower(e.name)]=true end
    end
   end
   if #profiles==0 then return false end
-  PROFILES=profiles;currentProfile=UI.findProfile(type(raw.selected)=="string"and raw.selected or "")or profiles[1]
+  PROFILES=profiles
+  UI.autoLoadProfile=type(raw.autoLoad)=="string" and UI.findProfile(raw.autoLoad) or nil
+  currentProfile=UI.autoLoadProfile or UI.findProfile(type(raw.selected)=="string"and raw.selected or "")or profiles[1]
   return true
  end
  if UI.loadSavedProfiles() then UI.persistProfiles() end
@@ -12934,7 +13070,7 @@ end)
 
 do (function()
 -- Connect the supplied interface to the existing feature engine.
-local booleanMap={visualStyle={enabled="visualPolish",labels="visualLabels",motion="visualMotion",urgency="visualUrgency",beacon="visualBeacon",flightShadow="visualFlightShadow",comet="visualComet"},antiOop={enabled="antiOop",move="oopMove",guide="oopGuide"},passVision={enabled="passVision"},dunkStopper={enabled="dunkStopper"},autoJoin={enabled="autoJoin"},passIntercept={enabled="passIntercept",automatic="passInterceptAuto",move="passInterceptMove",jump="passInterceptJump",shots="passInterceptShots"},contestCeiling={enabled="contestCeiling",release="contestRelease"},recovery={enabled="ballRecovery"},screens={enabled="screenNavigation",visual="screenAwareness"},assignmentTools={lock="assignmentLock"},passingLanes={enabled="passingLanes"},comboBuilder={enabled="comboBuilder",sprint="comboSprint"},autoGuard={antiPush="antiPush",rimBlock="rimBlock",adaptive="adaptiveGuard",cutoff="driveCutoff",screens="screenNavigation",coverage="guardCoverage",enabled="guard",faceHandler="faceTarget",lockAssignment="assignmentLock",showIndicators="visuals",fakeFilter="fakeFilter"},
+local booleanMap={autoRelease={latencyCompensation="latencyCompensation"},visualStyle={enabled="visualPolish",labels="visualLabels",motion="visualMotion",urgency="visualUrgency",beacon="visualBeacon",flightShadow="visualFlightShadow",comet="visualComet"},antiOop={enabled="antiOop",move="oopMove",guide="oopGuide"},passVision={enabled="passVision"},dunkStopper={enabled="dunkStopper"},autoJoin={enabled="autoJoin"},passIntercept={enabled="passIntercept",automatic="passInterceptAuto",move="passInterceptMove",jump="passInterceptJump",shots="passInterceptShots"},contestCeiling={enabled="contestCeiling",release="contestRelease"},recovery={enabled="ballRecovery"},screens={enabled="screenNavigation",visual="screenAwareness"},assignmentTools={lock="assignmentLock"},passingLanes={enabled="passingLanes"},comboBuilder={enabled="comboBuilder",sprint="comboSprint"},autoGuard={antiPush="antiPush",rimBlock="rimBlock",adaptive="adaptiveGuard",cutoff="driveCutoff",screens="screenNavigation",coverage="guardCoverage",enabled="guard",faceHandler="faceTarget",lockAssignment="assignmentLock",showIndicators="visuals",fakeFilter="fakeFilter"},
  autoSteal={enabled="steal"},autoBlock={commit="blockCommitFilter",enabled="block",oneAttempt="blockOnce"},
  rebound={enabled="rebound",chase="reboundChase"},boost={enabled="boost"},
  landingTools={trail="ballTrail",enabled="landing",beam="landingBeam",zone="landingZone"},overlayTools={contest="liveContest",guard="visuals"},

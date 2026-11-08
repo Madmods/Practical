@@ -14,6 +14,7 @@ local PREF_NOTICE = { id = "hiddenNotice", label = "Remind me of the open key wh
 local PAGES = {
  {name="Shooting",icon="ball",subtitle="Timing and release limits",tabs={"Timing","Shot limits"},controls={
   {id="autoRelease",tab="Timing",name="Auto time",enabled=false,rows={
+   {type="checks",items={{id="latencyCompensation",label="Adapt to ping and jitter (experimental)",value=false}}},
    {type="slider",id="offset",label="Release adjustment",min=-30,max=30,step=1,value=0,format="%.0f",suffix=" ms"},
    {type="slider",id="maxPing",label="Maximum ping",min=50,max=1000,step=25,value=1000,format="%.0f",suffix=" ms"},
    {type="slider",id="freshness",label="Meter freshness",min=60,max=200,step=10,value=120,format="%.0f",suffix=" ms"},

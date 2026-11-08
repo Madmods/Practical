@@ -38,7 +38,7 @@ label(pages.Stats,"Movement features are experimental. The timing predictor is b
 local featureStatus=label(pages.Stats,"Feature controller: waiting",205,80,12)
 local close=row(panel,"Unload  ·  Ctrl + Alt + T hides panel",570)
 local settings={boost=false,boostMultiplier=1.15,boostDuration=0.25,stamina=false,staminaFloor=100,
-    guard=false,guardRange=20,guardGap=5,guardStrength=1,guardReaction=0.16,guardPrediction=0.08,
+    latencyCompensation=false,guard=false,guardRange=20,guardGap=5,guardStrength=1,guardReaction=0.16,guardPrediction=0.08,
     guardHold=true,contest=true,visuals=true,closeout=true,closeGap=1.5,closeReaction=.12,
     steal=false,stealRange=3.5,stealDelay=.18,stealCooldown=1.4,
     blockCommitFilter=false,
@@ -108,6 +108,9 @@ local moreRows={
  setting(defenseAdvanced,"Rebound trajectory lookahead","reboundLead",1627,0,.35,.025,"%.3f s")}
 for _,r in ipairs(moreRows) do table.insert(extraRows,r) end
 label(defenseAdvanced,"Steal/block/rebound use native actions. Results depend on the server; no independent hand placement.",1690,65,11).TextColor3=colors.muted
+local latencyToggle=row(pages.Shooting,"Online latency compensation - OFF",360)
+pages.Shooting.CanvasSize=UDim2.fromOffset(0,414)
+local latencyMetrics=label(pages.Stats,"Latency compensation: OFF",295,75,12)
 local liveToggle=row(pages.Shooting,"Live contest estimate · ON",312)
 local relaxedPreset=row(pages.Defense,"Response · Balanced",312)
 for i,button in ipairs({guardToggle,stealToggle,blockToggle,reboundToggle,holdToggle}) do
