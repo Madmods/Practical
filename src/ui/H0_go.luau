@@ -7,6 +7,12 @@ refreshNav(0)
 UI.refreshStatus()
 refreshMini()
 gui.Parent = playerGui
-fit(0)
-task.defer(setMode, "open")
+task.defer(function()
+	-- Let Roblox establish the mounted ScreenGui bounds before the first fit.
+	RunService.RenderStepped:Wait()
+	if not alive then return end
+	UI.sizingReady = true
+	fit(0)
+	setMode("open")
+end)
 

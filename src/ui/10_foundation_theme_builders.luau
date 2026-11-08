@@ -47,7 +47,7 @@ end
 
 -------------------------------------------------------------------- config
 local VERSION = "2.0"
-local DEFAULT_SCALE = 1.0
+local DEFAULT_SCALE = 1.5
 local DEFAULT_KEY = Enum.KeyCode.RightShift
 local FONT_FAMILY = "rbxasset://fonts/families/BuilderSans.json"
 local FONT_ENUM = Enum.Font.BuilderSans -- same family, only used to measure text

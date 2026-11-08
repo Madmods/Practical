@@ -7849,7 +7849,7 @@ end
 
 -------------------------------------------------------------------- config
 local VERSION = "2.0"
-local DEFAULT_SCALE = 1.0
+local DEFAULT_SCALE = 1.5
 local DEFAULT_KEY = Enum.KeyCode.RightShift
 local FONT_FAMILY = "rbxasset://fonts/families/BuilderSans.json"
 local FONT_ENUM = Enum.Font.BuilderSans -- same family, only used to measure text
@@ -9049,7 +9049,8 @@ local statsListener
 local TITLE_H, SIDE_W, FOOT_H = 64, 220, 68
 local CONTENT_X = SIDE_W + 32
 UI.initialViewport=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920,1080)
-local W,H=math.clamp(UI.initialViewport.X*.94,1000,1320),math.clamp(UI.initialViewport.Y*.90,560,860)
+-- Reserve most of the screen while keeping text and controls at the preferred scale.
+local W,H=math.clamp(UI.initialViewport.X*.94/DEFAULT_SCALE,960,1600),math.clamp(UI.initialViewport.Y*.94/DEFAULT_SCALE,520,1000)
 local MIN_W, MIN_H = 960, 520
 local PAD = 12 -- room around the window for its shadow
 local winW, winH = W, H
@@ -12325,7 +12326,7 @@ do (function()
  end
  UI.persistProfiles=function()
   if type(writefile)~="function"then setStatus("File saving unavailable in this environment");return false end
-  local ok,err=pcall(function()writefile(path,http:JSONEncode({version=1,uiSizingVersion=3,selected=currentProfile.name,profiles=encode(PROFILES)}))end)
+  local ok,err=pcall(function()writefile(path,http:JSONEncode({version=1,uiSizingVersion=5,selected=currentProfile.name,profiles=encode(PROFILES)}))end)
   if not ok then setStatus("Config could not be written");warn("Practical config save failed: "..tostring(err))end
   return ok
  end
@@ -12338,9 +12339,10 @@ do (function()
    if #profiles>=100 then break end
    if type(e)=="table"and type(e.name)=="string"and #e.name>0 and #e.name<=80 and not seen[string.lower(e.name)]then
     local snap=validated(e.snap)
-    if snap and raw.uiSizingVersion~=3 and snap.interface and snap.interface.values then
+    -- Keep saved profiles from reopening the interface below the readable default.
+    if snap and snap.interface and snap.interface.values then
      local scale=snap.interface.values.uiScale
-     if type(scale)=="number"and scale<1 then snap.interface.values.uiScale=1 end
+     if type(scale)=="number"and scale<DEFAULT_SCALE then snap.interface.values.uiScale=DEFAULT_SCALE end
     end
     if snap then table.insert(profiles,{name=e.name,snap=snap,savedAt=type(e.savedAt)=="number"and e.savedAt or os.time()});seen[string.lower(e.name)]=true end
    end
@@ -12349,7 +12351,7 @@ do (function()
   PROFILES=profiles;currentProfile=UI.findProfile(type(raw.selected)=="string"and raw.selected or "")or profiles[1]
   return true
  end
- UI.loadSavedProfiles()
+ if UI.loadSavedProfiles() then UI.persistProfiles() end
 end)()end
 
 -------------------------------------------------------------------- header profile picker + footer actions
@@ -12654,18 +12656,26 @@ centerWindow = function()
 end
 
 fit = function(t)
+	-- Profile restore runs before parenting; defer fitting until layout is ready.
+	if not UI.sizingReady then return end
 	local s = gui.AbsoluteSize
-	if s.X == 0 then
+	if s.X <= 0 or s.Y <= 0 then
 		return
 	end
 	local pref = PREF_SCALE.value
+	-- Use the mounted ScreenGui size for the first fit, not an early camera snapshot.
+	if not centered then
+		targetW = math.max(MIN_W, s.X * .94 / pref - PAD * 2)
+		targetH = math.max(MIN_H, s.Y * .94 / pref - PAD * 2)
+	end
  local availableW=math.max(MIN_W,s.X*.96/pref-PAD*2)
  local availableH=math.max(MIN_H,s.Y*.96/pref-PAD*2)
  targetW=math.min(targetW,availableW);targetH=math.min(targetH,availableH)
  -- Apply immediately when fitting, rather than temporarily scaling the old rectangle.
  winW=targetW;winH=targetH;UI.applySize()
 	local sc = math.min(pref, s.X * 0.98 / (winW + PAD * 2), s.Y * 0.98 / (winH + PAD * 2))
-	UI.tween(fitScale, t or 0, { Scale = sc })
+	if UI.fitTween then UI.fitTween:Cancel(); UI.fitTween = nil end
+	UI.fitTween = UI.tween(fitScale, t or 0, { Scale = sc })
 	UI.tween(miniScale, t or 0, { Scale = pref })
 	noticeScale.Scale = pref
 	toastScale.Scale = pref
@@ -13171,8 +13181,14 @@ refreshNav(0)
 UI.refreshStatus()
 refreshMini()
 gui.Parent = playerGui
-fit(0)
-task.defer(setMode, "open")
+task.defer(function()
+	-- Let Roblox establish the mounted ScreenGui bounds before the first fit.
+	RunService.RenderStepped:Wait()
+	if not alive then return end
+	UI.sizingReady = true
+	fit(0)
+	setMode("open")
+end)
 
 ]====],"PracticalUI2")
 assert(run,err)

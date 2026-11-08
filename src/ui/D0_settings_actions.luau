@@ -154,7 +154,7 @@ do (function()
  end
  UI.persistProfiles=function()
   if type(writefile)~="function"then setStatus("File saving unavailable in this environment");return false end
-  local ok,err=pcall(function()writefile(path,http:JSONEncode({version=1,uiSizingVersion=3,selected=currentProfile.name,profiles=encode(PROFILES)}))end)
+  local ok,err=pcall(function()writefile(path,http:JSONEncode({version=1,uiSizingVersion=5,selected=currentProfile.name,profiles=encode(PROFILES)}))end)
   if not ok then setStatus("Config could not be written");warn("Practical config save failed: "..tostring(err))end
   return ok
  end
@@ -167,9 +167,10 @@ do (function()
    if #profiles>=100 then break end
    if type(e)=="table"and type(e.name)=="string"and #e.name>0 and #e.name<=80 and not seen[string.lower(e.name)]then
     local snap=validated(e.snap)
-    if snap and raw.uiSizingVersion~=3 and snap.interface and snap.interface.values then
+    -- Keep saved profiles from reopening the interface below the readable default.
+    if snap and snap.interface and snap.interface.values then
      local scale=snap.interface.values.uiScale
-     if type(scale)=="number"and scale<1 then snap.interface.values.uiScale=1 end
+     if type(scale)=="number"and scale<DEFAULT_SCALE then snap.interface.values.uiScale=DEFAULT_SCALE end
     end
     if snap then table.insert(profiles,{name=e.name,snap=snap,savedAt=type(e.savedAt)=="number"and e.savedAt or os.time()});seen[string.lower(e.name)]=true end
    end
@@ -178,7 +179,7 @@ do (function()
   PROFILES=profiles;currentProfile=UI.findProfile(type(raw.selected)=="string"and raw.selected or "")or profiles[1]
   return true
  end
- UI.loadSavedProfiles()
+ if UI.loadSavedProfiles() then UI.persistProfiles() end
 end)()end
 
 -------------------------------------------------------------------- header profile picker + footer actions
