@@ -197,12 +197,13 @@ local PAGES = {
  }},
  {name="Tools",icon="wrench",subtitle="Queue and session utilities",controls={
   {id="autofarm",name="Blacktop autofarm",enabled=false,desc="1v1 grinder: guards, grabs loose balls, drives for dunks",rows={
-   {type="checks",items={{id="crossover",label="Dribble moves past the defender",value=true},{id="shoot",label="Take open shots",value=true},{id="randomThrees",label="Attempts 3s sometimes",value=true},{id="visuals",label="Ground decision overlay",value=true},{id="rimStop",label="Block nearby dunks",value=true},{id="chatRequeue",label="Requeue on cheat-related chat",value=true}}},
-   {type="note",label="Attempts 3s sometimes: up to 2–3 random attempts per detected game. Shift Z/C → Shift XX → immediate E. Holds E immediately after XX; attempts are not guaranteed makes or three-pointers."},
+   {type="checks",items={{id="postClamp",label="Clamp post-ups / resist backdowns",value=true},{id="crossover",label="Dribble moves past the defender",value=true},{id="shoot",label="Take open shots",value=true},{id="randomThrees",label="Attempts 3s sometimes",value=true},{id="visuals",label="Ground decision overlay",value=true},{id="rimStop",label="Block nearby dunks",value=true},{id="chatRequeue",label="Requeue on cheat-related chat",value=true}}},
+   {type="note",label="Blocked drive: create a stepback two, then relocate around the arc if covered. All jump shots require a safe landing and separation."},
+   {type="note",label="Private gym: stand near your friend and press Test vs nearest friend. Uses the same offense and defense without queueing; stop the test when finished. Test mode is not saved."},
    {type="slider",id="stepbackAggression",label="Stepback aggression",min=0,max=100,step=5,value=70,format="%.0f",suffix="%"},
    {type="slider",id="shotRange",label="Shot range",min=12,max=45,step=1,value=32,format="%.0f",suffix=" studs"},
    {type="slider",id="dunkRange",label="Dunk range",min=6,max=24,step=1,value=12,format="%.0f",suffix=" studs"},
-   {type="actions",items={{type="button",id="status",label="Farm status",icon="refresh"},{type="button",id="readyNow",label="Ready now",icon="crosshair"}}},
+   {type="actions",items={{type="button",id="status",label="Farm status",icon="refresh"},{type="button",id="readyNow",label="Ready now",icon="crosshair"},{type="button",id="gymTest",label="Test vs nearest friend",icon="crosshair"},{type="button",id="stopGymTest",label="Stop gym test",icon="refresh"}}},
    {type="note",label="Saved when you turn it on. Every time the script runs with it on, a 5 second prompt lets you press No; otherwise it readies up, queues itself for the next teleport and farms."},
   }},
   {id="autoJoin",name="Auto join spot",enabled=false,rows={
