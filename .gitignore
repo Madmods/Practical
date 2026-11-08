@@ -1,0 +1,22 @@
+# Added by Vanta Chat when this folder was linked to GitHub: caches and builds stay on each PC.
+.godot/
+.import/
+*.tmp
+*.translation
+mono_crash.*
+.mono/
+data_*/
+node_modules/
+dist/
+build/
+out/
+.vs/
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.*
