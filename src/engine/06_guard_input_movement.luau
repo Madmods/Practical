@@ -47,7 +47,7 @@ local function restorePatches()
         local p=patches[i]
         pcall(function() if rawget(p.object,p.key)==p.wrapper then rawset(p.object,p.key,p.own) end end)
     end
-    settings._clearGuardVector=nil;settings._farmPlantFeet=nil
+    settings._clearGuardVector=nil
     patches={}; hookedMovement=nil; target=nil; steering=Vector3.zero
     guardDriving=false;guardEngaged=false
     defensiveInputs(false,false)
@@ -252,10 +252,6 @@ local function attachMovement()
                 local m=model()
                 if not m then return end
                 local action=attr(m,"Action")
-                if settings._farmPlantUntil and os.clock()<settings._farmPlantUntil and settings._farmPlantFeet then
-                    settings._farmPlantFeet()
-                    return
-                end
                 local dribbling=action=="Dribbling"
                 local nativeVelocity=attr(m,"ServerVelocity")
                 local scriptedDribble=dribbling and typeof(nativeVelocity)=="Vector3"
@@ -287,8 +283,6 @@ local function attachMovement()
         end)
         patch(movement,"IsSprinting",function(original)
             return function(self,...)
-                if settings._farmPlantUntil and os.clock()<settings._farmPlantUntil then return false end
-                if settings._farmAttack and settings._farmSprintWanted~=nil then return settings._farmSprintWanted end
                 if guardDriving and (settings._farmAttack or settings.guardSprint~=false) and guardError>=(settings.sprintDistance or 0) then return true end
                 return original(self,...)
             end
@@ -312,22 +306,6 @@ local function attachMovement()
             end)
         end
         local guardVector
-        -- Clear cached input before E, and brake only after native dribble motion ends.
-        settings._farmPlantFeet=function()
-            local action=attr(model(),"Action")
-            if action=="Dunking"or action=="Layup"then return end
-            guardVector=Vector3.zero;guardDriving=false;steering=Vector3.zero
-            movement.MoveDirection=Vector3.zero;movement.lastMoveDirection=Vector3.zero
-            movement.forwardValue=0;movement.rightValue=0
-            movement:SendMoveDirection(Vector3.zero)
-            if action=="Dribbling"then return end
-            local actuator=movement.MovementVelocity
-            if actuator and typeof(actuator.Velocity)=="Vector3"then
-                actuator.Velocity=Vector3.new(0,actuator.Velocity.Y,0)
-            end
-            local root=movement.Root or rootOf(model())
-            if root then root.AssemblyLinearVelocity=Vector3.new(0,root.AssemblyLinearVelocity.Y,0)end
-        end
         settings._clearGuardVector=function()
             if (not guardVector and not guardEngaged) or settings.recoveryDriving or settings.reboundDriving or settings.interceptDriving or settings.oopDriving then return end
             guardVector=nil
@@ -337,7 +315,6 @@ local function attachMovement()
         end
         patch(movement,"SendMoveDirection",function(original)
             return function(self,direction,...)
-                if settings._farmPlantUntil and os.clock()<settings._farmPlantUntil then direction=Vector3.zero;guardVector=Vector3.zero end
                 return original(self,guardVector or direction,...)
             end
         end)
@@ -352,9 +329,6 @@ local function attachMovement()
                 guardVector=nil
                 original(self,dt,...)
                 guardVector=planned
-                if settings._farmPlantUntil and os.clock()<settings._farmPlantUntil then
-                    settings._farmPlantFeet();guardVector=nil;return
-                end
                 local lob=settings._oopFacePosition;local faceAt=settings._oopFaceAt or 0
                 if not lob or os.clock()-faceAt>=.2 then lob=settings.denyReceiver and settings._denyReceiverFacePosition;faceAt=settings._denyReceiverFaceAt or 0 end
                 if lob and os.clock()-faceAt<.2 and self.Root and self.MovementOrientation and attr(model(),"CanTurn")~=false and flat(lob-self.Root.Position).Magnitude>.05 then

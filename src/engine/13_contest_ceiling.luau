@@ -11,40 +11,14 @@ do (function()
  local aboveSince
  local lastValue,lastAt,lastUpdate
  local function estimate(now)
-  local me=model();local r=rootOf(me)
-  if not r then return nil end
-  local ownCharacter=keyboard and keyboard.Controllers.Player.Character
-  local proxy=ownCharacter and ownCharacter.ProxyCharacter
-  local ownVelocity=proxy and proxy.AssemblyLinearVelocity or Vector3.zero
-  local goal=goalPosition(attr(me,"Goal"))
-  local current,future=0,0
-  for _,other in ipairs(defenseCharacters())do
-   local dr=rootOf(other)
-   local a,b=attr(me,"Team"),attr(other,"Team")
-   local same=a~=nil and b~=nil and a~=0 and a==b
-   local player=game:GetService("Players"):FindFirstChild(other.Name)
-   if player and P.Team~=nil and player.Team==P.Team then same=true end
-   if other~=me and other.Name~="InvisCharacter" and dr and dr.Position.Y>-100 and not same then
-    local previous=samples[other]
-    local velocity=Vector3.zero
-    if previous and now-previous.time>.005 and now-previous.time<.5 then
-     velocity=(dr.Position-previous.position)/(now-previous.time)
-     if velocity.Magnitude>60 then velocity=Vector3.zero end
-    end
-    samples[other]={position=dr.Position,time=now}
-    local function pressure(position,origin)
-     local delta=flat(position-origin);local distance=delta.Magnitude;local facing=.5
-     if goal and distance>.01 and flat(goal-origin).Magnitude>.01 then facing=math.clamp((flat(goal-origin).Unit:Dot(delta.Unit)+1)/2,0,1)end
-     local value=math.clamp(1-distance/10,0,1)*(.35+.65*facing)*100
-     if math.abs(position.Y-origin.Y)>5 then value=value*.5 end
-     return value
-    end
-    current=math.max(current,pressure(dr.Position,r.Position))
-    future=math.max(future,pressure(dr.Position+velocity*settings.contestForecast,r.Position+ownVelocity*settings.contestForecast))
-   end
-  end
+  local me=model();local r=rootOf(me);local estimator=settings._contestModel
+  if not r or not estimator then return nil end
+  local list=estimator.collect(me)
+  local current=estimator.evaluate(r.Position,list,0)
+  local future=estimator.evaluate(r.Position,list,settings.contestForecast,r.AssemblyLinearVelocity)
   return current,future
  end
+
  if keyboard then
   on(keyboard.Services.MeterService.RegisterPacket,function(m,kind)
    if m==model()then shot=kind=="Bat" and {model=m,started=os.clock()} or nil;aboveSince=nil;state.released=false end

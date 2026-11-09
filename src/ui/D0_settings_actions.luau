@@ -154,7 +154,7 @@ do (function()
  end
  UI.persistProfiles=function()
   if type(writefile)~="function"then setStatus("File saving unavailable in this environment");return false end
-  local ok,err=pcall(function()writefile(path,http:JSONEncode({version=1,uiSizingVersion=7,selected=currentProfile.name,autoLoad=UI.autoLoadProfile and UI.autoLoadProfile.name or false,profiles=encode(PROFILES)}))end)
+  local ok,err=pcall(function()writefile(path,http:JSONEncode({version=1,uiSizingVersion=3,selected=currentProfile.name,profiles=encode(PROFILES)}))end)
   if not ok then setStatus("Config could not be written");warn("Practical config save failed: "..tostring(err))end
   return ok
  end
@@ -167,20 +167,18 @@ do (function()
    if #profiles>=100 then break end
    if type(e)=="table"and type(e.name)=="string"and #e.name>0 and #e.name<=80 and not seen[string.lower(e.name)]then
     local snap=validated(e.snap)
-    -- Every execution starts at 1.0, including the selected auto-load config.
-    if snap and snap.interface and snap.interface.values then
-     snap.interface.values.uiScale=DEFAULT_SCALE
+    if snap and raw.uiSizingVersion~=3 and snap.interface and snap.interface.values then
+     local scale=snap.interface.values.uiScale
+     if type(scale)=="number"and scale<1 then snap.interface.values.uiScale=1 end
     end
     if snap then table.insert(profiles,{name=e.name,snap=snap,savedAt=type(e.savedAt)=="number"and e.savedAt or os.time()});seen[string.lower(e.name)]=true end
    end
   end
   if #profiles==0 then return false end
-  PROFILES=profiles
-  UI.autoLoadProfile=type(raw.autoLoad)=="string" and UI.findProfile(raw.autoLoad) or nil
-  currentProfile=UI.autoLoadProfile or UI.findProfile(type(raw.selected)=="string"and raw.selected or "")or profiles[1]
+  PROFILES=profiles;currentProfile=UI.findProfile(type(raw.selected)=="string"and raw.selected or "")or profiles[1]
   return true
  end
- if UI.loadSavedProfiles() then UI.persistProfiles() end
+ UI.loadSavedProfiles()
 end)()end
 
 -------------------------------------------------------------------- header profile picker + footer actions

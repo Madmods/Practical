@@ -56,43 +56,6 @@ local function updatePing()
     else ping=nil end
     pingAt=os.clock()
 end
--- Session-local, bounded learning. Trace timestamps are observed locally, not server truth.
-settings._latency={buckets={}}
-function settings._latency.bucket(currentPing)
-    return math.floor(currentPing / .020 + .5)
-end
-function settings._latency.adjust(currentPing,jitter)
-    if not settings.latencyCompensation or not finite(currentPing) then return 0,0,nil end
-    local key=settings._latency.bucket(currentPing)
-    local bucket=settings._latency.buckets[key]
-    return bucket and bucket.correction or 0,math.clamp(jitter or 0,0,.012),key
-end
-function settings._latency.learn(s,record)
-    if not s.compensated or not settings.latencyCompensation or s.cancelled then return end
-    -- Require a near-full, bracketed peak. Frozen/truncated/ambiguous traces cannot train.
-    local trace=s.trace
-    local peakIndex
-    for i=2,#trace-1 do
-        if not peakIndex or trace[i].progress>trace[peakIndex].progress then peakIndex=i end
-    end
-    if not peakIndex then return end
-    local before,peak,after=trace[peakIndex-1],trace[peakIndex],trace[peakIndex+1]
-    if peak.progress<.98 or peak.progress>1.02 or before.progress>=peak.progress
-        or after.progress>=peak.progress or after.time-before.time>.12 then return end
-    local peakAt=s.started+peak.time
-    -- Effective arrival estimate excludes the adaptive advance itself. Positive error = late.
-    local error=s.sentAt+s.ping+s.baseDelay-s.offset-peakAt
-    if not finite(error) or math.abs(error)>.080 then return end
-    local bucket=settings._latency.buckets[s.pingBucket] or {correction=0,count=0,error=0}
-    local target=math.clamp(s.correction+error+s.jitterMargin,-.020,.020)
-    bucket.error=bucket.error*.8+error*.2
-    bucket.correction=math.clamp(bucket.correction*.8+target*.2,-.020,.020)
-    bucket.count=bucket.count+1
-    settings._latency.buckets[s.pingBucket]=bucket
-    record.estimatedPeakTime=peak.time
-    record.estimatedReleaseError=error
-    record.learnedCorrection=bucket.correction
-end
 local function rate(samples)
     if #samples<4 then return nil end
     local first=math.max(1,#samples-8)
@@ -172,12 +135,10 @@ local function result(m,contest,index)
     local record={id=s.id,result=label,contest=tonumber(contest),window=s.window,
         frameTime=s.frameTime,pingJitter=s.jitter,profile=s.profileKey,predictionAtSend=s.forecast,
         progressAtSend=s.sendPhase,rate=s.velocity,ping=s.ping,extraDelay=s.extra,
-        finalProgress=final,trace=s.trace,latencyCompensated=s.compensated,
-        latencyCorrection=s.correction,jitterMargin=s.jitterMargin,pingBucket=s.pingBucket}
-    settings._latency.learn(s,record)
+        finalProgress=final,trace=s.trace}
     -- Good is ambiguous around the peak. Do not train delay from those misses.
     -- A confirmed Perfect can retain a bounded successful operating point.
-    if label=="Perfect" and s.profileKey and not s.compensated then
+    if label=="Perfect" and s.profileKey then
         local profile=profiles[s.profileKey]
         if not profile then profile={delay=s.extra,confirmations=0}; profiles[s.profileKey]=profile end
         profile.confirmations=profile.confirmations+1
@@ -224,12 +185,6 @@ on(Run.Heartbeat,function()
         status.Text="Feedback timed out · still armed."
     end
     if now-pingAt>0.1 then updatePing() end
-    local correction,margin,bucket=settings._latency.adjust(ping,pingJitter)
-    local learned=bucket and settings._latency.buckets[bucket]
-    latencyMetrics.Text=settings.latencyCompensation and string.format(
-        "Latency: %+.1f ms correction / +%.1f ms jitter margin\nBucket %s ms / %d usable peaks",correction*1000,margin*1000,
-        bucket and tostring(bucket*20) or "unavailable",learned and learned.count or 0) or "Latency compensation: OFF"
-    latencyToggle.Text=settings.latencyCompensation and "Online latency compensation - ON" or "Online latency compensation - OFF"
     local s=active
     if not s then return end
     if s.assistOnly and not enabled and not (settings.shotAssist and settings.shotMeterMax>=100) then disconnectShot(s);active=nil;return end
@@ -245,16 +200,11 @@ on(Run.Heartbeat,function()
     local key=profileKey(s.velocity,ping)
     local profile=profiles[key]
     local delay=profile and profile.delay or extraDelay
-    local baseDelay=delay
-    delay=math.clamp(delay+correction+margin,0,.080)
     local forecast=phase+s.velocity*math.max(0,ping+delay-(settings.timingOffsetMs or 0)/1000)
     -- V2's half-frame advance released below-target forecasts on this capture.
     -- Wait for the modeled arrival phase itself to reach the peak.
     if forecast>=1 then
         s.sent=true; s.sentAt=now; s.sendPhase=phase; s.ping=ping; s.extra=delay
-        s.compensated=settings.latencyCompensation==true
-        s.baseDelay=baseDelay; s.offset=(settings.timingOffsetMs or 0)/1000
-        s.correction=correction; s.jitterMargin=margin; s.pingBucket=bucket
         s.profileKey=key; s.frameTime=frameTime; s.jitter=pingJitter; s.forecast=forecast
         table.insert(awaiting,s)
         local ok,err=pcall(function() keyboard.Services.InputService.Shoot:Fire({Shoot=false}) end)

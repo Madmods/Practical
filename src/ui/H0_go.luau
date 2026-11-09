@@ -1,6 +1,4 @@
 -------------------------------------------------------------------- go
--- Enforce startup scale after the engine bridge has restored the selected profile.
-PREF_SCALE.value = DEFAULT_SCALE
 applySettings(0)
 openPage(START_PAGE)
 navHighlight.Parent=nav[START_PAGE].btn.Parent
@@ -9,12 +7,6 @@ refreshNav(0)
 UI.refreshStatus()
 refreshMini()
 gui.Parent = playerGui
-task.defer(function()
-	-- Let Roblox establish the mounted ScreenGui bounds before the first fit.
-	RunService.RenderStepped:Wait()
-	if not alive then return end
-	UI.sizingReady = true
-	fit(0)
-	setMode("open")
-end)
+fit(0)
+task.defer(setMode, "open")
 

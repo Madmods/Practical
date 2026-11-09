@@ -11,8 +11,8 @@ do (function()
  local state={recovery="idle",combo="idle",lanes={},screen=nil,opportunity=nil}
  local combo={"Z","X","C","V"}
  local comboKey=Enum.KeyCode.J
- local sequenceText="Z@0.20 > X@0.25 > C@0.20 > V@0.30"
- settings.comboRepeats=1;settings.comboSprint=false;numericLimits.comboRepeats={1,4}
+ local sequenceText="Z@0.20 > XX@0.25 > C@0.20"
+ settings.comboRepeats=1;settings.comboSprint=true;numericLimits.comboRepeats={1,4}
  local token=0
  local alive=true
  local rootFolder=Instance.new("Folder");rootFolder.Name="PracticalCourtTools";rootFolder.Parent=workspace
@@ -121,7 +121,9 @@ do (function()
  api.GetComboSequence=function()return sequenceText end
  api.PlayCombo=function(preset)
   if not settings.comboBuilder then return false,"Enable combo builder first" end
-  if not service or not service.Dribble then return false,"Dribble controller unavailable" end
+  local remote=game:GetService("ReplicatedStorage")
+  for _,name in ipairs({"Aero","AeroRemoteServices","InputService","Dribble"})do remote=remote and remote:FindFirstChild(name)end
+  if not remote or not remote:IsA("RemoteEvent")then return false,"Dribble remote unavailable"end
   local me=model()
   if not me or not holdsBall(me) then return false,"You need possession" end
   if Input:GetFocusedTextBox() then return false,"Finish typing first" end
@@ -130,14 +132,25 @@ do (function()
   cancelCombo();local mine=token;local repeats=settings.comboRepeats;local sprint=settings.comboSprint
   if preset then repeats=preset.repeats;sprint=preset.sprint end
   task.spawn(function()
+   if attr(me,"Hand")=="L" then
+    state.combo="Switching to right hand"
+    settings._comboHandSwitch=true
+    local ok,failure=pcall(function()
+     local vim=game:GetService("VirtualInputManager")
+     vim:SendKeyEvent(true,Enum.KeyCode.H,false,game)
+     vim:SendKeyEvent(false,Enum.KeyCode.H,false,game)
+    end)
+    settings._comboHandSwitch=nil
+    if not ok then state.combo="Hand switch failed: "..tostring(failure);return end
+    task.wait(.22)
+   end
    for loop=1,repeats do for index,step in ipairs(sequence) do
     if not alive or mine~=token or not settings.comboBuilder or model()~=me or not holdsBall(me) or Input:GetFocusedTextBox() then if mine==token then state.combo="idle" end;return end
     local action=attr(me,"Action")
     if action=="Shooting" or action=="Dunking" then state.combo="idle";return end
     state.combo=string.format("%d/%d · %s",index,#sequence,step.keys)
     if step.keys~="WAIT" then
-     local movement=keyboard.Controllers.Player.Character.Movement
-     local ok,failure=pcall(function() service.Dribble:Fire(step.keys,sprint or Input:IsKeyDown(Enum.KeyCode.LeftShift) or Input:IsKeyDown(Enum.KeyCode.RightShift),movement.lastMoveDirection or Vector3.zero) end)
+     local ok,failure=pcall(function() remote:FireServer(step.keys,sprint==true,Vector3.zero)end)
      if not ok then state.combo=tostring(failure);return end
     end
     task.wait(step.delay)
@@ -148,7 +161,8 @@ do (function()
  end
  api.GetCourtToolsState=function()return state end
  on(Input.InputBegan,function(input,processed)
-  if processed or Input:GetFocusedTextBox() then return end
+  if processed or Input:GetFocusedTextBox() or api.IsUICapturingInput and api.IsUICapturingInput() then return end
+  if api.IsNamedComboBinding and api.IsNamedComboBinding(input) then return end
   if bindingMatches(input,comboKey) then api.PlayCombo()
   elseif input.KeyCode==Enum.KeyCode.Z or input.KeyCode==Enum.KeyCode.X or input.KeyCode==Enum.KeyCode.C or input.KeyCode==Enum.KeyCode.V then cancelCombo() end
  end)

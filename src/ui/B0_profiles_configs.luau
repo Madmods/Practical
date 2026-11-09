@@ -60,8 +60,6 @@ local PROFILES = {
 	UI.preset("Practice", {}),
 }
 local currentProfile = PROFILES[1]
--- Keep the object reference so renaming preserves the startup choice.
-UI.autoLoadProfile = nil
 
 function UI.profileNames()
 	local names = {}
@@ -157,37 +155,6 @@ function UI.renderConfigs()
 		order += 1
 		return order
 	end
-
-	-- Startup preference is separate from the profile currently being edited.
-	local _, startupBody = UI.newSlot(108, nextOrder(), "startupProfile")
-	local startupPanel = UI.make("Frame", {
-		BackgroundColor3 = C.surface,
-		Position = UDim2.fromOffset(2, 2),
-		Size = UDim2.new(1, -4, 0, 104),
-		Parent = startupBody,
-	}, { UI.corner(14), UI.stroke(C.stroke, 1) })
-	text(startupPanel, "Auto-load on execution", 18, 20, 16)
-	local function startupLabel()
-		return UI.autoLoadProfile and ("Config: " .. UI.autoLoadProfile.name) or "Last selected config"
-	end
-	local startupDD
-	startupDD = dropdown(startupPanel, UDim2.fromOffset(18, 68), 340, 40, function()
-		local options = { "Last selected config" }
-		for _, p in ipairs(PROFILES) do options[#options + 1] = "Config: " .. p.name end
-		return options
-	end, startupLabel(), function(choice)
-		local previous = UI.autoLoadProfile
-		UI.autoLoadProfile = nil
-		for _, p in ipairs(PROFILES) do
-			if choice == "Config: " .. p.name then UI.autoLoadProfile = p; break end
-		end
-		if not UI.persistProfiles() then
-			UI.autoLoadProfile = previous
-			startupDD.set(startupLabel(), 0)
-			return
-		end
-		setStatus(UI.autoLoadProfile and (UI.autoLoadProfile.name .. " will auto-load on execution") or "Startup will use the last selected config")
-	end)
 
 	-- new profile
 	if layoutState.captions then
@@ -417,12 +384,6 @@ function UI.renderConfigs()
 			local idx = table.find(PROFILES, p)
 			if idx then
 				table.remove(PROFILES, idx)
-                if UI.autoLoadProfile == p then UI.autoLoadProfile = nil end
-                if currentProfile == p then
-                    currentProfile = PROFILES[1]
-                    profileDD.set(currentProfile.name, 0)
-                    UI.restore(currentProfile.snap)
-                end
 			end
 			controlChanged:Fire("profile", "deleted", p.name)
 			setStatus('Deleted "' .. p.name .. '"')
@@ -430,7 +391,9 @@ function UI.renderConfigs()
 			-- collapse the row away, then redraw
 			UI.groupFade(body, 1, 0.2)
 			UI.tween(slot, 0.3, { Size = UDim2.new(1, 0, 0, 0) }).Completed:Connect(function()
-
+				if p == currentProfile then
+					UI.loadProfile(PROFILES[1])
+				end
 				if currentPage == "Configs" and renderedQuery == "" then
 					renderPage("Configs", false)
 				end

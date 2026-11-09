@@ -96,24 +96,9 @@ local function updateLiveContest(own)
  local sr=rootOf(shooter);local goal=shooter and goalPosition(attr(shooter,"Goal"))
  settings.livePressure=nil;settings.hudPressure=nil
  local highest,nearest=0,math.huge
- local chars=workspace:FindFirstChild("Characters")
- if sr and chars then
-   for _,defender in ipairs(defenseCharacters()) do
-     local dr=rootOf(defender)
-     local sameTeam=attr(shooter,"Team")~=nil and attr(shooter,"Team")==attr(defender,"Team")
-     if defender~=shooter and dr and not sameTeam then
-       local delta=flat(dr.Position-sr.Position);local distance=delta.Magnitude
-       nearest=math.min(nearest,distance)
-       local facing=.5
-       if goal and distance>.01 and flat(goal-sr.Position).Magnitude>.01 then
-         facing=math.clamp((flat(goal-sr.Position).Unit:Dot(delta.Unit)+1)/2,0,1)
-       end
-       -- Presentation heuristic only: not the game's contest formula.
-       local estimate=math.clamp(1-distance/10,0,1)*(.35+.65*facing)
-       if math.abs(dr.Position.Y-sr.Position.Y)>5 then estimate=estimate*.5 end
-       highest=math.max(highest,estimate)
-     end
-   end
+ if sr and settings._contestModel then
+  local percent,detail=settings._contestModel.evaluate(sr.Position,settings._contestModel.collect(shooter),0)
+  highest=percent/100;nearest=detail.gap
  end
  if not sr then
    liveTitle.Text="ESTIMATED CONTEST · no ball handler";liveDetail.Text="Waiting for possession";liveFill.Size=UDim2.fromScale(0,1);return

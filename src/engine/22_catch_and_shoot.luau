@@ -34,15 +34,7 @@ do (function()
  api.GetCatchShootState=function()return {status=status,pending=pending~=nil,shooting=shot~=nil,preholding=early~=nil,earlyRequests=earlyRequests,lastLeadMs=lastLeadMs,bufferReason=bufferReason}end
  local function releaseBudget(root,defenders,eta)
   if #defenders==0 then return -1 end
-  local closeout=math.huge
-  local reach=10*(1-settings.catchShootContest/100)
-  for _,r in ipairs(defenders)do
-   local delta=flat(root.Position-r.Position);local distance=delta.Magnitude
-   local velocity=flat(r.AssemblyLinearVelocity or Vector3.zero)
-   local toward=distance>.01 and velocity:Dot(delta.Unit)or 0
-   local speed=math.clamp(math.max(16,toward),16,30)
-   closeout=math.min(closeout,math.max(0,distance-reach)/speed+.12)
-  end
+  local closeout=settings._contestModel.timeToContest(root.Position,defenders,settings.catchShootContest,Vector3.zero)
   local releaseTime=math.clamp(settings.catchRelease or .5,.2,1)+math.clamp(ping or 0,0,.2)*.5+.06
   return closeout-releaseTime-(eta or 0)
  end
@@ -55,13 +47,8 @@ do (function()
   if attr(own,"CanMove")==false then return false,"Movement locked"end
   local action=attr(own,"Action")
   if action=="Diving"or action=="Stealing"or action=="Blocking"or action=="Rebounding"or action=="Dunking"or action=="Stunned"then return false,"Busy: "..action end
-  local contest=0
-  for _,r in ipairs(defenders)do
-   local velocity=flat(r.AssemblyLinearVelocity or Vector3.zero)
-   if velocity.Magnitude>30 then velocity=velocity.Unit*30 end
-   local gap=math.min(flat(r.Position-root.Position).Magnitude,flat(r.Position+velocity*((eta or 0)+.35)-root.Position).Magnitude)
-   contest=math.max(contest,math.clamp(1-gap/10,0,1)*100)
-  end
+  local contest=math.max(settings._contestModel.evaluate(root.Position,defenders,0),
+   (settings._contestModel.evaluate(root.Position,defenders,(eta or 0)+(settings.catchRelease or .5),Vector3.zero)))
   if contest>settings.catchShootContest then return false,"Defender closing; holding shot"end
   if releaseBudget(root,defenders,eta)<=0 then return false,"Closeout would beat shot release"end
   for _,key in ipairs({Enum.KeyCode.W,Enum.KeyCode.A,Enum.KeyCode.S,Enum.KeyCode.D})do if Input:IsKeyDown(key)then return false,"Manual movement takes priority"end end
@@ -167,13 +154,7 @@ do (function()
   if not goal or flat(goal-root.Position).Magnitude>65 then release();status="Outside catch-and-shoot range";return end
   local action=attr(own,"Action")
   if attr(own,"CanShoot")==false or attr(own,"CanMove")==false or(action and action~=""and action~="Idle"and action~="Catching"and action~="Receiving")then openSince=nil;return end
-  local contest=0
-  for _,r in ipairs(defenders)do
-   local velocity=flat(r.AssemblyLinearVelocity or Vector3.zero)
-   if velocity.Magnitude>30 then velocity=velocity.Unit*30 end
-   local gap=math.min(flat(r.Position-root.Position).Magnitude,flat(r.Position+velocity*.35-root.Position).Magnitude)
-   contest=math.max(contest,math.clamp(1-gap/10,0,1)*100)
-  end
+  local contest=settings._contestModel.evaluate(root.Position,defenders,settings.catchRelease or .5,Vector3.zero)
   if contest>settings.catchShootContest then release();status="Skipped: defender closed the catch window";return end
   for _,key in ipairs({Enum.KeyCode.W,Enum.KeyCode.A,Enum.KeyCode.S,Enum.KeyCode.D})do if Input:IsKeyDown(key)then openSince=nil;status="Manual movement takes priority";return end end
   -- The incoming-flight check prepares the decision before possession. No

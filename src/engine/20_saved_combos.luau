@@ -17,7 +17,7 @@ if api then (function()
  local function usable(key)
   if key==(settings.smartDribbleKey or Enum.KeyCode.H)and(settings.smartDribble or settings.ballProtection)then return false end
   if not bindingValid(key) then return false end
-  for _,reserved in ipairs({Enum.KeyCode.W,Enum.KeyCode.A,Enum.KeyCode.S,Enum.KeyCode.D,Enum.KeyCode.Z,Enum.KeyCode.X,Enum.KeyCode.C,Enum.KeyCode.V,Enum.KeyCode.Space,Enum.KeyCode.RightShift,Enum.KeyCode.LeftShift,Enum.KeyCode.R})do if key==reserved then return false end end
+  for _,reserved in ipairs({Enum.KeyCode.W,Enum.KeyCode.A,Enum.KeyCode.S,Enum.KeyCode.D,Enum.KeyCode.Space,Enum.KeyCode.RightShift,Enum.KeyCode.LeftShift,Enum.KeyCode.R})do if key==reserved then return false end end
   return key~=guardKey and key~=(settings.comboPlayKey or Enum.KeyCode.J)and not(api.IsUIReservedKey and api.IsUIReservedKey(key))
  end
  local function persist()
@@ -35,7 +35,7 @@ if api then (function()
   if type(name)~="string"then return false,"Enter a combo name"end
   name=name:match("^%s*(.-)%s*$")
   if #name<1 or #name>48 then return false,"Use a name between 1 and 48 characters"end
-  if not usable(key)then return false,"Choose a key other than movement, dribble, guard, R or menu keys"end
+  if not usable(key)then return false,"Choose a key other than movement, guard, R or menu keys"end
   for other,e in pairs(entries)do if other~=name and e.key==key then return false,"That key belongs to "..other end end
   local count=0;for _ in pairs(entries)do count=count+1 end
   if not entries[name]and count>=40 then return false,"Maximum 40 saved combos"end
@@ -69,6 +69,13 @@ if api then (function()
     end
    end
   end
+ end
+ api.IsNamedComboBinding=function(input)
+  if stopped or not settings.comboBuilder then return false end
+  for _,e in pairs(entries)do
+   if bindingMatches(input,e.key)and usable(e.key)then return true end
+  end
+  return false
  end
  local connection=Input.InputBegan:Connect(function(input,processed)
   if stopped or processed or Input:GetFocusedTextBox()or not settings.comboBuilder or api.IsUICapturingInput and api.IsUICapturingInput()then return end

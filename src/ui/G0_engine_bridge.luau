@@ -1,6 +1,6 @@
 do (function()
 -- Connect the supplied interface to the existing feature engine.
-local booleanMap={autoRelease={latencyCompensation="latencyCompensation"},visualStyle={enabled="visualPolish",labels="visualLabels",motion="visualMotion",urgency="visualUrgency",beacon="visualBeacon",flightShadow="visualFlightShadow",comet="visualComet"},antiOop={enabled="antiOop",move="oopMove",guide="oopGuide"},passVision={enabled="passVision"},dunkStopper={enabled="dunkStopper"},autoJoin={enabled="autoJoin"},passIntercept={enabled="passIntercept",automatic="passInterceptAuto",move="passInterceptMove",jump="passInterceptJump",shots="passInterceptShots"},contestCeiling={enabled="contestCeiling",release="contestRelease"},recovery={enabled="ballRecovery"},screens={enabled="screenNavigation",visual="screenAwareness"},assignmentTools={lock="assignmentLock"},passingLanes={enabled="passingLanes"},comboBuilder={enabled="comboBuilder",sprint="comboSprint"},autoGuard={antiPush="antiPush",rimBlock="rimBlock",adaptive="adaptiveGuard",cutoff="driveCutoff",screens="screenNavigation",coverage="guardCoverage",enabled="guard",faceHandler="faceTarget",lockAssignment="assignmentLock",showIndicators="visuals",fakeFilter="fakeFilter"},
+local booleanMap={visualStyle={enabled="visualPolish",labels="visualLabels",motion="visualMotion",urgency="visualUrgency",beacon="visualBeacon",flightShadow="visualFlightShadow",comet="visualComet"},antiOop={enabled="antiOop",move="oopMove",guide="oopGuide"},passVision={enabled="passVision"},dunkStopper={enabled="dunkStopper"},autoJoin={enabled="autoJoin"},passIntercept={enabled="passIntercept",automatic="passInterceptAuto",move="passInterceptMove",jump="passInterceptJump",shots="passInterceptShots"},contestCeiling={enabled="contestCeiling",release="contestRelease"},recovery={enabled="ballRecovery"},screens={enabled="screenNavigation",visual="screenAwareness"},assignmentTools={lock="assignmentLock"},passingLanes={enabled="passingLanes"},comboBuilder={enabled="comboBuilder",sprint="comboSprint"},autoGuard={antiPush="antiPush",rimBlock="rimBlock",adaptive="adaptiveGuard",cutoff="driveCutoff",screens="screenNavigation",coverage="guardCoverage",enabled="guard",faceHandler="faceTarget",lockAssignment="assignmentLock",showIndicators="visuals",fakeFilter="fakeFilter"},
  autoSteal={enabled="steal"},autoBlock={commit="blockCommitFilter",enabled="block",oneAttempt="blockOnce"},
  rebound={enabled="rebound",chase="reboundChase"},boost={enabled="boost"},
  landingTools={trail="ballTrail",enabled="landing",beam="landingBeam",zone="landingZone"},overlayTools={contest="liveContest",guard="visuals"},
@@ -17,7 +17,7 @@ numberMap.defenderAlerts={range="alertRange"}
 booleanMap.rebound.early="reboundEarly";numberMap.rebound.spot="reboundSpot"
 booleanMap.autoGuard.idleMovement="guardIdleMovement";booleanMap.autoGuard.humanize="guardHuman";booleanMap.autoGuard.rimPress="rimPress"
 numberMap.autoGuard.humanLevel="guardHumanLevel";numberMap.autoGuard.rimRange="rimPressRange";numberMap.autoGuard.rimGap="rimPressGap"
-booleanMap.autofarm={postClamp="farmPostClamp",chatRequeue="farmChatRequeue",crossover="farmCrossover",shoot="farmShoot",randomThrees="farmRandomThrees",visuals="farmVisuals",rimStop="farmRimStop"};numberMap.autofarm={stepbackAggression="farmStepbackAggression",dunkRange="farmDunkRange",shotRange="farmShotRange"}
+booleanMap.autofarm={chatRequeue="farmChatRequeue",crossover="farmCrossover",shoot="farmShoot",randomThrees="farmRandomThrees",visuals="farmVisuals",rimStop="farmRimStop"};numberMap.autofarm={stepbackAggression="farmStepbackAggression",dunkRange="farmDunkRange",shotRange="farmShotRange"}
 booleanMap.visualColor={enabled="visualCustomColor"}
 booleanMap.denyReceiver={enabled="denyReceiver",catch="denyCatch"}
 booleanMap.offBallResponse={enabled="denySoft"}
@@ -194,7 +194,6 @@ UI.connect(controlChanged.Event,function(id,field,value)
   return
  end
  if id=="autofarm" and field=="enabled" then local _,message=api.SetFarm(value==true);setStatus(message);toast("Blacktop autofarm",message,"info",true);return end
- if id=="autofarm" and(field=="gymTest"or field=="stopGymTest")then local _,message=(field=="gymTest"and api.StartFarmGymTest or api.StopFarmGymTest)();setStatus(message);toast("Gym test",message,"info",true);return end
  if id=="autofarm" and field=="readyNow" then local _,message=api.FarmReadyNow();setStatus(message);return end
  if id=="autofarm" and field=="status" then
   local s=api.GetFarmState()

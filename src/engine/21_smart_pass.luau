@@ -47,7 +47,7 @@ do (function()
    local court,otherCourt=attr(own,"CourtNumber"),attr(other,"CourtNumber")
    if other~=own and dr and ownTeam~=nil and ownTeam~=0 and t~=nil and t~=0 and ownTeam~=t
     and(not court or not otherCourt or court==0 or otherCourt==0 or court==otherCourt)then
-    defenders[#defenders+1]={position=dr.Position,velocity=dr.AssemblyLinearVelocity or Vector3.zero,
+    defenders[#defenders+1]={character=other,position=dr.Position,velocity=dr.AssemblyLinearVelocity or Vector3.zero,
      high=attr(other,"HoldingG")==true or attr(other,"Action")=="Blocking",low=attr(other,"Action")=="Stealing"}
    end
   end
@@ -74,7 +74,8 @@ do (function()
       end
      end
     end
-    local score=risk*10+travel*.8+(name=="Chest"and 0 or name=="Overhead"and .08 or name=="Spin"and .2 or .14)
+    local catchContest=settings._contestModel.evaluate(tr.Position,defenders,travel+(settings.catchRelease or .5),tr.AssemblyLinearVelocity)
+    local score=risk*10+catchContest*.025+travel*.8+(name=="Chest"and 0 or name=="Overhead"and .08 or name=="Spin"and .2 or .14)
     if not bestScore or score<bestScore then best=name;bestScore=score end
    end
   end

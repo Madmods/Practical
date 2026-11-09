@@ -225,25 +225,18 @@ centerWindow = function()
 end
 
 fit = function(t)
-	-- Profile restore runs before parenting; defer fitting until layout is ready.
-	if not UI.sizingReady then return end
 	local s = gui.AbsoluteSize
-	if s.X <= 0 or s.Y <= 0 then
+	if s.X == 0 then
 		return
 	end
 	local pref = PREF_SCALE.value
-	-- Start at the default rectangle instead of expanding to fill the screen.
-	if not centered then
-		targetW, targetH = W, H
-	end
  local availableW=math.max(MIN_W,s.X*.96/pref-PAD*2)
  local availableH=math.max(MIN_H,s.Y*.96/pref-PAD*2)
  targetW=math.min(targetW,availableW);targetH=math.min(targetH,availableH)
  -- Apply immediately when fitting, rather than temporarily scaling the old rectangle.
  winW=targetW;winH=targetH;UI.applySize()
 	local sc = math.min(pref, s.X * 0.98 / (winW + PAD * 2), s.Y * 0.98 / (winH + PAD * 2))
-	if UI.fitTween then UI.fitTween:Cancel(); UI.fitTween = nil end
-	UI.fitTween = UI.tween(fitScale, t or 0, { Scale = sc })
+	UI.tween(fitScale, t or 0, { Scale = sc })
 	UI.tween(miniScale, t or 0, { Scale = pref })
 	noticeScale.Scale = pref
 	toastScale.Scale = pref

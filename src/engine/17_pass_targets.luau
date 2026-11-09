@@ -17,15 +17,16 @@ if api then (function()
    local gap=flat(d.position-predicted).Magnitude
    if gap<nearest then nearest=gap;nearestDefender=d.position end
    local speed=math.clamp(math.max(16,d.speed or 0),16,28)
-   arrival=math.min(arrival,math.max(0,gap-5)/speed+.12)
    local t=math.clamp(flat(d.position-origin):Dot(path)/math.max(path:Dot(path),.01),0,1)
    if t>.05 and t<.95 then
     local across=math.max(0,flat(d.position-(origin+path*t)).Magnitude-2.5)/speed
     if across<=travel*t then lane=true end
    end
   end
+  arrival=settings._contestModel.timeToContest(receiver,defenders,settings.catchShootContest or 10,velocity)
+  local forecast=settings._contestModel.evaluate(receiver,defenders,travel+settings.catchRelease,velocity)
   local margin=arrival-travel-settings.catchRelease
-  return {distance=distance,passTime=travel,nearest=nearest,nearestDefender=nearestDefender,defenderTime=arrival,margin=margin,laneBlocked=lane,reliable=#defenders>0,position=predicted}
+  return {contest=forecast,distance=distance,passTime=travel,nearest=nearest,nearestDefender=nearestDefender,defenderTime=arrival,margin=margin,laneBlocked=lane,reliable=#defenders>0,position=predicted}
  end
  api.EvaluatePassTarget=evaluate
  api.GetPassTargets=function()local r={}for i,v in ipairs(results)do r[i]=table.clone(v)end return r end
@@ -260,7 +261,7 @@ if api then (function()
    if r and m~=own and sameCourt and math.abs(r.Position.Y-root.Position.Y)<10 then
     local v=velocity(m,r.Position,now);local t=attr(m,"Team")
     if t==team then table.insert(mates,{model=m,position=r.Position,velocity=v})
-    elseif t~=nil and t~=0 then table.insert(defenders,{position=r.Position,speed=v.Magnitude})end
+    elseif t~=nil and t~=0 then table.insert(defenders,{character=m,position=r.Position,velocity=v,speed=v.Magnitude})end
    end
   end
   for _,mate in ipairs(mates)do
@@ -273,9 +274,9 @@ if api then (function()
     local ball=attr(own,"Basketball");if typeof(ball)=="Instance"then table.insert(excluded,ball)end
     params.FilterDescendantsInstances=excluded
     value.obstructed=workspace:Raycast(root.Position+Vector3.new(0,2,0),value.position-root.Position,params)~=nil
-    value.open=value.reliable and not value.laneBlocked and not value.obstructed and value.margin>.15
+    value.open=value.reliable and not value.laneBlocked and not value.obstructed and value.margin>.15 and value.contest<=(settings.catchShootContest or 10)
     local goal=goalPosition(attr(mate.model,"Goal"))or goalPosition(attr(own,"Goal"))
-    value.wideOpen=value.open and value.nearest>=10 and value.margin>.3 and goal~=nil and flat(goal-mate.position).Magnitude<=65
+    value.wideOpen=value.open and value.contest<=5 and value.margin>.3 and goal~=nil and flat(goal-mate.position).Magnitude<=65
     value.score=(value.wideOpen and 150 or value.open and 100 or 0)+math.clamp(value.margin,-5,5)-(value.laneBlocked and 10 or 0)-(value.obstructed and 20 or 0)
     table.insert(results,value)
    end
@@ -337,8 +338,8 @@ if api then (function()
     if distance<nearest then nearest=distance;other=character end
    end
   end
-  local radius=10*(1-math.clamp(settings.catchShootContest or 10,0,100)/100)
-  local arrival=other and math.max(0,nearest-radius)/16 or nil
+  local radius=settings._contestModel.radius(settings.catchShootContest or 10)
+  local arrival=other and settings._contestModel.timeToContest(root.Position,settings._contestModel.collect(own),settings.catchShootContest or 10,Vector3.zero)or nil
   local release=(settings.catchRelease or .5)+math.min(ping or 0,.2)*.5+.06
   local margin=arrival and arrival-release or nil
   local safe=margin and margin>.15

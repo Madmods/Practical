@@ -21,7 +21,6 @@ powershell -ExecutionPolicy Bypass -File build.ps1
   `ui/G0_engine_bridge` is where UI controls get mapped onto API calls.
 - Cleanup chain: every block does `local previous=featureCleanup; featureCleanup=function() ...; previous() end`.
   Blocks run in file order, so cleanup runs in reverse.
-- `engine/09_suite_api_profiles` keeps its profile helpers and UI callbacks inside a function to stay below Luau's 200-register limit. Only `api` and `numericLimits` are shared with later files.
 
 ## Cheap way to use ChatGPT on this
 
@@ -42,7 +41,7 @@ Tell it to return the whole changed file, then rebuild.
 | 06_guard_input_movement | 306 | guard key handling, movement hooks (`attachMovement`), `guardDirection`, dribble boost | `patch restorePatches manualTakeover guardDirection attachMovement` |
 | 07_assists_landing_visuals | 337 | floor ribbons, landing prediction, live contest, auto steal/block/rebound loop | `visualFolder floorPoint ribbon updateLanding updateAssists` |
 | 08_guard_state_solo_test | 177 | guard state file, local solo rehearsal dummy | `startSoloTest stopSoloTest` |
-| 09_suite_api_profiles | 194 | **`PracticalSuiteAPI`**, profiles, match report, tools page, cleanup | `api numericLimits` |
+| 09_suite_api_profiles | 190 | **`PracticalSuiteAPI`**, profiles, match report, tools page, cleanup | `api numericLimits applyProfile exportMatchReport` |
 | 09b_hud_dock | ~50 | **HUD dock**: stacks screen cards (shot readout, pass panel, court warning, solo box) beside the ball ("Follow ball") or in a corner; cards register with `settings._hudRegister(frame, order)` | `api.SetHudCorner` |
 | 10_shot_assist | 144 | release deferral / minimum-meter hold, contest outline | |
 | 11_court_tools | 230 | ball recovery, passing lanes, screen awareness, combo builder (`api.PlayCombo`) | |

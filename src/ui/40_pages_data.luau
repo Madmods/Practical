@@ -14,7 +14,6 @@ local PREF_NOTICE = { id = "hiddenNotice", label = "Remind me of the open key wh
 local PAGES = {
  {name="Shooting",icon="ball",subtitle="Timing and release limits",tabs={"Timing","Shot limits"},controls={
   {id="autoRelease",tab="Timing",name="Auto time",enabled=false,rows={
-   {type="checks",items={{id="latencyCompensation",label="Adapt to ping and jitter (experimental)",value=false}}},
    {type="slider",id="offset",label="Release adjustment",min=-30,max=30,step=1,value=0,format="%.0f",suffix=" ms"},
    {type="slider",id="maxPing",label="Maximum ping",min=50,max=1000,step=25,value=1000,format="%.0f",suffix=" ms"},
    {type="slider",id="freshness",label="Meter freshness",min=60,max=200,step=10,value=120,format="%.0f",suffix=" ms"},
@@ -134,11 +133,11 @@ local PAGES = {
    {type="slider",id="multiplier",label="Boost",min=1,max=1.5,step=.05,value=1.15,format="%.2f",stepper=true},
    {type="slider",id="tail",label="Duration",min=.1,max=.5,step=.05,value=.25,format="%.2f",suffix=" s"},
   }},
-  {id="comboBuilder",tab="Combos",name="Combo builder",enabled=false,rows={
+  {id="comboBuilder",tab="Combos",name="Dribble move builder",enabled=false,rows={
    {type="segment",id="preset",label="Preset",options={"Custom","Crossovers","Stepback","Mixed"},value="Custom"},
-   {type="combo",id="sequence",label="Sequence",value="Z@0.20 > X@0.25 > C@0.20 > V@0.30"},
+   {type="combo",id="sequence",label="Sequence",value="Z@0.20 > XX@0.25 > C@0.20"},
    {type="slider",id="repeats",label="Sequence repeats",min=1,max=4,step=1,value=1,format="%.0f"},
-   {type="checks",items={{id="sprint",label="Sprint dribble inputs",value=false}}},
+   {type="checks",items={{id="sprint",label="Sprint dribble moves",value=true}}},
    {type="key",id="activation",label="Play sequence",value=Enum.KeyCode.J,hint="Press"},
    {type="actions",items={{type="button",id="play",label="Play combo",icon="run"},{type="button",id="cancel",label="Cancel",icon="close"}}},
   }},
@@ -198,13 +197,12 @@ local PAGES = {
  }},
  {name="Tools",icon="wrench",subtitle="Queue and session utilities",controls={
   {id="autofarm",name="Blacktop autofarm",enabled=false,desc="1v1 grinder: guards, grabs loose balls, drives for dunks",rows={
-   {type="checks",items={{id="postClamp",label="Clamp post-ups / resist backdowns",value=true},{id="crossover",label="Dribble moves past the defender",value=true},{id="shoot",label="Take open shots",value=true},{id="randomThrees",label="Attempts 3s sometimes",value=true},{id="visuals",label="Ground decision overlay",value=true},{id="rimStop",label="Block nearby dunks",value=true},{id="chatRequeue",label="Requeue on cheat-related chat",value=true}}},
-   {type="note",label="Takes wide-open shots before driving or optional combos. Shot range automatically includes 3 studs beyond the detected arc. Jump shots stop movement; backsteps shoot as the move ends."},
-   {type="note",label="Private gym: stand near your friend and press Test vs nearest friend. Uses the same offense and defense without queueing; stop the test when finished. Test mode is not saved."},
+   {type="checks",items={{id="crossover",label="Dribble moves past the defender",value=true},{id="shoot",label="Take open shots",value=true},{id="randomThrees",label="Attempts 3s sometimes",value=true},{id="visuals",label="Ground decision overlay",value=true},{id="rimStop",label="Block nearby dunks",value=true},{id="chatRequeue",label="Requeue on cheat-related chat",value=true}}},
+   {type="note",label="Attempts 3s sometimes: up to 2–3 random attempts per detected game. Shift Z/C → Shift XX → immediate E. Holds E immediately after XX; attempts are not guaranteed makes or three-pointers."},
    {type="slider",id="stepbackAggression",label="Stepback aggression",min=0,max=100,step=5,value=70,format="%.0f",suffix="%"},
    {type="slider",id="shotRange",label="Shot range",min=12,max=45,step=1,value=32,format="%.0f",suffix=" studs"},
    {type="slider",id="dunkRange",label="Dunk range",min=6,max=24,step=1,value=12,format="%.0f",suffix=" studs"},
-   {type="actions",items={{type="button",id="status",label="Farm status",icon="refresh"},{type="button",id="readyNow",label="Ready now",icon="crosshair"},{type="button",id="gymTest",label="Test vs nearest friend",icon="crosshair"},{type="button",id="stopGymTest",label="Stop gym test",icon="refresh"}}},
+   {type="actions",items={{type="button",id="status",label="Farm status",icon="refresh"},{type="button",id="readyNow",label="Ready now",icon="crosshair"}}},
    {type="note",label="Saved when you turn it on. Every time the script runs with it on, a 5 second prompt lets you press No; otherwise it readies up, queues itself for the next teleport and farms."},
   }},
   {id="autoJoin",name="Auto join spot",enabled=false,rows={
@@ -335,7 +333,7 @@ do
   autoSteal={reach="Distance at which to ATTEMPT a normal steal. Increasing it does not establish increased server steal reach.",delay="An opportunity must stay eligible this long before an attempt.",cooldown="Minimum spacing between steal attempts."},
   autoBlock={reactionDelay="Minimum delay from shot start. Auto Block also waits for observed release; ball lift alone cannot trigger it. Distance, facing and height still apply.",commit="Wait for a release flag or persistent shot state before attempting the block. Can avoid fakes but react later.",oneAttempt="Allow at most one block request for each observed shot."},
   rebound={range="Maximum distance for normal-movement pursuit of a nearby rebound.",reach="Distance within which a descending loose ball can trigger a jump attempt.",height="Maximum ball height above your root for a rebound jump attempt.",lead="How far ahead to project the loose ball's horizontal movement.",chase="Move toward a reachable loose ball or estimated landing position. Manual movement takes priority."},
-  comboBuilder={sequence="Click + Z/X/C/V to add steps. Select a step and toggle Combine keys for grouped inputs. Double tap creates two separate requests, with a 0.10 s tap gap that you can edit using Wait after move.",preset="Load an example input sequence that you can edit. The game still decides which dribble animation each input group produces.",interval="Default wait after steps without an explicit @ delay.",repeats="Number of full sequence repetitions. Manual Z/X/C/V or Cancel stops the sequence.",sprint="Send the sprint modifier with dribble groups. Does not restore stamina.",activation="Press this key to play the enabled builder while you have possession."},
+  comboBuilder={sequence="Choose moves from the dropdown and Add move. Each code (XX, XZ, XC, etc.) is one direct Dribble remote request. Select Double stepback for one XX request. Duplicate move adds another separate step.",preset="Load a move sequence. Actual animations depend on your dribble package, ball hand and server rules.",interval="Default delay between remote move requests.",repeats="Number of sequence repetitions. Manual Z/X/C/V or Cancel stops playback.",sprint="Sends true as the Dribble remote's sprint argument; off sends false. No Shift key simulation.",activation="Press the bound key to play your saved dribble moves while you have possession."},
   landingTools={enabled="Estimate a moving loose ball's path and landing point. Does not model undisclosed server physics or future collisions.",trail="Short visual trail of the ball's observed recent movement, rather than a prediction.",beam="Display the estimated future flight curve.",zone="Display the estimated landing region. A larger region represents uncertainty, not a guaranteed catch area.",width="Visual width of the predicted flight beam.",scale="Visual size multiplier for the landing region.",range="Maximum nearby distance at which to track the moving ball."}
  }
  for key,value in pairs(help.smartPossession)do help.smartDribble[key]=value end

@@ -1,10 +1,6 @@
 -- Public integration surface for the replacement UI. No internal controller references required.
-local numericLimits={manualResume={0,1},landingBeamWidth={.02,.2},landingZoneScale={.5,2},landingRange={8,120}}
-local api
--- Keep profile/UI implementation locals in their own function. Only the API and
--- numeric limits are shared with later features; the main chunk has a 200-register budget.
-do (function()
 local currentProfile="Match"
+local numericLimits={manualResume={0,1},landingBeamWidth={.02,.2},landingZoneScale={.5,2},landingRange={8,120}}
 for _,r in ipairs(settingRows) do numericLimits[r.key]={r.min,r.max} end
 local savedProfiles={Match={},Practice={}}
 local profileKeys={"guardGap","guardReaction","guardStrength","guardPrediction","closeGap","closeReaction",
@@ -82,7 +78,7 @@ local function saveProfile(name)
     return true
 end
 local customUICleanup
-api={Version="3.2",
+local api={Version="3.2",
     RegisterUICleanup=function(fn)local previous=customUICleanup;customUICleanup=function()if previous then pcall(previous)end;fn()end end,
     SetGuardKey=function(key)
         if not bindingValid(key) then return false end
@@ -191,5 +187,4 @@ featureCleanup=function()
     if env.PracticalSuiteAPI==api then env.PracticalSuiteAPI=nil end
     cleanupBeforeTools()
 end
-end)()end
 

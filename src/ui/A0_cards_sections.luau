@@ -5,7 +5,7 @@ SETTING_BUILDERS.combo=function(panel,s,x,y,ctrl)
  local chipLinks,keyButtons={},{}
  local hint=text(holder,"1. ADD MOVES",0,10,15,{color=C.sub})
  local selectionLabel=text(holder,"2. CLICK A STEP TO EDIT",0,74,15,{color=C.sub})
- local tray=UI.make("Frame",{BackgroundTransparency=1,Position=UDim2.fromOffset(0,88),Size=UDim2.new(1,0,0,96),Parent=holder})
+ local tray=UI.make("ScrollingFrame",{CanvasSize=UDim2.fromOffset(0,0),ScrollBarThickness=3,BorderSizePixel=0,BackgroundTransparency=1,Position=UDim2.fromOffset(0,88),Size=UDim2.new(1,0,0,96),Parent=holder})
  local delaySetting={id="sequenceDelay",min=.08,max=1.5,step=.01,value=.25,format="%.2f",suffix=" s"}
  local delayPaint,paint
  local function parse(value)
@@ -25,33 +25,34 @@ SETTING_BUILDERS.combo=function(panel,s,x,y,ctrl)
   local b=UI.make("TextButton",{Text=label,AutoButtonColor=false,BackgroundColor3=C.hover,TextColor3=C.text,FontFace=UI.font(),TextSize=17,Position=pos,Size=size,Parent=parent},{UI.corner(7),UI.stroke(C.field,1)})
   table.insert(rowConns,b.MouseButton1Click:Connect(fn));return b
  end
- for i,keys in ipairs({"Z","X","C","V","WAIT"})do
-  button(holder,keys=="WAIT"and "+ Pause"or "+ "..keys,UDim2.new((i-1)/5,0,0,28),UDim2.new(1/5,-6,0,32),function()
-   if #steps>=12 then hint.Text="Sequence full · remove a step first";return end
-   table.insert(steps,{keys=keys,delay=delaySetting.value});selected=#steps;commit()
-  end)
+ local moves={
+  {"Crossover left","Z"},{"Crossover right","C"},{"Stepback","X"},{"Double stepback","XX"},
+  {"Behind-back left","CX"},{"Behind-back right","ZX"},
+  {"Double behind-back left","XC"},{"Double behind-back right","XZ"},
+  {"Spin left","CXZ"},{"Spin right","ZXC"},{"Pause","WAIT"}}
+ local moveNames,moveCodes,displayNames={},{},{}
+ for _,move in ipairs(moves)do
+  moveNames[#moveNames+1]=move[1];moveCodes[move[1]]=move[2];displayNames[move[2]]=move[1]
  end
- text(holder,"Combine keys:",0,206,17,{color=C.text2})
- for i,key in ipairs({"Z","X","C","V"})do
-  keyButtons[key]=button(holder,key,UDim2.fromOffset(150+(i-1)*57,190),UDim2.fromOffset(49,32),function()
-   local step=steps[selected]
-   if not step or step.keys=="WAIT"then selectionLabel.Text="Select a move step first";return end
-   if step.keys:find(key,1,true)then
-    local remaining=step.keys:gsub(key,"")
-    if #remaining==0 then selectionLabel.Text="Keep one key, or Remove the step";return end
-    step.keys=remaining
-   elseif #step.keys<4 then step.keys=step.keys..key end
-   commit()
-  end)
- end
+ local function moveName(code)return displayNames[code]or("Unmapped move ("..code..")")end
+ local chosen="Z"
+ dropdown(holder,UDim2.fromOffset(0,44),300,32,moveNames,"Crossover left",function(name)chosen=moveCodes[name]end)
+ button(holder,"Add move",UDim2.fromOffset(312,28),UDim2.fromOffset(140,32),function()
+  if #steps>=12 then hint.Text="Sequence full � remove a move first";return end
+  table.insert(steps,{keys=chosen,delay=delaySetting.value});selected=#steps;commit()
+ end)
+ text(holder,"Replace move",0,206,17,{color=C.text2})
+ dropdown(holder,UDim2.fromOffset(145,206),290,32,moveNames,"Choose replacement",function(name)
+  if not steps[selected]then selectionLabel.Text="Select a move first";return end
+  steps[selected].keys=moveCodes[name];commit()
+ end)
  button(holder,"Remove step",UDim2.new(1,-148,0,190),UDim2.fromOffset(148,32),function()if steps[selected]then table.remove(steps,selected);commit()end end)
  local actions={
-  {"Double tap",function()
+  {"Duplicate move",function()
    local step=steps[selected]
-   if not step or step.keys=="WAIT"then selectionLabel.Text="Select a move to double tap";return end
-   if #steps>=12 then selectionLabel.Text="Remove a step to make room for the second tap";return end
-   local after=step.delay;step.delay=.10
-   table.insert(steps,selected+1,{keys=step.keys,delay=after});selected=selected+1;commit()
+   if not step then selectionLabel.Text="Select a move first";return end
+   if #steps>=12 then selectionLabel.Text="Sequence full";return end
+   table.insert(steps,selected+1,{keys=step.keys,delay=step.delay});selected+=1;commit()
   end},
   {"Move left",function()if selected>1 then steps[selected],steps[selected-1]=steps[selected-1],steps[selected];selected=selected-1;commit()end end},
   {"Move right",function()if selected<#steps then steps[selected],steps[selected+1]=steps[selected+1],steps[selected];selected=selected+1;commit()end end},
@@ -65,12 +66,13 @@ SETTING_BUILDERS.combo=function(panel,s,x,y,ctrl)
   for _,c in ipairs(chipLinks)do c:Disconnect()end;chipLinks={}
   for _,child in ipairs(tray:GetChildren())do child:Destroy()end
   selected=math.clamp(selected,1,math.max(1,#steps))
-  hint.Text="1. ADD MOVES · "..#steps.." / 12"
-  selectionLabel.Text=steps[selected]and "2. EDIT STEP "..selected.." · choose keys to combine below"or "Click + Z, + X, + C or + V to start"
+  hint.Text="DRIBBLE MOVES v3 - "..#steps.." / 12"
+  selectionLabel.Text=steps[selected]and("EDIT MOVE "..selected..": "..moveName(steps[selected].keys))or "Select a named move above, then click Add move"
   if #steps==0 then text(tray,"Or choose a preset above and press Play combo.",0,30,18,{color=C.sub})end
+  tray.CanvasSize=UDim2.fromOffset(0,math.ceil(#steps/3)*47)
   for i,step in ipairs(steps)do
-   local label=step.keys=="WAIT"and "Pause"or step.keys:gsub(".","%0+"):sub(1,-2)
-   local b=UI.make("TextButton",{Text=i..". "..label.."\n"..string.format("%.2f s",step.delay),AutoButtonColor=false,TextColor3=C.text,BackgroundColor3=i==selected and A.dim or C.hover,FontFace=UI.font(),TextSize=16,Position=UDim2.new(((i-1)%6)/6,0,0,math.floor((i-1)/6)*47),Size=UDim2.new(1/6,-6,0,41),Parent=tray},{UI.corner(7),UI.stroke(i==selected and A.a or C.field,1)})
+   local label=moveName(step.keys)
+   local b=UI.make("TextButton",{Text=i..". "..label.."\n"..string.format("%.2f s",step.delay),AutoButtonColor=false,TextColor3=C.text,BackgroundColor3=i==selected and A.dim or C.hover,FontFace=UI.font(),TextSize=13,Position=UDim2.new(((i-1)%3)/3,0,0,math.floor((i-1)/3)*47),Size=UDim2.new(1/3,-6,0,41),Parent=tray},{UI.corner(7),UI.stroke(i==selected and A.a or C.field,1)})
    chipLinks[#chipLinks+1]=b.MouseButton1Click:Connect(function()selected=i;paint()end)
   end
   local step=steps[selected]
