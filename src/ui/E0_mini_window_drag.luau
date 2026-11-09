@@ -232,10 +232,9 @@ fit = function(t)
 		return
 	end
 	local pref = PREF_SCALE.value
-	-- Use the mounted ScreenGui size for the first fit, not an early camera snapshot.
+	-- Start at the default rectangle instead of expanding to fill the screen.
 	if not centered then
-		targetW = math.max(MIN_W, s.X * .94 / pref - PAD * 2)
-		targetH = math.max(MIN_H, s.Y * .94 / pref - PAD * 2)
+		targetW, targetH = W, H
 	end
  local availableW=math.max(MIN_W,s.X*.96/pref-PAD*2)
  local availableH=math.max(MIN_H,s.Y*.96/pref-PAD*2)

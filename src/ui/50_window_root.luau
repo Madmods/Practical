@@ -1,9 +1,8 @@
 -------------------------------------------------------------------- root
 local TITLE_H, SIDE_W, FOOT_H = 64, 220, 68
 local CONTENT_X = SIDE_W + 32
-UI.initialViewport=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920,1080)
--- Reserve most of the screen while keeping text and controls at the preferred scale.
-local W,H=math.clamp(UI.initialViewport.X*.94/DEFAULT_SCALE,960,1600),math.clamp(UI.initialViewport.Y*.94/DEFAULT_SCALE,520,1000)
+-- Start at a normal fixed window size; fitting may shrink it for smaller screens.
+local W,H=1000,680
 local MIN_W, MIN_H = 960, 520
 local PAD = 12 -- room around the window for its shadow
 local winW, winH = W, H

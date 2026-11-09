@@ -1,4 +1,6 @@
 -------------------------------------------------------------------- go
+-- Enforce startup scale after the engine bridge has restored the selected profile.
+PREF_SCALE.value = DEFAULT_SCALE
 applySettings(0)
 openPage(START_PAGE)
 navHighlight.Parent=nav[START_PAGE].btn.Parent

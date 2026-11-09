@@ -31,6 +31,8 @@ local messages={}
 print=function(text)messages[#messages+1]=tostring(text)end
 assert(loadstring(readfile("tests/farm_planner_arrival.luau")))()
 assert(loadstring(readfile("tests/farm_space_reset.luau")))()
+assert(loadstring(readfile("tests/stepback_immediate_e.luau")))()
+assert(loadstring(readfile("tests/farm_open_shots.luau")))()
 assert(loadstring(readfile("tests/api_profile_scope.luau")))()
 local core={}
 for _,name in ipairs({"00_startup_wait","01_setup_bindings","02_debug_panel_widgets","03_autotime_peak_predictor",

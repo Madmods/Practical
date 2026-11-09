@@ -27,8 +27,7 @@ local function farmDribble(context)
  for _,d in ipairs(context.defenders)do nearest=math.min(nearest,flat(d.position-origin).Magnitude)end
  local best,bestScore
  for _,p in ipairs(measuredDribbleProfiles)do
-  if p.hand==context.hand and context.now>=(context.failed[p.keys]or 0)
-   and not(context.lastKeys==p.keys and context.now-context.lastAt<2)then
+  if p.hand==context.hand and context.now>=(context.failed[p.keys]or 0)then
    local motion=flat(context.facing)*p.forward+flat(context.right)*p.right
    local destination=origin+motion
    local pathGap,ending=30,30;local safe=true
@@ -54,8 +53,14 @@ local function farmDribble(context)
    local gain=ending-nearest
    local useful=progress>.6 or gain>1 and progress> -1
    local score=progress*1.8+math.min(pathGap,10)+math.min(ending,12)*.65+alignment*2-p.duration
-   -- Prefer a direct Z/C attack when it genuinely fits the observed hand and route.
-   if(p.keys=="Z"or p.keys=="C")and p.sprint and alignment>.35 then score=score+1.5 end
+   -- Prefer faster separation; diversify only among moves that pass the same safety gate.
+   score=score+math.clamp(gain,-4,4)*.6+(p.sprint and .5 or 0)
+   for _,recent in ipairs(context.history or {})do
+    local weight=math.clamp(1-(context.now-recent.at)/4,0,1)
+    if recent.keys==p.keys then score=score-6*weight
+    elseif recent.package==p.package then score=score-3*weight end
+   end
+   if context.lastKeys==p.keys and context.now-context.lastAt<1 then score=score-3 end
    if safe and pathGap>=math.max(1.5,math.min(2.4,nearest-.25))and useful and(not bestScore or score>bestScore)then
     best={keys=p.keys,sprint=p.sprint,duration=p.duration,handAfter=p.handAfter,
      destination=destination,package=p.package,gap=pathGap};bestScore=score

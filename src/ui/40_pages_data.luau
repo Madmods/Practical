@@ -199,7 +199,7 @@ local PAGES = {
  {name="Tools",icon="wrench",subtitle="Queue and session utilities",controls={
   {id="autofarm",name="Blacktop autofarm",enabled=false,desc="1v1 grinder: guards, grabs loose balls, drives for dunks",rows={
    {type="checks",items={{id="postClamp",label="Clamp post-ups / resist backdowns",value=true},{id="crossover",label="Dribble moves past the defender",value=true},{id="shoot",label="Take open shots",value=true},{id="randomThrees",label="Attempts 3s sometimes",value=true},{id="visuals",label="Ground decision overlay",value=true},{id="rimStop",label="Block nearby dunks",value=true},{id="chatRequeue",label="Requeue on cheat-related chat",value=true}}},
-   {type="note",label="Blocked drive: create a stepback two, then relocate around the arc if covered. All jump shots require a safe landing and separation."},
+   {type="note",label="Takes wide-open shots before driving or optional combos. Shot range automatically includes 3 studs beyond the detected arc. Jump shots stop movement; backsteps shoot as the move ends."},
    {type="note",label="Private gym: stand near your friend and press Test vs nearest friend. Uses the same offense and defense without queueing; stop the test when finished. Test mode is not saved."},
    {type="slider",id="stepbackAggression",label="Stepback aggression",min=0,max=100,step=5,value=70,format="%.0f",suffix="%"},
    {type="slider",id="shotRange",label="Shot range",min=12,max=45,step=1,value=32,format="%.0f",suffix=" studs"},
