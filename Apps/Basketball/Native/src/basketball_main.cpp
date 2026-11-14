@@ -83,6 +83,10 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
    if(!test&&!ff3Native::install()){gameModules::router.close();error(L"Football input setup failed. Restart the app to retry.");return false;}
   }
   ui.MenuKeys(VK_INSERT);workspaceEntered=true;sessionUnlocked=!test&&selected==gameModules::Id::Basketball;
+  if(!test&&selected==gameModules::Id::FootballFusion3&&qbPackets.resumeWanted(gameModules::router.get().pid)){
+   if(qbPackets.start(gameModules::router.get().pid))ff3Native::set(L"ff3_qb",basketballUi::boolean(true));
+   else error(qbPackets.status().second.c_str());
+  }
   auto opened=gameModuleUi::opened(selected);if(selected==gameModules::Id::FootballFusion3)opened.o[L"modules"]=ff3Native::modules();
   ui.Post(json::dump(opened));return true;
  };

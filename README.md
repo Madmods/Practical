@@ -21,7 +21,9 @@ The Roblox offsets and protocol schema are version dependent. The current offset
 
 ## Quarterback controls
 
-First-session setup: enable QB aim before rejoining if prompted. Keep Vanta and the Roblox process open. The bounded setup listener can continue across reconnection, refresh connection keys, and save the validated schema. After the game loads, press Continue and enable QB aim again. Turning QB aim off explicitly or closing Vanta stops setup. Setup expires after two minutes.
+First-session setup: enable QB aim once. If prompted to rejoin, keep Vanta and Roblox open. After the game loads and the connection checks pass, press Continue: QB aim resumes automatically in the same Roblox process. A prepared join listener keeps its authenticated setup in memory until Continue, avoiding a second helper launch and scan. Setup still expires after two minutes; turning QB aim off or closing Vanta cancels it and any pending resume.
+
+Setup consumes key-scan results in short slices instead of waiting for the whole scan, while preserving the scan's total time and byte limits. Previously validated schemas are reused for their authenticated process/connection. A new connection may still require a join schema; this is not a promise of zero rejoins or a fixed startup time. The HUD says Setting up until transport is ready, separately from whether a clear throw has been found.
 
 Enable QB aim in the Football Fusion 3 workspace. Equip a football, wait for a ready target, and click normally. Calculated power works without waiting for the wheel. Manual game-power mode requires a valid visible display; hidden copies left by an earlier ball are ignored.
 

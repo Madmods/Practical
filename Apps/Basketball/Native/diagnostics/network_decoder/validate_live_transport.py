@@ -6,7 +6,7 @@ BASE=pathlib.Path(__file__).parent
 class Stats(ctypes.Structure):
     _fields_=[('bytesRead',ctypes.c_uint64),('regions',ctypes.c_uint32),('error',ctypes.c_uint32),('milliseconds',ctypes.c_uint32),('limitReached',ctypes.c_uint32),('nextAddress',ctypes.c_uint64)]
 
-def candidates(pid,max_ms=10000,start_address=0,stop_path=None):
+def candidates(pid,max_ms=10000,start_address=0,stop_path=None,max_bytes=1024*1024*1024):
     dll=ctypes.CDLL(str(BASE/('scan_aes_schedules_v2.dll' if (BASE/'scan_aes_schedules_v2.dll').exists() else 'scan_aes_schedules.dll')))
     dll.ScanProcess.argtypes=[ctypes.c_uint32,ctypes.c_void_p,ctypes.c_uint,ctypes.c_uint64,ctypes.c_uint,ctypes.POINTER(ctypes.c_long),ctypes.POINTER(Stats)]
     dll.ScanProcess.restype=ctypes.c_uint
@@ -17,7 +17,7 @@ def candidates(pid,max_ms=10000,start_address=0,stop_path=None):
             while not finished.wait(.1):
                 if pathlib.Path(stop_path).exists():cancel.value=1;return
         watcher=threading.Thread(target=check_stop);watcher.start()
-    try:count=dll.ScanProcess(pid,data,512,1024*1024*1024,max_ms,ctypes.byref(cancel),ctypes.byref(stats))
+    try:count=dll.ScanProcess(pid,data,512,max_bytes,max_ms,ctypes.byref(cancel),ctypes.byref(stats))
     finally:
         finished.set()
         if watcher:watcher.join()

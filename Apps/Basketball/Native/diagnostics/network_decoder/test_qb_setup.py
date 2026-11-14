@@ -6,6 +6,50 @@ from network_wire_lab import Schema
 import qb_packet_host as host
 
 class SetupTests(unittest.TestCase):
+    def test_incremental_scan_exposes_keys_and_keeps_total_budget(self):
+        import threading
+        keys=[];result={};cancel=threading.Event();calls=[]
+        def scan(pid,ms,**kwargs):
+            calls.append(kwargs)
+            if len(calls)==1:return [b'a'*32],dict(bytesRead=100,limitReached=1,nextAddress=1234,error=0)
+            self.assertEqual(keys,[b'a'*32]);self.assertEqual(kwargs['start_address'],1234);self.assertEqual(kwargs['max_bytes'],1024*1024*1024-100)
+            return [b'b'*32],dict(bytesRead=200,limitReached=0,nextAddress=2345,error=0)
+        with tempfile.TemporaryDirectory() as folder,patch.object(host,'candidates',side_effect=scan):
+            host.scan_incrementally(10,keys,result,cancel,pathlib.Path(folder)/'stop')
+        self.assertEqual(len(keys),2);self.assertEqual(result['bytesRead'],300)
+        cancel.set()
+        with patch.object(host,'candidates') as scan:host.scan_incrementally(10,[],{},cancel,pathlib.Path('unused-stop-marker'));scan.assert_not_called()
+    def test_continue_reuses_prepared_helper_without_a_second_scan(self):
+        connection=(('10.0.0.1',1000),('10.0.0.2',2000));cid=bytes(20)
+        class Live:
+            def __init__(self,keys,cached):self.groups={};self.schemas={};self.schema_packets={};self.counts=collections.Counter()
+            def ingest(self,rows):
+                self.schemas[connection]=Schema.from_packet(fixture_schema());self.schema_packets[connection]=fixture_schema()
+                self.groups={(connection,d,cid):{'context':{'hp':bytes(32),'key':bytes(32),'largest':0}} for d in ('incoming','outgoing')}
+        class Thread:
+            def __init__(self,target):self.target=target
+            def start(self):
+                if self.target.__name__=='scan':self.target()
+            def join(self):pass
+        for cancel in (False,True):
+            with tempfile.TemporaryDirectory() as folder:
+                session=pathlib.Path(folder)/'session';session.mkdir();(session/'setup-only').touch();(session/'resume-after-join').touch();continued=[False];opened=[];halt=[False]
+                def open_handle(filter,sniff=False):opened.append(sniff);return 1 if sniff else 2
+                def receive(handle):
+                    if halt[0] or handle==2:return None
+                    state=json.loads((session/'state.json').read_text())
+                    if state['status'].startswith('Setup ready.'):
+                        self.assertEqual(opened,[True]);continued[0]=True
+                        if cancel:(session/'stop').touch()
+                        else:(session/'setup-only').unlink()
+                    return b'packet',None
+                driver=Mock();driver.open.side_effect=open_handle;driver.recv.side_effect=receive;driver.shutdown.side_effect=lambda h:halt.__setitem__(0,True)
+                tick=[0.]
+                def clock():tick[0]+=.05;return tick[0]
+                kernel=Mock();kernel.GetTickCount64=Mock(return_value=1000)
+                with patch.object(host.ctypes,'windll',SimpleNamespace(kernel32=kernel)),patch.object(host,'Driver',return_value=driver),patch.object(host,'LiveDecoder',Live),patch.object(host,'candidates',return_value=([bytes(32)],{})) as scan,patch.object(host,'ports',return_value={1000}),patch.object(host,'row',side_effect=lambda raw,index:dict(frame=index,payload=b'',connection=connection,cid=cid,direction='outgoing' if index%2 else 'incoming')),patch.object(host,'authenticated_plain',return_value=(None,None,b'')),patch.object(host,'unprotect',side_effect=host.DecodeError('fixture')),patch.object(host.network_schema_cache,'identity',return_value={'pid':10,'created':20}),patch.object(host.time,'monotonic',side_effect=clock),patch.object(host.threading,'Thread',Thread):
+                    self.assertEqual(host.run(session,10,0),0,(session/'state.json').read_text())
+                self.assertTrue(continued[0]);self.assertEqual(scan.call_count,1);self.assertEqual(opened,[True] if cancel else [True,False])
     def test_setup_status_does_not_request_rejoin_for_missing_current_keys(self):
         c=(('10.0.0.1',1000),('10.0.0.2',2000));cid=bytes(20)
         rows=[dict(connection=c,direction=d,cid=cid) for d in ('outgoing','incoming')]

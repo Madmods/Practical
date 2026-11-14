@@ -90,6 +90,16 @@ def setup_status(live,observed,owned):
             return 'Preparing keys for the current game connection'
     return 'Rejoin once to finish QB setup' if connection not in live.schemas else 'Checking current QB connection'
 
+def scan_incrementally(pid,keys,result,cancel,stop_path):
+    # Publish candidate keys after short slices; preserve the total scan budget.
+    started=time.monotonic();address=0;total=0
+    while not cancel.is_set() and not stop_path.exists() and time.monotonic()-started<10 and total<1024*1024*1024:
+        found,stats=candidates(pid,750,start_address=address,stop_path=stop_path,max_bytes=1024*1024*1024-total)
+        keys.extend(k for k in found if k not in keys);found.clear();total+=stats.get('bytesRead',0);result.update(stats);result['bytesRead']=total
+        following=stats.get('nextAddress',0)
+        if stats.get('error') or not stats.get('limitReached') or following<=address:break
+        address=following
+
 def run(folder,pid,parent,seconds=None):
     from network_decoder_host import publish
     folder.mkdir(parents=True,exist_ok=True);state_path=folder/'state.json';stop=folder/'stop';plan_path=folder/'plan.json';setup_only=folder/'setup-only';cache_path=folder.parent/'schema-cache.json'
@@ -99,13 +109,13 @@ def run(folder,pid,parent,seconds=None):
     parent_handle=kernel.OpenProcess(0x100000,False,parent) if parent else None
     owner=network_schema_cache.identity(pid);keys=[];live=LiveDecoder(keys,network_schema_cache.load(folder.parent/'schema-cache.json',owner,max_age=None))
     driver=None;handles=[];ending=threading.Event();scan_done=threading.Event();scan_result={};editor=None;mode='Preparing';error='';seen=0;started=time.monotonic();draining=None;last_edit=0;pending={};acked=set();last_publish=0;last_plan=0;plan={};flow=None;out_context=None;in_context=None
-    scan_rounds=0;scan_groups=set();last_scan=0;last_receive=0;last_port_check=0
+    scan_rounds=0;scan_groups=set();last_scan=0;last_receive=0;last_port_check=0;scan_cancel=threading.Event();saved_flow=None
     def status(message,ready=False):
         publish(state_path,dict(capture=mode,decoder=message,status=message,calls=[],ready=ready,error=error,stats={**dict(live.counts),**(dict(editor.stats) if editor else {}),'observedPackets':seen,'scanRounds':scan_rounds},last=editor.last if editor else None,heartbeat=int(kernel.GetTickCount64()),localPort=flow[0][1] if flow else None,keysWritten=False))
     def wants_stop():return stop.exists() or (mode!='Preparing' and setup_only.exists()) or (parent_handle and kernel.WaitForSingleObject(parent_handle,0)==0) or (seconds is not None and time.monotonic()-started>=seconds)
     def scan():
         try:
-            found,stats=candidates(pid,10000,stop_path=stop);keys.extend(k for k in found if k not in keys);found.clear();scan_result.update(stats)
+            scan_incrementally(pid,keys,scan_result,scan_cancel,stop)
         except Exception as exc:scan_result['error']=str(exc)
         finally:scan_done.set()
     scan_thread=None;watcher=None;active_handle=[None]
@@ -139,22 +149,31 @@ def run(folder,pid,parent,seconds=None):
                 # A real rejoin closed the old socket. Its queued packets,
                 # decoder limits and key retry count must not starve the join.
                 observed=[];live=LiveDecoder(keys,network_schema_cache.load(cache_path,owner,max_age=None))
-                scan_rounds=0;scan_groups=set();last_scan=0;last_decode=0
+                scan_rounds=0;scan_groups=set();last_scan=0;last_decode=0;flow=None;saved_flow=None
             warm_connection=r['connection']
             observed.append(r)
             if len(observed)>20000:raise RuntimeError('QB warm-up packet budget reached; retry setup')
             signature=(r['connection'],r['cid'])
-            if scan_done.is_set() and scan_rounds<3 and time.monotonic()-last_scan>10 and (signature not in scan_groups or 'Preparing keys' in setup_status(live,observed,owned)):
-                scan_thread.join();scan_groups={(item['connection'],item['cid']) for item in observed};scan_done.clear();scan_result.clear();scan_rounds+=1;last_scan=time.monotonic();scan_thread=threading.Thread(target=scan);scan_thread.start()
-            if scan_done.is_set() and time.monotonic()-last_decode>.5:
+            if scan_done.is_set() and scan_rounds<3 and time.monotonic()-last_scan>3 and (signature not in scan_groups or 'Preparing keys' in setup_status(live,observed,owned)):
+                scan_thread.join();scan_groups={(item['connection'],item['cid']) for item in observed};scan_done.clear();scan_cancel.clear();scan_result.clear();scan_rounds+=1;last_scan=time.monotonic();scan_thread=threading.Thread(target=scan);scan_thread.start()
+            if scan_done.is_set() and scan_result.get('error'):raise RuntimeError('QB transport keys are unavailable for this client')
+            if keys and time.monotonic()-last_decode>.25:
                 if scan_result.get('error'):raise RuntimeError('QB transport keys are unavailable for this client')
                 live.ingest(observed);last_decode=time.monotonic()
                 selected=current_flow(live,observed,ports(pid))
                 if selected:flow,out_context,in_context=selected
+                else:flow=None
                 if flow:
+                    scan_cancel.set()
+                    if saved_flow!=flow:network_schema_cache.save(cache_path,owner,live);saved_flow=flow
+                    if setup_only.exists() and (folder/'resume-after-join').exists():
+                        status('Setup ready. Press Continue; QB aim will resume automatically')
+                        continue
                     network_schema_cache.save(cache_path,owner,live)
                     break
                 status(setup_status(live,observed,ports(pid)))
+        if wants_stop():
+            mode='Stopped';status('QB setup stopped');return 0
         if not flow:
             mode='Stopped';status('QB setup stopped' if wants_stop() else 'Setup timed out. Enable QB aim before rejoining; wait for setup to finish');return 1
         if setup_only.exists():
@@ -230,7 +249,7 @@ def run(folder,pid,parent,seconds=None):
     except Exception as exc:
         error=str(exc);mode='Stopped';status('QB throw control unavailable');return 1
     finally:
-        ending.set()
+        ending.set();scan_cancel.set()
         for handle in handles:
             try:driver.shutdown(handle);driver.close(handle)
             except Exception:pass

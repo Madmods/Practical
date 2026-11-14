@@ -5,6 +5,12 @@
 #include <vector>
 #include <string>
 namespace ff3qb {
+struct ResumeIntent {
+ bool pending=false;std::uint32_t pid=0;
+ void suspend(bool enabled,std::uint32_t owner){if(enabled){pending=true;pid=owner;}}
+ bool take(std::uint32_t owner){bool resume=pending&&pid==owner;pending=false;return resume;}
+ void cancel(){pending=false;}
+};
 // BallGui copies can remain enabled after unequip. Only current visible
 // displays contribute manual game power; automatic ballistics need no GUI value.
 struct PowerDisplay {unsigned enabled=0,flags=0;std::string text;};

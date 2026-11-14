@@ -16,11 +16,12 @@ inline void renderHud(PumpSurface& surface,const ff3Native::Frame& f,bool presen
  using namespace Gdiplus;
  const int width=448,height=170;if(f.client.right<width+20||f.client.bottom<height+40||!surface.prepare(width,height))return;
  Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
+ const bool connecting=ff3Native::packetStatus&&!ff3Native::packetStatus().first;
  const auto color=accent(f);rounded(g,{2,2,444,164},15,Color(235,10,17,31),Color(105,119,153,211));
  text(g,L"QUARTERBACK",18,13,10,Color(255,151,174,212),true);
  text(g,basketballUi::widen(ff3qb::presetName(f.mode)),302,12,11,color,true,125);
  text(g,f.name.empty()?L"Find your receiver":basketballUi::widen(f.name),18,32,20,Color(255,239,245,255),true,265);
- text(g,f.fitBlocked?L"NO CLEAR FIT":!f.ready?L"WAITING":!f.coverageKnown?L"UNSCOUTED":f.coverageCount==0?L"NO OTHER CATCHERS":f.margin>ff3qb::catchSafetyMargin?L"OPEN ESTIMATE":L"CONTESTED",302,36,10,color,true,128);
+ text(g,connecting?L"SETTING UP":f.fitBlocked?L"NO CLEAR FIT":!f.ready?L"WAITING":!f.coverageKnown?L"UNSCOUTED":f.coverageCount==0?L"NO OTHER CATCHERS":f.margin>ff3qb::catchSafetyMargin?L"OPEN ESTIMATE":L"CONTESTED",302,36,10,color,true,128);
  const std::wstring values[]={f.ready?number(f.power):L"--",f.ready?number(f.solution.angle)+L" deg":L"--",f.ready?number(f.solution.time,2)+L" s":L"--",f.ready?number(f.distance)+L" st":L"--"};
  const wchar_t* labels[]={L"POWER / 95",L"ANGLE",L"FLIGHT",L"DISTANCE"};
  for(int i=0;i<4;i++){float x=18.f+106*i;text(g,labels[i],x,65,9,Color(255,133,151,181));text(g,values[i],x,79,19,i==0?color:Color(255,228,236,250),true,103);}

@@ -1598,7 +1598,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         {type:'switch',id:'candidates',label:'Other receiver markers',value:true},
         {type:'switch',id:'practice',label:'Practice receivers',value:true,advanced:true},
         {type:'choice',id:'arc',label:'Game-power arc',value:0,options:[[0,'Direct'],[1,'Lob']],advanced:true},
-        {type:'moduleinfo',id:'help',label:'Read the field',text:'Aim near a receiver’s body and click normally once Ready. Green means an estimated opening; amber means contested. Smart fit predicts movement, not a guaranteed catch. Mag is a high touch preset, not a change to catch range.'}
+        {type:'moduleinfo',id:'help',label:'Read the field',text:'Enable QB aim once. If asked to rejoin, keep Vanta open; Continue resumes QB aim automatically. Aim near a receiver’s body and click normally once Ready. Green means an estimated opening; amber means contested. Smart fit predicts movement, not a guaranteed catch. Mag is a high touch preset, not a change to catch range.'}
       ]}
     ]}]};
     const saved=moduleViews[next];state.page=saved?.page||(next==='ff3'?'ff3':'home');
@@ -2898,7 +2898,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   // Messages from the C++ host
   function ff3Dashboard(){
     const m=ff3Live,valid=!!m.ready,num=(x,d=0)=>Number.isFinite(x)?x.toFixed(d):'—';
-    const pressure=m.fitBlocked?'NO CLEAR FIT':!valid?'WAITING':!m.coverageKnown?'INCOMPLETE':m.coverageCount===0?'NO OTHER CATCHERS':m.margin>.30?'OPEN ESTIMATE':'CONTESTED';
+    const pressure=m.transportReady===false&&m.setup?'SETTING UP':m.fitBlocked?'NO CLEAR FIT':!valid?'WAITING':!m.coverageKnown?'INCOMPLETE':m.coverageCount===0?'NO OTHER CATCHERS':m.margin>.30?'OPEN ESTIMATE':'CONTESTED';
     const metric=(label,value,unit)=>`<div class="qb-metric"><label>${label}</label><b>${valid?value:'—'}</b><small>${unit}</small></div>`;
     return `<div class="qb-eyebrow">QUARTERBACK LAB <span>Live throw plan</span></div><div class="qb-target"><strong>${esc((m.locked?'🔒 ':'')+(m.target||'Find your receiver'))}</strong><span class="qb-badge ${valid&&m.coverageKnown?(m.margin>.30?'open':'risk'):''}">${pressure}</span></div><div class="qb-route">${esc(m.preset||'Auto route')} · ${esc(m.route||'Aim near a teammate')} ${valid?'· '+num(m.distance)+' studs':''}</div><div class="qb-metrics">${metric('Power',num(m.power),' / 95')}${metric('Launch',num(m.angle),'°')}${metric('Flight',num(m.flight,2),'s')}${metric('Catch margin',m.coverageKnown&&m.coverageCount>0?num(m.margin,2):'—',m.coverageKnown?(m.coverageCount>0?'s':'none seen'):'incomplete')}</div><div class="qb-power-track"><i style="width:${valid?clamp(m.power/95*100,0,100):0}%"></i></div><div class="qb-footer"><span class="${m.held?'live':''}">${m.held?'Ball equipped':'No ball equipped'}</span><span class="${m.wheel?'live':''}">${m.wheel?'Game power '+num(m.gamePower):m.held&&m.automaticPower?'Calculated power · wheel not needed':'Waiting for game power'}</span><span>${esc(m.coverageDetail||'Reading coverage')}</span><span>${m.catchHeight>=3?`Jump +${num(m.catchHeight,1)} studs`:'Head catch'}</span><span>Fit ${valid?num(m.fitOffset,1):'—'} studs</span></div><span class="qb-status" data-ff3-status>${esc(m.reason||'QB aim off')}</span>`;
   }

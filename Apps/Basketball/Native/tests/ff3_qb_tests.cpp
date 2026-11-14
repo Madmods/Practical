@@ -3,6 +3,7 @@
 #include <iostream>
 using namespace ff3qb;
 int main(){int count=0;
+ ResumeIntent resume;resume.suspend(true,10);resume.suspend(false,10);assert(resume.take(10));assert(!resume.take(10));resume.suspend(true,10);resume.cancel();assert(!resume.take(10));resume.suspend(true,10);assert(!resume.take(11));
  for(double angle:{12.,25.,35.,55.,75.})for(double distance:{15.,50.,90.,150.})for(double drift:{-10.,0.,10.}){
   Vec origin{0,8,0},target{distance,7,0},movement{drift,0,4};auto s=solveAngle(origin,target,movement,angle,28,.06);
   if(s.valid){assert(length(point(s,28,s.time)-s.catchPoint)<1e-6);assert(length(s.velocity)<=95);assert(std::abs(std::atan2(s.velocity.y,std::hypot(s.velocity.x,s.velocity.z))*180/3.141592653589793-angle)<1e-6);++count;}
