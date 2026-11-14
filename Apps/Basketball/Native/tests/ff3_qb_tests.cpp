@@ -17,7 +17,7 @@ int main(){int count=0;
  std::vector<Defender> defenders={{{62,7,3},{0,0,0}}};
  auto baseline=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,false,defenders);
  auto fit=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,defenders);
- assert(baseline.solution.valid&&!fit.solution.valid); // Do not approve a DB on the catch point.
+ assert(baseline.solution.valid&&fit.solution.valid&&fit.margin<=catchSafetyMargin); // Coverage does not veto a reachable throw.
  auto unknown=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,{});assert(!unknown.coverageKnown&&length(unknown.offset)==0);
  auto manual=planThrow({0,8,0},{60,7,0},{},28,.05,0,false,35,true,95,false,false,{});assert(manual.solution.valid&&manual.solution.angle==35);
  assert(!planThrow({0,8,0},{340,7,0},{},28,.05,0,false,5,true,95,false,false,{}).solution.valid);
@@ -55,13 +55,30 @@ int main(){int count=0;
  std::vector<Defender> underneath={{{45,8,20},{},22,10,12}};
  auto adaptive=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,false,7,196.2);
  auto forced95=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,true,7,196.2);
- assert(adaptive.solution.valid&&!forced95.solution.valid);
+ assert(adaptive.solution.valid&&forced95.solution.valid);
+ assert(forced95.power==95&&forced95.margin<=catchSafetyMargin);
  assert(adaptive.power<95&&adaptive.margin>catchSafetyMargin);
  auto retained=planCoverageThrow({0,8,0},{150.1,8,0},{},28,.05,underneath,true,false,7,196.2,adaptive.offset,adaptive.power,adaptive.lob,adaptive.solution.angle);
  assert(retained.solution.valid&&std::abs(retained.solution.angle-adaptive.solution.angle)<1e-6);
  std::vector<Defender> onReceiver={{{100,8,0},{},22,9,12}};
  auto contested=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,onReceiver,true,false,7,196.2);
- assert(!contested.solution.valid); // A jump does not create guaranteed exclusivity.
+ assert(contested.solution.valid&&contested.margin<=catchSafetyMargin); // Assist remains active without claiming exclusivity.
+ assert(contested.power<=95&&contested.offset.y<=7);
+ auto contestedHeld=planCoverageThrow({0,8,0},{100.01,8,0},{},28,.05,onReceiver,true,false,7,196.2,contested.offset,contested.power,contested.lob,contested.solution.angle);
+ assert(contestedHeld.solution.valid&&std::abs(contestedHeld.solution.angle-contested.solution.angle)<.1);
+ // A newly blocked held path must yield to a materially better placement.
+ auto redirected=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,false,7,196.2,forced95.offset,forced95.power,forced95.lob,forced95.solution.angle);
+ assert(redirected.solution.valid&&redirected.margin>forced95.margin+.1);
+ // A moving receiver still gets an assisted, reachable fit under close coverage.
+ for(Vec defender:{Vec{100,8,8},Vec{85,8,15},Vec{60,8,5}}){
+  std::vector<Defender> coverage{{defender,{},22,9,12}};
+  auto plain=planCoverageThrow({0,8,0},{100,8,0},{8,0,0},28,.05,coverage,false,false,7,196.2);
+  auto smart=planCoverageThrow({0,8,0},{100,8,0},{8,0,0},28,.05,coverage,true,false,7,196.2);
+  assert(plain.solution.valid&&smart.solution.valid);
+  assert(fitScore(smart,true)>=fitScore(plain,true)-1e-6);
+  assert(length(point(smart.solution,28,smart.solution.time)-smart.solution.catchPoint)<1e-5);
+  assert(std::hypot(smart.offset.x,smart.offset.z)<=6&&smart.offset.y<=7);
+ }
  auto closeLob=planThrow({0,8,0},{25,8,0},{8,0,0},28,.05,2,true,55,true,95,true,true,{},55,{},false,5);
  assert(closeLob.solution.valid&&closeLob.power<50&&closeLob.solution.angle==55);
  auto continuous=adaptive;
@@ -69,10 +86,6 @@ int main(){int count=0;
   continuous=planCoverageThrow({0,8,0},{150+i*.01,8,.03*std::sin(i)},{},28,.05,underneath,true,false,7,196.2,continuous.offset,continuous.power,continuous.lob,continuous.solution.angle);
   assert(continuous.solution.valid&&std::abs(continuous.solution.angle-adaptive.solution.angle)<1e-6);
  }
- PlanTransition transition;assert(transition.update(adaptive,0).solution.valid);
- auto switched=adaptive;switched.solution.angle+=20;
- assert(!transition.update(switched,.05).solution.valid);assert(!transition.update(switched,.15).solution.valid);assert(transition.update(switched,.25).solution.valid);
- auto empty=transition.update({},.26);assert(!empty.solution.valid);
  auto nearLaunch=jump95.solution.origin;
  assert(coverageMargin(jump95.solution,28,{{nearLaunch,{},22,0,0}},.05)<=catchSafetyMargin);
  for(bool visible:{false,true})for(bool right:{false,true})for(bool first:{false,true})assert(cursorModeAllowed(visible,right,first)==(visible&&!right&&!first));

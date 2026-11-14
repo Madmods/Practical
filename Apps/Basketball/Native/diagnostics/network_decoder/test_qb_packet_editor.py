@@ -21,15 +21,20 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
-    def test_strict_fit_rechecks_defenders_at_packet_origin(self):
-        p=plan();p.update(strictFit=True,coverageKnown=True,catchers=[])
+    def test_smart_fit_keeps_contested_throws_assisted(self):
+        p=plan();p.update(smartFit=True,coverageKnown=True,catchers=[])
         self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
         for position in ([70,5,0],[15,5,0]):
             p['catchers']=[dict(position=position,velocity=[0,0,0],speed=22,jump=9,dive=12)]
-            e=editor();self.assertEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.stats['modifiedThrows'],0)
+            e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.stats['modifiedThrows'],1)
+            self.assertTrue(e.last['contested']);self.assertLessEqual(e.last['coverageMargin'],.30)
         p['catchers']=[dict(position=[35,5,100],velocity=[0,0,0],speed=22,jump=9,dive=12)]
-        self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
+        e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload());self.assertFalse(e.last['contested'])
         p['coverageKnown']=False;self.assertEqual(editor().process_plain(payload(),p,1010),payload())
+    def test_smart_fit_rejects_invalid_coverage_metadata(self):
+        for catchers in (None,[None],[{}],[dict(position=[70,5,0],velocity=[0,0,0],speed=22,jump=float('nan'),dive=12)], [{}]*129):
+            p=plan();p.update(smartFit=True,coverageKnown=True,catchers=catchers)
+            self.assertEqual(editor().process_plain(payload(),p,1010),payload())
     def test_selected_power_and_jump_target_reach_packet(self):
         for selected in (60,75,90,95):
             p=plan();p.update(plannedPower=selected,targetPosition=[70,10,0])

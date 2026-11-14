@@ -173,13 +173,16 @@ inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double l
   }else s=solve(origin,target+offset,movement,gamePower,gravity,latency,lob||mode==2,spawn);
   if(!s.valid||length(offset)>std::min(10.,4.+s.time*3.))continue;
   const double margin=defenders.empty()?0:coverageMargin(s,gravity,defenders,latency);
-  if(fit&&!defenders.empty()&&margin<=catchSafetyMargin)continue;
   double score=(defenders.empty()?0:std::min(margin,1.5))*10-length(offset)*.12-length(offset-previousOffset)*.15-s.time*.03-std::abs(s.angle-desired)*.012;
   if(score>bestScore){bestScore=score;best={s,offset,length(s.velocity),margin,!defenders.empty()};}
  }return best;
 }
-// Compare power, arc and reachable catch heights. Smart fit rejects contested
-// trajectories; when none clears the reach envelope, return no assisted plan.
+// Defender reach ranks otherwise reachable throws; a contest is not a veto.
+// Cap the benefit of extra clearance so open throws do not grow needless arcs.
+inline double fitScore(const Plan& p,bool fit){
+ return (fit&&p.coverageKnown?std::min(p.margin,.5)*20:0)-p.solution.time*.6-std::hypot(p.offset.x,p.offset.z)*.06-p.offset.y*.03;
+}
+// Compare power, arc and reachable catch heights, including contested passes.
 inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool force95,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN){
  Plan best;double bestScore=-1e9;
  if(!std::isfinite(receiverJump)||receiverJump<0||receiverJump>40||!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)return best;
@@ -190,16 +193,20 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
   if(power>=94.5&&offset.y<3)return false;
   if(stationary&&std::hypot(offset.x,offset.z)>.01)return false;
   if(offset.y>0){double riseTime=(std::sqrt(2*worldGravity*receiverJump)-std::sqrt(2*worldGravity*(receiverJump-offset.y)))/worldGravity;if(s.time<.15+riseTime)return false;}
-  return !fit||defenders.empty()||coverageMargin(s,gravity,defenders,latency)>catchSafetyMargin;
+  return true;
  };
- // Retain a clear angle and catch offset, recomputing power for current motion.
- // 95 mode instead retains its root at fixed power. Never retain an unsafe arc.
+ // Recompute the held path for current motion. Keep a clear path; contested
+ // paths compete against alternatives with hysteresis to suppress tiny changes.
+ // No interpolation or settling gap may turn a valid click into an unassisted one.
  if(previousPower>0){
   auto held=force95?solve(origin,target+previousOffset,movement,95,gravity,latency,previousLob,5):solveAngle(origin,target+previousOffset,movement,previousAngle,gravity,latency,5);
+  if(!held.valid&&previousPower>=94.5)held=solve(origin,target+previousOffset,movement,95,gravity,latency,previousLob,5);
   double power=length(held.velocity);
   if(acceptable(held,previousOffset,power)){
    auto low=solve(origin,target+previousOffset,movement,power,gravity,latency,false,5);
-   return {held,previousOffset,power,defenders.empty()?10:coverageMargin(held,gravity,defenders,latency),!defenders.empty(),!low.valid||std::abs(low.time-held.time)>.02};
+   best={held,previousOffset,power,defenders.empty()?10:coverageMargin(held,gravity,defenders,latency),!defenders.empty(),!low.valid||std::abs(low.time-held.time)>.02};
+   if(!fit||defenders.empty()||best.margin>catchSafetyMargin)return best;
+   bestScore=fitScore(best,fit)+.8;
   }
  }
  const Vec offsets[]={{},{3,0,0},{-3,0,0},{0,0,3},{0,0,-3},{4,0,4},{-4,0,4},{4,0,-4},{-4,0,-4}};
@@ -213,29 +220,14 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
     Vec offset=offsets[i]+Vec{0,height,0};auto s=solve(origin,target+offset,movement,power,gravity,latency,lob,5);
     if(!acceptable(s,offset,power))continue;
     const double margin=defenders.empty()?10:coverageMargin(s,gravity,defenders,latency);
-    // Once clear, prefer a shorter flight instead of maximizing excess margin
-    // by repeatedly switching to a much higher arc.
-    double score=std::min(margin,.5)*2-s.time*2-length(offsets[i])*.12-height*.08-length(offset-previousOffset)*.12;
-    if(power==previousPower&&lob==previousLob&&length(offset-previousOffset)<1)score+=.5;
-    if(score>bestScore){bestScore=score;best={s,offset,power,margin,!defenders.empty(),lob};}
+    Plan candidate{s,offset,power,margin,!defenders.empty(),lob};
+    const double score=fitScore(candidate,fit);
+    if(score>bestScore){bestScore=score;best=candidate;}
    }
   }
  }
  return best;
 }
-struct PlanTransition {
- Plan accepted,pending;double since=0,at=0;
- Plan update(Plan candidate,double time){
-  if(!candidate.solution.valid){pending={};at=time;return {};}
-  if(time<at||time-at>.5)accepted={};at=time;
-  const bool changed=accepted.solution.valid&&(std::abs(candidate.solution.angle-accepted.solution.angle)>8||length(candidate.offset-accepted.offset)>2);
-  if(changed){
-   if(!pending.solution.valid||std::abs(pending.solution.angle-candidate.solution.angle)>3||length(pending.offset-candidate.offset)>1){pending=candidate;since=time;return {};}
-   if(time-since<.18)return {};
-  }
-  pending={};accepted=candidate;return candidate;
- }
-};
 // Mouse distance to a projected body capsule, with a bounded retention bonus.
 inline double selectionDistance(double x,double y,double footX,double footY,double headX,double headY,double radius,bool retained){
  double dx=headX-footX,dy=headY-footY,length2=dx*dx+dy*dy;
