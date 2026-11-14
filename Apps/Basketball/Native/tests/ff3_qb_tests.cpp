@@ -16,7 +16,7 @@ int main(){int count=0;
  std::vector<Defender> defenders={{{62,7,3},{0,0,0}}};
  auto baseline=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,false,defenders);
  auto fit=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,defenders);
- assert(baseline.solution.valid&&fit.solution.valid&&fit.coverageKnown);assert(fit.margin>=baseline.margin-1e-6);assert(length(fit.offset)<=10);
+ assert(baseline.solution.valid&&!fit.solution.valid); // Do not approve a DB on the catch point.
  auto unknown=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,{});assert(!unknown.coverageKnown&&length(unknown.offset)==0);
  auto manual=planThrow({0,8,0},{60,7,0},{},28,.05,0,false,35,true,95,false,false,{});assert(manual.solution.valid&&manual.solution.angle==35);
  assert(!planThrow({0,8,0},{340,7,0},{},28,.05,0,false,5,true,95,false,false,{}).solution.valid);
@@ -28,13 +28,13 @@ int main(){int count=0;
  auto high=solveAngle({0,8,0},{60,7,0},{},55,28,.05);assert(high.valid);
  std::vector<Defender> standing={{{45,7,14},{},22,0,0}},athletic={{{45,7,14},{},22,9,12}};
  assert(coverageMargin(high,28,athletic,.05)<=coverageMargin(high,28,standing,.05));
- auto stable=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,athletic,32);
+ auto stable=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,std::vector<Defender>{{{45,7,100},{},22,9,12}},32);
  assert(stable.solution.valid&&stable.solution.angle==32); // Fit does not jump +/-10 degrees.
  // A stopped receiver loses historical lead and fit never moves the head target.
  history.update(3.1,{0,7,0},{74.5,7,18},{0,0,0});history.update(3.2,{0,7,0},{74.5,7,18},{0,0,0});assert(length(history.movement)==0);
  for(double distance:{20.,60.,150.,250.})for(Vec movement:{Vec{},Vec{8,0,2}}){
   const Vec head{distance,8,0};
-  auto fast=planThrow({0,8,0},head,movement,28,.05,0,true,35,true,60,false,true,athletic,48,{},true,5);
+  auto fast=planThrow({0,8,0},head,movement,28,.05,0,true,35,true,60,false,false,athletic,48,{},true,5);
   assert(fast.solution.valid&&std::abs(fast.power-95)<1e-6);
   assert(length(point(fast.solution,28,fast.solution.time)-fast.solution.catchPoint)<1e-5);
   assert(std::abs(length(fast.solution.origin-Vec{0,8,0})-5)<1e-6);
@@ -42,7 +42,7 @@ int main(){int count=0;
   auto angled=solveAngle({0,8,0},head,movement,35,28,.05,5);
   if(angled.valid)assert(length(point(angled,28,angled.time)-angled.catchPoint)<1e-6);
  }
- auto directAuto=planThrow({0,8,0},{150,8,0},{},28,.05,0,true,35,true,60,false,true,athletic,48,{},true,5);
+ auto directAuto=planThrow({0,8,0},{150,8,0},{},28,.05,0,true,35,true,60,false,false,athletic,48,{},true,5);
  assert(directAuto.solution.angle<20); // No arbitrary distance-based lob.
  auto jump95=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,true,7,196.2);
  assert(jump95.solution.valid&&jump95.power==95&&jump95.offset.y>=3&&jump95.offset.y<=7);
@@ -51,16 +51,29 @@ int main(){int count=0;
  assert(!planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,true,0,196.2).solution.valid);
  auto noJump=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,0,196.2);
  assert(noJump.solution.valid&&noJump.power<95&&noJump.offset.y==0);
- std::vector<Defender> underneath={{{45,8,0},{},22,10,12}};
+ std::vector<Defender> underneath={{{45,8,20},{},22,10,12}};
  auto adaptive=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,false,7,196.2);
  auto forced95=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,true,7,196.2);
- assert(adaptive.solution.valid&&forced95.solution.valid);
- assert(adaptive.power<95&&adaptive.margin>.15&&forced95.margin<=.15);
- auto retained=planCoverageThrow({0,8,0},{150.1,8,0},{},28,.05,underneath,true,false,7,196.2,adaptive.offset,adaptive.power,adaptive.lob);
- assert(retained.power==adaptive.power&&retained.lob==adaptive.lob);
+ assert(adaptive.solution.valid&&!forced95.solution.valid);
+ assert(adaptive.power<95&&adaptive.margin>catchSafetyMargin);
+ auto retained=planCoverageThrow({0,8,0},{150.1,8,0},{},28,.05,underneath,true,false,7,196.2,adaptive.offset,adaptive.power,adaptive.lob,adaptive.solution.angle);
+ assert(retained.solution.valid&&std::abs(retained.solution.angle-adaptive.solution.angle)<1e-6);
  std::vector<Defender> onReceiver={{{100,8,0},{},22,9,12}};
  auto contested=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,onReceiver,true,false,7,196.2);
- assert(contested.solution.valid&&contested.margin<=.15); // A jump does not create guaranteed exclusivity.
+ assert(!contested.solution.valid); // A jump does not create guaranteed exclusivity.
+ auto closeLob=planThrow({0,8,0},{25,8,0},{8,0,0},28,.05,2,true,55,true,95,true,true,{},55,{},false,5);
+ assert(closeLob.solution.valid&&closeLob.power<50&&closeLob.solution.angle==55);
+ auto continuous=adaptive;
+ for(int i=1;i<=80;i++){
+  continuous=planCoverageThrow({0,8,0},{150+i*.01,8,.03*std::sin(i)},{},28,.05,underneath,true,false,7,196.2,continuous.offset,continuous.power,continuous.lob,continuous.solution.angle);
+  assert(continuous.solution.valid&&std::abs(continuous.solution.angle-adaptive.solution.angle)<1e-6);
+ }
+ PlanTransition transition;assert(transition.update(adaptive,0).solution.valid);
+ auto switched=adaptive;switched.solution.angle+=20;
+ assert(!transition.update(switched,.05).solution.valid);assert(!transition.update(switched,.15).solution.valid);assert(transition.update(switched,.25).solution.valid);
+ auto empty=transition.update({},.26);assert(!empty.solution.valid);
+ auto nearLaunch=jump95.solution.origin;
+ assert(coverageMargin(jump95.solution,28,{{nearLaunch,{},22,0,0}},.05)<=catchSafetyMargin);
  for(bool visible:{false,true})for(bool right:{false,true})for(bool first:{false,true})assert(cursorModeAllowed(visible,right,first)==(visible&&!right&&!first));
  const float identity[]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};float tilted[]={1,0,0,0,0,.8f,.6f,0,0,0,1,0,0,0,0,1};
  assert(cameraStable(identity,identity));assert(!cameraStable(identity,tilted));tilted[4]=NAN;assert(!cameraStable(identity,tilted));

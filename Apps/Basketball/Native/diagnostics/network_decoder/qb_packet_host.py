@@ -195,7 +195,7 @@ def run(folder,pid,parent,seconds=None):
                         u,nonce,plain=authenticated_plain(r['payload'],out_context)
                         if time.monotonic()-last_plan>.015:
                             try:
-                                if plan_path.stat().st_size<=16384:plan=json.loads(plan_path.read_text(encoding='utf-8'))
+                                if plan_path.stat().st_size<=65536:plan=json.loads(plan_path.read_text(encoding='utf-8'))
                             except (OSError,ValueError):plan={}
                             last_plan=time.monotonic()
                         if plan.get('pid')!=pid:plan={}

@@ -80,6 +80,21 @@ def throw_fields(body,call):
     if r.pos!=call['consumed'] or not math.isfinite(power) or not 1<=power<=95:return None
     return origin,aim_offset,power_offset,power
 
+def clear_catch_path(origin,launch,flight,power,gravity,latency,catchers):
+    if not isinstance(catchers,list) or len(catchers)>128:raise DecodeError('Catcher coverage bounds')
+    steps=max(32,min(400,math.ceil(flight/.02)))
+    for d in catchers:
+        position=vector(d['position']);movement=vector(d['velocity']);speed=d['speed'];jump=d['jump'];dive=d['dive']
+        if any(isinstance(x,bool) or not isinstance(x,(int,float)) or not math.isfinite(x) for x in (speed,jump,dive)) or not 0<=speed<=45 or not 0<=jump<=42 or not 0<=dive<=24:raise DecodeError('Catcher reach bounds')
+        rise=max(jump,max(0,movement[1]*.2));speed=max(16,min(45,max(speed,math.hypot(movement[0],movement[2]))))
+        for i in range(steps+1):
+            t=flight*i/steps
+            p=[origin[j]+launch[j]*(5/power+t)-(.5*gravity*t*t if j==1 else 0) for j in range(3)]
+            if p[1]>position[1]+6+rise or p[1]<position[1]-8:continue
+            distance=math.hypot(p[0]-position[0],p[2]-position[2]);reach=min(dive,max(0,t-.1)*45)
+            if max(0,distance-6-reach)/speed-t-latency<=.30:return False
+    return True
+
 def replacement(body,call,plan,tick):
     fields=throw_fields(body,call)
     if not fields:return None
@@ -94,6 +109,9 @@ def replacement(body,call,plan,tick):
         launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],float(plan['angle']),float(plan['gravity']),float(plan['latency']),spawn=5)
     else:
         launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],power,float(plan['gravity']),float(plan['latency']),bool(plan.get('lob')),spawn=5)
+    if plan.get('strictFit') is True:
+        if plan.get('coverageKnown') is not True or not clear_catch_path(origin,launch,flight,power,float(plan['gravity']),float(plan['latency']),plan.get('catchers')):
+            raise DecodeError('No clear assisted catch path')
     aim=tuple(origin[i]+launch[i]*(10000/power) for i in range(3))
     return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],instance=call['instance'],clickAt=clicked)
 

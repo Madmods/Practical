@@ -11,7 +11,7 @@ inline void text(Gdiplus::Graphics& g,const std::wstring& value,float x,float y,
  using namespace Gdiplus;Font font(L"Segoe UI",size,bold?FontStyleBold:FontStyleRegular,UnitPixel);SolidBrush brush(color);StringFormat format;format.SetTrimming(StringTrimmingEllipsisCharacter);format.SetFormatFlags(StringFormatFlagsNoWrap);g.DrawString(value.c_str(),-1,&font,RectF(x,y,width,size*1.8f),&format,&brush);
 }
 inline std::wstring number(double value,int precision=0){std::wostringstream out;out<<std::fixed<<std::setprecision(precision)<<value;return out.str();}
-inline Gdiplus::Color accent(const ff3Native::Frame& f){return !f.coverageKnown?Gdiplus::Color(255,151,180,255):f.margin>.15?Gdiplus::Color(255,115,232,186):Gdiplus::Color(255,255,191,115);}
+inline Gdiplus::Color accent(const ff3Native::Frame& f){return !f.coverageKnown?Gdiplus::Color(255,151,180,255):f.margin>ff3qb::catchSafetyMargin?Gdiplus::Color(255,115,232,186):Gdiplus::Color(255,255,191,115);}
 inline void renderHud(PumpSurface& surface,const ff3Native::Frame& f,bool present=true){
  using namespace Gdiplus;
  const int width=448,height=170;if(f.client.right<width+20||f.client.bottom<height+40||!surface.prepare(width,height))return;
@@ -20,7 +20,7 @@ inline void renderHud(PumpSurface& surface,const ff3Native::Frame& f,bool presen
  text(g,L"QUARTERBACK",18,13,10,Color(255,151,174,212),true);
  text(g,basketballUi::widen(ff3qb::presetName(f.mode)),302,12,11,color,true,125);
  text(g,f.name.empty()?L"Find your receiver":basketballUi::widen(f.name),18,32,20,Color(255,239,245,255),true,265);
- text(g,!f.ready?L"WAITING":!f.coverageKnown?L"UNSCOUTED":f.coverageCount==0?L"NO OTHER CATCHERS":f.margin>.15?L"OPEN ESTIMATE":L"CONTESTED",302,36,10,color,true,128);
+ text(g,f.fitBlocked?L"NO CLEAR FIT":!f.ready?L"WAITING":!f.coverageKnown?L"UNSCOUTED":f.coverageCount==0?L"NO OTHER CATCHERS":f.margin>ff3qb::catchSafetyMargin?L"OPEN ESTIMATE":L"CONTESTED",302,36,10,color,true,128);
  const std::wstring values[]={f.ready?number(f.power):L"--",f.ready?number(f.solution.angle)+L" deg":L"--",f.ready?number(f.solution.time,2)+L" s":L"--",f.ready?number(f.distance)+L" st":L"--"};
  const wchar_t* labels[]={L"POWER / 95",L"ANGLE",L"FLIGHT",L"DISTANCE"};
  for(int i=0;i<4;i++){float x=18.f+106*i;text(g,labels[i],x,65,9,Color(255,133,151,181));text(g,values[i],x,79,19,i==0?color:Color(255,228,236,250),true,103);}
