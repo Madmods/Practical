@@ -116,7 +116,7 @@ struct Reader {
    else if(!practice||!practicePlace||rd<addr>(h,a.player+Offsets::Player::Team)!=0)continue;
    auto hrp=child(h,a.rig,"HumanoidRootPart"),targetHum=child(h,a.rig,"Humanoid");auto hp=rd<float>(h,targetHum+Offsets::Humanoid::Health,NAN);
    if(!std::isfinite(hp)||hp<=0||!hrp)continue;
-   Vec p=position(h,hrp)+Vec{0,1.5,0},v=velocity(h,hrp);if(!ff3qb::finite(p)||!ff3qb::finite(v)||std::hypot(v.x,v.z)>40)continue;v.y=0;
+   Vec p=position(h,child(h,a.rig,"Head")),v=velocity(h,hrp);if(!ff3qb::finite(p))p=position(h,hrp)+Vec{0,1.5,0};if(!ff3qb::finite(p)||!ff3qb::finite(v)||std::hypot(v.x,v.z)>40)continue;v.y=0;
    auto screen=ff3qb::project(p,f.matrix,width,height);if(!screen.valid)continue;
    auto top=ff3qb::project(p+Vec{0,2,0},f.matrix,width,height),bottom=ff3qb::project(p-Vec{0,3,0},f.matrix,width,height);
    double distance=top.valid&&bottom.valid?ff3qb::selectionDistance(f.cursor.x-f.origin.x,f.cursor.y-f.origin.y,bottom.x,bottom.y,top.x,top.y,std::clamp(std::abs(top.y-bottom.y)*.3,18.,32.),a.rig==retained):std::hypot(screen.x-(f.cursor.x-f.origin.x),screen.y-(f.cursor.y-f.origin.y));
@@ -128,7 +128,7 @@ struct Reader {
   if(!f.target){retained=0;f.reason=pinned?"Locked receiver unavailable or off screen; Q unlocks":"Aim near a teammate or practice receiver";return f;}
   retained=f.target;for(auto& c:f.candidates)c.selected=c.screen.x==f.receiver.x&&c.screen.y==f.receiver.y;
   if(routeTarget!=f.target||routeTool!=f.tool){routeTarget=f.target;routeTool=f.tool;routeHistory.reset();angleHistory={};previousFit={};}
-  routeHistory.update(f.at,origin,targetPosition,targetVelocity);targetVelocity=routeHistory.movement;
+  routeHistory.update(f.at,origin,position(h,child(h,f.target,"HumanoidRootPart")),targetVelocity);targetVelocity=routeHistory.movement;if(ff3qb::length(targetVelocity)<.5)targetVelocity={};
   f.route=routeHistory.route;
   bool coverageComplete=true;
   // All other live players and enabled practice bots can contest a catch.
@@ -155,12 +155,13 @@ struct Reader {
   auto ping=path(h,root,{"Stats","PerformanceStats","Ping"});double pingValue=rd<double>(h,ping+0x98,NAN);
   if(!std::isfinite(pingValue)||pingValue<1||pingValue>400){f.reason="Waiting for usable ping";return f;}f.ping=pingValue;
 
-  // Normal throws spawn forward of the head. Iterate the direction-dependent
-  // offset rather than using a hand position displaced by the animation.
-  const double desired=automaticAngle?(f.mode==0?routeHistory.angle(origin,targetPosition):ff3qb::presetAngle(f.mode,origin,targetPosition,targetVelocity)):double(manualAngle.load());
+  // The server launches five studs along the sent direction. Solve that
+  // offset exactly, using the same model as the packet editor.
+  const bool powerFirst=automaticAngle&&autoPower&&f.mode==0;
+  const double desired=automaticAngle?ff3qb::presetAngle(f.mode,origin,targetPosition,targetVelocity):double(manualAngle.load());
   const double stableAngle=automaticAngle?angleHistory.update(desired,f.at):desired;
-  Vec launch=origin;ff3qb::Solution solution;ff3qb::Plan planned;
-  for(int i=0;i<3;i++){planned=ff3qb::planThrow(launch,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),f.mode,automaticAngle,manualAngle,autoPower,f.gamePower,arc==1,smartFit,defenders,stableAngle,previousFit);solution=planned.solution;if(!solution.valid)break;launch=origin+solution.velocity*(5./planned.power);}
+  auto planned=ff3qb::planThrow(origin,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),f.mode,automaticAngle,manualAngle,autoPower,f.gamePower,arc==1,smartFit,defenders,stableAngle,previousFit,powerFirst,5);
+  auto solution=planned.solution;
   if(!solution.valid){f.reason=autoPower&&!automaticAngle?"Angle needs more than 95 power: raise angle or use Auto":"No reachable throw at these settings";return f;}
   f.power=planned.power;f.fitOffset=planned.offset;f.targetPosition=targetPosition+planned.offset;f.margin=defenders.empty()?10:planned.margin;previousFit=planned.offset;f.distance=ff3qb::length(targetPosition-origin);
   f.solution=solution;

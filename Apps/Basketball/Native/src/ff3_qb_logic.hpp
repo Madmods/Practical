@@ -37,10 +37,12 @@ inline bool finite(Vec a){return std::isfinite(a.x)&&std::isfinite(a.y)&&std::is
 struct Solution {bool valid=false;Vec origin,velocity,catchPoint;double time=0,angle=0;};
 // Constant-velocity interception with measured gravity and the visible power.
 // Both ballistic roots are solved numerically; unreachable throws fail closed.
-inline Solution solve(Vec origin,Vec target,Vec movement,double speed,double gravity,double latency,bool lob=false){
+inline Solution solve(Vec origin,Vec target,Vec movement,double speed,double gravity,double latency,bool lob=false,double spawn=0){
  if(!finite(origin)||!finite(target)||!finite(movement)||!std::isfinite(speed)||speed<1||speed>150||!std::isfinite(gravity)||gravity<1||gravity>300||!std::isfinite(latency)||latency<0||latency>.3||length(movement)>40||length(target-origin)<3||length(target-origin)>600)return {};
- auto velocity=[&](double t){return (target+movement*(t+latency)-origin+Vec{0,.5*gravity*t*t,0})*(1/t);};
- auto error=[&](double t){auto v=velocity(t);return dot(v,v)-speed*speed;};
+ if(!std::isfinite(spawn)||spawn<0||spawn>5)return {};
+ auto displacement=[&](double t){return target+movement*(t+latency)-origin+Vec{0,.5*gravity*t*t,0};};
+ auto velocity=[&](double t){return displacement(t)*(speed/(speed*t+spawn));};
+ auto error=[&](double t){auto d=displacement(t);return dot(d,d)-(speed*t+spawn)*(speed*t+spawn);};
  std::vector<double> roots;double previous=.03,prior=error(previous);
  for(int i=1;i<=800;i++){
   double next=.03+i*.01,current=error(next);
@@ -53,22 +55,23 @@ inline Solution solve(Vec origin,Vec target,Vec movement,double speed,double gra
  if(roots.empty())return {};
  double t=lob?roots.back():roots.front();auto v=velocity(t);
  if(t<.06||t>8||std::abs(length(v)-speed)>.01)return {};
- return {true,origin,v,target+movement*(t+latency),t,std::atan2(v.y,std::hypot(v.x,v.z))*180/3.141592653589793};
+ return {true,origin+v*(spawn/speed),v,target+movement*(t+latency),t,std::atan2(v.y,std::hypot(v.x,v.z))*180/3.141592653589793};
 }
 inline Vec point(const Solution& s,double gravity,double t){return s.origin+s.velocity*t+Vec{0,-.5*gravity*t*t,0};}
 // Solve flight time at a requested elevation, then derive required power.
 // No clamping of an unreachable power: that would change the landing point.
-inline Solution solveAngle(Vec origin,Vec target,Vec movement,double angle,double gravity,double latency){
+inline Solution solveAngle(Vec origin,Vec target,Vec movement,double angle,double gravity,double latency,double spawn=0){
  if(!finite(origin)||!finite(target)||!finite(movement)||!std::isfinite(angle)||angle<5||angle>75||!std::isfinite(gravity)||gravity<1||gravity>300||!std::isfinite(latency)||latency<0||latency>.3||length(movement)>40||length(target-origin)<3||length(target-origin)>600)return {};
  const double tangent=std::tan(angle*3.141592653589793/180.);
+ if(!std::isfinite(spawn)||spawn<0||spawn>5)return {};
  auto error=[&](double t){auto d=target+movement*(t+latency)-origin;return std::hypot(d.x,d.z)*tangent-d.y-.5*gravity*t*t;};
  double previous=.06,prior=error(previous);
  for(int i=1;i<=400;i++){
   double next=.06+i*.02,current=error(next);
   if(prior>=0&&current<=0){
    double lo=previous,hi=next;for(int j=0;j<32;j++){double mid=(lo+hi)*.5;if(error(mid)>0)lo=mid;else hi=mid;}
-   double t=(lo+hi)*.5;Vec end=target+movement*(t+latency),v=(end-origin+Vec{0,.5*gravity*t*t,0})*(1/t);double power=length(v);
-   if(t<=8&&power>=1&&power<=95)return {true,origin,v,end,t,angle};
+   double t=(lo+hi)*.5;Vec end=target+movement*(t+latency),d=end-origin+Vec{0,.5*gravity*t*t,0};double distance=length(d),power=(distance-spawn)/t;
+   if(t<=8&&power>=1&&power<=95){auto direction=d*(1/distance);return {true,origin+direction*spawn,direction*power,end,t,angle};}
   }previous=next;prior=current;
  }return {};
 }
@@ -95,7 +98,7 @@ struct RouteHistory {
  void update(double time,Vec origin,Vec position,Vec velocity){
   if(samples.empty()){axis=position-origin;axis.y=0;axis=axis*(1/std::max(1.,length(axis)));movement=velocity;}
   if(!samples.empty()&&time-samples.back().time<.04)return;
-  if(!samples.empty()){double dt=time-samples.back().time;if(dt>.5){reset();update(time,origin,position,velocity);return;}auto measured=(position-samples.back().position)*(1/dt);measured.y=0;if(length(measured)<=40)velocity=velocity*.5+measured*.5;movement=movement*.65+velocity*.35;}
+  if(!samples.empty()){double dt=time-samples.back().time;if(dt>.5){reset();update(time,origin,position,velocity);return;}auto measured=(position-samples.back().position)*(1/dt);measured.y=0;const bool stopped=length(velocity)<.5&&length(measured)<.5;if(length(measured)<=40)velocity=velocity*.5+measured*.5;movement=stopped?Vec{}:movement*.65+velocity*.35;}
   samples.push_back({time,position});while(samples.size()>2&&time-samples.front().time>1.2)samples.erase(samples.begin());
   if(samples.size()<4)return;
   double speed=std::hypot(movement.x,movement.z),forward=dot(movement,axis),side=std::abs(movement.x*axis.z-movement.z*axis.x),distance=length(position-origin);
@@ -141,23 +144,26 @@ inline double coverageMargin(const Solution& s,double gravity,const std::vector<
   margin=std::min(margin,std::max(0.,distance-4.-dive)/speed-t-latency);
  }return margin;
 }
-inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,int mode,bool automaticAngle,double manualAngle,bool automaticPower,double gamePower,bool lob,bool fit,const std::vector<Defender>& defenders,double preferredAngle=NAN,Vec previousOffset={}){
+inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,int mode,bool automaticAngle,double manualAngle,bool automaticPower,double gamePower,bool lob,bool fit,const std::vector<Defender>& defenders,double preferredAngle=NAN,Vec previousOffset={},bool powerFirst=false,double spawn=0){
  Plan best;double bestScore=-1e9;
+ const bool fixedPower=automaticPower&&automaticAngle&&powerFirst;
+ const bool stationary=length(movement)<.5;if(stationary)movement={};
  const double desired=std::isfinite(preferredAngle)?preferredAngle:automaticAngle?presetAngle(mode,origin,target,movement):manualAngle;
  double angle=std::clamp(desired,5.,75.);
  // Resolve reach once for the receiver. Fit candidates share this elevation,
  // so changing the preferred catch offset cannot switch the arc on each frame.
- if(automaticPower&&automaticAngle&&!solveAngle(origin,target,movement,angle,gravity,latency).valid){
+ if(automaticPower&&automaticAngle&&!fixedPower&&!solveAngle(origin,target,movement,angle,gravity,latency,spawn).valid){
   bool found=false;
-  for(int step=1;step<=70&&!found;step++)for(int sign:{1,-1}){double candidate=desired+sign*step;if(candidate<5||candidate>75)continue;if(solveAngle(origin,target,movement,candidate,gravity,latency).valid){angle=candidate;found=true;break;}}
+  for(int step=1;step<=70&&!found;step++)for(int sign:{1,-1}){double candidate=desired+sign*step;if(candidate<5||candidate>75)continue;if(solveAngle(origin,target,movement,candidate,gravity,latency,spawn).valid){angle=candidate;found=true;break;}}
   if(!found)return best;
  }
  const Vec offsets[]={{},{3,0,0},{-3,0,0},{0,0,3},{0,0,-3},{4,0,4},{-4,0,4},{4,0,-4},{-4,0,-4},{9,0,0},{-9,0,0},{0,0,9},{0,0,-9}};
- for(int index=0;index<(fit&&!defenders.empty()?13:1);++index){
+ for(int index=0;index<(fit&&!stationary&&!defenders.empty()?13:1);++index){
   auto offset=offsets[index];Solution s;
-  if(automaticPower){
-   s=solveAngle(origin,target+offset,movement,angle,gravity,latency);
-  }else s=solve(origin,target+offset,movement,gamePower,gravity,latency,lob||mode==2);
+  if(fixedPower)s=solve(origin,target+offset,movement,95,gravity,latency,false,spawn);
+  else if(automaticPower){
+   s=solveAngle(origin,target+offset,movement,angle,gravity,latency,spawn);
+  }else s=solve(origin,target+offset,movement,gamePower,gravity,latency,lob||mode==2,spawn);
   if(!s.valid||length(offset)>std::min(10.,4.+s.time*3.))continue;
   const double margin=defenders.empty()?0:coverageMargin(s,gravity,defenders,latency);
   double score=(defenders.empty()?0:std::min(margin,1.5))*10-length(offset)*.12-length(offset-previousOffset)*.15-s.time*.03-std::abs(s.angle-desired)*.012;

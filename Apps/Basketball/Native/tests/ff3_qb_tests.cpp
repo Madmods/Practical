@@ -30,6 +30,20 @@ int main(){int count=0;
  assert(coverageMargin(high,28,athletic,.05)<=coverageMargin(high,28,standing,.05));
  auto stable=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,athletic,32);
  assert(stable.solution.valid&&stable.solution.angle==32); // Fit does not jump +/-10 degrees.
+ // A stopped receiver loses historical lead and fit never moves the head target.
+ history.update(3.1,{0,7,0},{74.5,7,18},{0,0,0});history.update(3.2,{0,7,0},{74.5,7,18},{0,0,0});assert(length(history.movement)==0);
+ for(double distance:{20.,60.,150.,250.})for(Vec movement:{Vec{},Vec{8,0,2}}){
+  const Vec head{distance,8,0};
+  auto fast=planThrow({0,8,0},head,movement,28,.05,0,true,35,true,60,false,true,athletic,48,{},true,5);
+  assert(fast.solution.valid&&std::abs(fast.power-95)<1e-6);
+  assert(length(point(fast.solution,28,fast.solution.time)-fast.solution.catchPoint)<1e-5);
+  assert(std::abs(length(fast.solution.origin-Vec{0,8,0})-5)<1e-6);
+  if(length(movement)==0){assert(length(fast.offset)==0);assert(length(fast.solution.catchPoint-head)==0);}
+  auto angled=solveAngle({0,8,0},head,movement,35,28,.05,5);
+  if(angled.valid)assert(length(point(angled,28,angled.time)-angled.catchPoint)<1e-6);
+ }
+ auto directAuto=planThrow({0,8,0},{150,8,0},{},28,.05,0,true,35,true,60,false,true,athletic,48,{},true,5);
+ assert(directAuto.solution.angle<20); // No arbitrary distance-based lob.
  for(bool visible:{false,true})for(bool right:{false,true})for(bool first:{false,true})assert(cursorModeAllowed(visible,right,first)==(visible&&!right&&!first));
  const float identity[]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};float tilted[]={1,0,0,0,0,.8f,.6f,0,0,0,1,0,0,0,0,1};
  assert(cameraStable(identity,identity));assert(!cameraStable(identity,tilted));tilted[4]=NAN;assert(!cameraStable(identity,tilted));

@@ -16,13 +16,15 @@ def vector(value):
 
 def length(value):return math.sqrt(sum(x*x for x in value))
 
-def velocity(origin,target,movement,power,gravity,latency,lob=False):
+def velocity(origin,target,movement,power,gravity,latency,lob=False,spawn=0):
     origin,target,movement=map(vector,(origin,target,movement))
     if not 1<=power<=95 or not 1<=gravity<=300 or not 0<=latency<=.25 or length(movement)>40:raise DecodeError('Ballistic input bounds')
     distance=length(tuple(b-a for a,b in zip(origin,target)))
     if not 3<=distance<=600:raise DecodeError('Receiver distance bounds')
-    def at(t):return tuple((target[i]+movement[i]*(t+latency)-origin[i]+(.5*gravity*t*t if i==1 else 0))/t for i in range(3))
-    def error(t):return sum(v*v for v in at(t))-power*power
+    if not math.isfinite(spawn) or not 0<=spawn<=5:raise DecodeError('Spawn offset bounds')
+    def displacement(t):return tuple(target[i]+movement[i]*(t+latency)-origin[i]+(.5*gravity*t*t if i==1 else 0) for i in range(3))
+    def at(t):return tuple(v*power/(power*t+spawn) for v in displacement(t))
+    def error(t):return sum(v*v for v in displacement(t))-(power*t+spawn)**2
     roots=[];previous=.03;prior=error(previous)
     for i in range(1,801):
         next_time=.03+i*.01;current=error(next_time)
@@ -39,11 +41,12 @@ def velocity(origin,target,movement,power,gravity,latency,lob=False):
     if not .06<=flight<=8 or abs(length(result)-power)>.01:raise DecodeError('Invalid ballistic solution')
     return result,flight
 
-def angle_velocity(origin,target,movement,angle,gravity,latency):
+def angle_velocity(origin,target,movement,angle,gravity,latency,spawn=0):
     origin,target,movement=map(vector,(origin,target,movement))
     if not all(math.isfinite(x) for x in (angle,gravity,latency)) or not 5<=angle<=75 or not 1<=gravity<=300 or not 0<=latency<=.25 or length(movement)>40:raise DecodeError('Angle plan bounds')
     if not 3<=length(tuple(b-a for a,b in zip(origin,target)))<=600:raise DecodeError('Receiver distance bounds')
     tangent=math.tan(math.radians(angle))
+    if not math.isfinite(spawn) or not 0<=spawn<=5:raise DecodeError('Spawn offset bounds')
     def error(t):
         d=[target[i]+movement[i]*(t+latency)-origin[i] for i in range(3)]
         return math.hypot(d[0],d[2])*tangent-d[1]-.5*gravity*t*t
@@ -58,7 +61,8 @@ def angle_velocity(origin,target,movement,angle,gravity,latency):
                 else:high=mid
             t=(low+high)*.5
             launch=tuple((target[j]+movement[j]*(t+latency)-origin[j]+(.5*gravity*t*t if j==1 else 0))/t for j in range(3))
-            power=length(launch)
+            raw_power=length(launch);power=raw_power-spawn/t
+            if raw_power>0:launch=tuple(v*power/raw_power for v in launch)
             if t<=8 and 1<=power<=95:return launch,t,power
         previous,prior=next_time,current
     raise DecodeError('Selected angle exceeds available power')
@@ -86,11 +90,11 @@ def replacement(body,call,plan,tick):
     if length(tuple(a-b for a,b in zip(vector(origin),vector(plan['head']))))>12:raise DecodeError('Throw origin disagrees with held character')
     power=95.0 if plan.get('autoPower') is True else old_power
     if plan.get('anglePower') is True and plan.get('autoPower') is True:
-        launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],float(plan['angle']),float(plan['gravity']),float(plan['latency']))
+        launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],float(plan['angle']),float(plan['gravity']),float(plan['latency']),spawn=5)
     else:
-        launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],power,float(plan['gravity']),float(plan['latency']),bool(plan.get('lob')))
+        launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],power,float(plan['gravity']),float(plan['latency']),bool(plan.get('lob')),spawn=5)
     aim=tuple(origin[i]+launch[i]*(10000/power) for i in range(3))
-    return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,aim=aim,flight=flight,instance=call['instance'],clickAt=clicked)
+    return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],instance=call['instance'],clickAt=clicked)
 
 class RecordTracker:
     def __init__(self,schema):self.schema=schema;self.streams={}

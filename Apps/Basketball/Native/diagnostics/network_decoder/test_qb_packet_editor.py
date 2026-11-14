@@ -21,6 +21,20 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def test_transmitted_throw_lands_after_server_spawn_offset(self):
+        for angle in (None,12,35,55):
+            for moving in ([0,0,0],[8,0,2]):
+                p=plan();p.update(targetPosition=[70,7,0],targetVelocity=moving)
+                if angle is not None:p.update(anglePower=True,angle=angle)
+                e=editor();args=arguments(e.process_plain(payload(),p,1010))
+                self.assertEqual(e.stats['modifiedThrows'],1)
+                origin=args[1]['components'];aim=args[2]['components'];power=args[3]
+                direction=tuple(a-b for a,b in zip(aim,origin));norm=length(direction);direction=tuple(v/norm for v in direction)
+                t=e.last['flight']
+                landed=[origin[i]+direction[i]*(5+power*t)-(.5*28*t*t if i==1 else 0) for i in range(3)]
+                expected=[p['targetPosition'][i]+moving[i]*(t+.05) for i in range(3)]
+                self.assertLess(length(tuple(a-b for a,b in zip(landed,expected))),.001)
+                if angle is None:self.assertEqual(power,95)
     def test_angle_override_recalculates_power_from_actual_origin(self):
         p=plan();p.update(anglePower=True,angle=35)
         after=editor().process_plain(payload(),p,1010);args=arguments(after)

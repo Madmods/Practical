@@ -1586,10 +1586,10 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       {id:'ff3_qb',name:'QB aim',meta:'Receiver lead · aim and power',icon:ICONS.launch,on:false,open:true,rows:[
         {type:'ff3status',id:'status',label:'Live throw plan'},
         {type:'choice',id:'preset',label:'Pass library',value:0,options:[[0,'Auto route'],[1,'Bullet'],[2,'Lob'],[3,'Mag'],[4,'Slant'],[5,'Touch']]},
-        {type:'switch',id:'autoangle',label:'Automatic angle',description:'Tracks recent receiver movement and cuts, then smoothly adjusts the angle.',value:true},
+        {type:'switch',id:'autoangle',label:'Automatic angle',description:'Auto route uses 95 power and the lower trajectory. Other pass modes set elevation.',value:true},
         {type:'slider',id:'angle',label:'Manual angle · R / F',description:'R / F switch to manual angle with calculated power. Z or a pass button restores preset control.',value:35,min:5,max:75,step:1,unit:'°'},
         {type:'switch',id:'power',label:'Calculate power for the angle',description:'Recomputes continuously, up to 95. R/F automatically enable it.',value:true},
-        {type:'switch',id:'fit',label:'Smart fit',description:'Tests catch points against all other catchers, including bots, jump height and estimated dive reach. Contested means no exclusive opening was found.',value:true},
+        {type:'switch',id:'fit',label:'Smart fit',description:'Fits moving receivers against estimated jump and dive reach. Stationary receivers are targeted at the head without extra lead.',value:true},
         {type:'slider',id:'radius',label:'Mouse selection radius',value:260,min:40,max:700,step:10,unit:' px'},
         {type:'slider',id:'dive',label:'Estimated dive reach',description:'Extra reach allowed to other catchers. Conservative estimate, not a measured game limit.',value:12,min:0,max:24,step:1,unit:' studs',advanced:true},
         {type:'switch',id:'visuals',label:'Trajectory, target and catch marker',value:true},
