@@ -1,0 +1,13 @@
+{
+  "name": "Practical Basketball",
+  "rootPlaceId": "80681221431821",
+  "universeId": "7529591378",
+  "observedCourtPlaceId": "137269396533485",
+  "verifiedDate": "2026-11-13",
+  "sources": [
+    "https://www.roblox.com/games/80681221431821/Practical-Basketball",
+    "https://apis.roblox.com/universes/v1/places/80681221431821/universe",
+    "https://apis.roblox.com/universes/v1/places/137269396533485/universe"
+  ],
+  "policy": "Require the exact universe ID, a nonzero current place ID, the supported client build, readable required Basketball data, and fresh stable observations. Root and court places in this experience are supported. No runtime network lookup is required."
+}
