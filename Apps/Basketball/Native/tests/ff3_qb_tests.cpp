@@ -49,7 +49,27 @@ int main(){int count=0;
  assert(jump95.solution.valid&&jump95.power==95&&jump95.offset.y>=3&&jump95.offset.y<=7);
  assert(jump95.offset.x==0&&jump95.offset.z==0);
  assert(length(point(jump95.solution,28,jump95.solution.time)-jump95.solution.catchPoint)<1e-5);
- assert(!planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,true,0,196.2).solution.valid);
+ auto headBeam=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,true,0,196.2);
+ assert(headBeam.solution.valid&&headBeam.power==95&&headBeam.offset.y==0);
+ auto shortBeam=planCoverageThrow({0,8,0},{15,8,0},{},28,.05,{},true,true,7,196.2);
+ assert(shortBeam.solution.valid&&shortBeam.solution.angle<5&&!shortBeam.lob&&shortBeam.power==95);
+ auto closeBeam=planCoverageThrow({0,8,0},{35,8,0},{},28,.05,{},true,true,7,196.2);
+ assert(closeBeam.solution.valid&&closeBeam.offset.y>=3&&closeBeam.solution.angle<=beamMaxAngle);
+ auto closeCovered=planCoverageThrow({0,8,0},{35,8,0},{},28,.05,{{{35,8,3},{},22,9,12}},true,true,7,196.2,shortBeam.offset,shortBeam.power,shortBeam.lob,shortBeam.solution.angle);
+ assert(closeCovered.solution.valid&&closeCovered.offset.y>=3&&closeCovered.power==95);
+ auto fiftyYards=planCoverageThrow({0,8,0},{150,8,0},{22,0,0},28,.05,{{{80,8,5},{},22,9,12}},true,true,7,196.2);
+ assert(fiftyYards.solution.valid&&fiftyYards.solution.angle<=beamMaxAngle&&!fiftyYards.lob);
+ // Recompute moving geometry without power roundoff or a retained high root.
+ Plan beam;
+ for(int distance=20;distance<=400;distance+=2){
+  beam=planCoverageThrow({0,8,0},{double(distance),8,0},{8,0,2},28,.05,{{{70,8,8},{},22,9,12}},true,true,7,196.2,beam.offset,beam.power,true,70);
+  if(!beam.solution.valid)continue;
+  assert(beam.power==95&&!beam.lob&&beam.solution.angle<=beamMaxAngle);
+  auto low=solve({0,8,0},Vec{double(distance),8,0}+beam.offset,{8,0,2},95,28,.05,false,5);
+  assert(low.valid&&std::abs(low.time-beam.solution.time)<1e-6);
+  assert(length(point(beam.solution,28,beam.solution.time)-beam.solution.catchPoint)<1e-5);
+ }
+ assert(!planCoverageThrow({0,8,0},{500,8,0},{},28,.05,{},true,true,7,196.2).solution.valid);
  auto noJump=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,0,196.2);
  assert(noJump.solution.valid&&noJump.power<95&&noJump.offset.y==0);
  std::vector<Defender> underneath={{{45,8,20},{},22,10,12}};

@@ -107,7 +107,13 @@ def replacement(body,call,plan,tick):
     if length(tuple(a-b for a,b in zip(vector(origin),vector(plan['head']))))>12:raise DecodeError('Throw origin disagrees with held character')
     power=plan.get('plannedPower',95.0) if plan.get('autoPower') is True else old_power
     if isinstance(power,bool) or not isinstance(power,(int,float)) or not math.isfinite(power) or not 1<=power<=95:raise DecodeError('Planned power bounds')
-    if plan.get('anglePower') is True and plan.get('autoPower') is True:
+    beam=plan.get('beam95') is True
+    if beam:
+        if plan.get('autoPower') is not True or power!=95:raise DecodeError('Beam requires fixed 95 power')
+        launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],95,float(plan['gravity']),float(plan['latency']),False,spawn=5)
+        elevation=math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2])))
+        if not -30<=elevation<=35:raise DecodeError('Receiver outside low-arc Beam range')
+    elif plan.get('anglePower') is True and plan.get('autoPower') is True:
         launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],float(plan['angle']),float(plan['gravity']),float(plan['latency']),spawn=5)
     else:
         launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],power,float(plan['gravity']),float(plan['latency']),bool(plan.get('lob')),spawn=5)

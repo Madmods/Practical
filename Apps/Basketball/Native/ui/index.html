@@ -1589,7 +1589,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         {type:'switch',id:'autoangle',label:'Automatic angle',description:'Keeps a clear arc steady while power follows the receiver. Searches low-power touch passes when a new arc is needed.',value:true},
         {type:'slider',id:'angle',label:'Manual angle · R / F',description:'R / F switch to manual angle with calculated power. Z or a pass button restores preset control.',value:35,min:5,max:75,step:1,unit:'°'},
         {type:'switch',id:'power',label:'Calculate power for the angle',description:'Recomputes continuously, up to 95. R/F automatically enable it.',value:true},
-        {type:'switch',id:'force95',label:'95 power · jump catch',description:'Optional. Switches to Auto route at 95 power with a reachable jump target. Off lets Auto route choose 15–95 power. Contested 95-power throws stay assisted.',value:false},
+        {type:'switch',id:'force95',label:'Beam mode · 95 power',description:'Fixed 95 power, low arc only, up to 35°. Favors a reachable elevated catch; uses head height when a jump is too late. Never switches to a sky lob. Disable for adaptive power.',value:false},
         {type:'switch',id:'fit',label:'Smart fit',description:'Ranks reachable throws against defenders’ running, jumping and diving reach. Contested throws stay assisted; amber shows the remaining risk.',value:true},
         {type:'slider',id:'radius',label:'Mouse selection radius',value:260,min:40,max:700,step:10,unit:' px'},
         {type:'slider',id:'dive',label:'Estimated dive reach',description:'Extra reach allowed to other catchers. Conservative estimate, not a measured game limit.',value:12,min:0,max:24,step:1,unit:' studs',advanced:true},
@@ -3603,7 +3603,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       check(!!$('#stack [data-fsw="ff3_qb"]')&&!!$('[data-ff3-status]'),'FF3 has QB controls and live throw status');
       $('[data-fsw="ff3_qb"]').click();check((await native()).ff3.ff3_qb.on,'QB toggle reaches FF3 state');
       check(!(await native()).ff3.ff3_qb.rows.force95,'95 power is optional and starts off');
-      hostSend('setting',{key:'ff3_qb.force95',value:true});check((await native()).ff3.ff3_qb.rows.force95,'95-power jump option reaches native state');
+      hostSend('setting',{key:'ff3_qb.force95',value:true});check((await native()).ff3.ff3_qb.rows.force95,'Beam option reaches native state');
       hostSend('setting',{key:'ff3_qb.force95',value:false});check(!(await native()).ff3.ff3_qb.rows.force95,'Adaptive power can be restored');
       $('[data-pass-next]').click();await until(()=>find('ff3_qb.preset').r.value===1);$('[data-pass-next]').click();check((await native()).ff3.ff3_qb.rows.preset===2,'Lob preset card reaches native state');
       hostSend('setting',{key:'ff3_qb.angle',value:42});check((await native()).ff3.ff3_qb.rows.angle===42,'Angle control reaches native state');

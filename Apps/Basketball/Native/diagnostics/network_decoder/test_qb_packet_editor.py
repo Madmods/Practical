@@ -21,6 +21,21 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def test_beam_uses_low_root_and_exact_power_at_actual_origin(self):
+        for distance,height in ((15,0),(35,5),(150,5),(220,5)):
+            p=plan();p.update(beam95=True,plannedPower=95,lob=True,anglePower=True,angle=75,targetPosition=[distance,5+height,0])
+            e=editor();args=arguments(e.process_plain(payload(),p,1010))
+            self.assertEqual(e.stats['modifiedThrows'],1);self.assertEqual(args[3],95)
+            aim=args[2]['components'];angle=math.degrees(math.atan2(aim[1]-5,math.hypot(aim[0],aim[2])))
+            self.assertLessEqual(angle,35)
+            if distance==15:self.assertLess(angle,5)
+            direction=tuple(aim[i]-args[1]['components'][i] for i in range(3));norm=length(direction);t=e.last['flight']
+            landed=[args[1]['components'][i]+direction[i]/norm*(5+95*t)-(.5*28*t*t if i==1 else 0) for i in range(3)]
+            self.assertLess(length(tuple(landed[i]-p['targetPosition'][i] for i in range(3))),.001)
+    def test_beam_never_falls_back_to_sky_lob(self):
+        for target in ([25,100,0],[320,5,0],[500,5,0]):
+            p=plan();p.update(beam95=True,plannedPower=95,lob=True,targetPosition=target)
+            self.assertEqual(editor().process_plain(payload(),p,1010),payload())
     def test_smart_fit_keeps_contested_throws_assisted(self):
         p=plan();p.update(smartFit=True,coverageKnown=True,catchers=[])
         self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())

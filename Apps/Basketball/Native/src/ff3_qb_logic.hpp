@@ -135,6 +135,7 @@ struct AngleTracker {
 struct Defender {Vec position,velocity;double speed=22,jumpHeight=7,diveReach=12;};
 struct Plan {Solution solution;Vec offset;double power=0,margin=0;bool coverageKnown=false,lob=false;};
 inline constexpr double catchSafetyMargin=.30;
+inline constexpr double beamMaxAngle=35.;
 // Reach estimates intentionally allow defenders to turn. Sample the catchable
 // portion of the whole flight, not just separation at the final catch point.
 inline double coverageMargin(const Solution& s,double gravity,const std::vector<Defender>& defenders,double latency){
@@ -188,9 +189,10 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  if(!std::isfinite(receiverJump)||receiverJump<0||receiverJump>40||!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)return best;
  const bool stationary=length(movement)<.5;if(stationary)movement={};
  const double jump=std::min(8.,receiverJump*.85);
+ auto scorePlan=[&](const Plan& p){return fitScore(p,fit)+(force95?p.offset.y*.35:0);};
  auto acceptable=[&](const Solution& s,Vec offset,double power){
-  if(!s.valid||s.angle<5||s.angle>75||offset.y<0||offset.y>jump+.001)return false;
-  if(power>=94.5&&offset.y<3)return false;
+  if(!s.valid||s.angle<(force95?-30:5)||s.angle>(force95?beamMaxAngle:75)||offset.y<0||offset.y>jump+.001)return false;
+  if(!force95&&power>=94.5&&offset.y<3)return false;
   if(stationary&&std::hypot(offset.x,offset.z)>.01)return false;
   if(offset.y>0){double riseTime=(std::sqrt(2*worldGravity*receiverJump)-std::sqrt(2*worldGravity*(receiverJump-offset.y)))/worldGravity;if(s.time<.15+riseTime)return false;}
   return true;
@@ -199,14 +201,14 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  // paths compete against alternatives with hysteresis to suppress tiny changes.
  // No interpolation or settling gap may turn a valid click into an unassisted one.
  if(previousPower>0){
-  auto held=force95?solve(origin,target+previousOffset,movement,95,gravity,latency,previousLob,5):solveAngle(origin,target+previousOffset,movement,previousAngle,gravity,latency,5);
-  if(!held.valid&&previousPower>=94.5)held=solve(origin,target+previousOffset,movement,95,gravity,latency,previousLob,5);
-  double power=length(held.velocity);
+  auto held=force95?solve(origin,target+previousOffset,movement,95,gravity,latency,false,5):solveAngle(origin,target+previousOffset,movement,previousAngle,gravity,latency,5);
+  if(!held.valid&&previousPower>=94.5)held=solve(origin,target+previousOffset,movement,95,gravity,latency,force95?false:previousLob,5);
+  double power=force95?95:std::min(95.,length(held.velocity));
   if(acceptable(held,previousOffset,power)){
    auto low=solve(origin,target+previousOffset,movement,power,gravity,latency,false,5);
    best={held,previousOffset,power,defenders.empty()?10:coverageMargin(held,gravity,defenders,latency),!defenders.empty(),!low.valid||std::abs(low.time-held.time)>.02};
-   if(!fit||defenders.empty()||best.margin>catchSafetyMargin)return best;
-   bestScore=fitScore(best,fit)+.8;
+   if(!force95&&(!fit||defenders.empty()||best.margin>catchSafetyMargin))return best;
+   bestScore=scorePlan(best)+.8;
   }
  }
  const Vec offsets[]={{},{3,0,0},{-3,0,0},{0,0,3},{0,0,-3},{4,0,4},{-4,0,4},{4,0,-4},{-4,0,-4}};
@@ -214,14 +216,15 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
   if(force95&&power!=95)continue;
   for(double height:{0.,jump*.65,jump}){
    // A 95-power pass explicitly asks for a jump catch, including stationary WRs.
-   if(power==95&&height<3)continue;
+   if(!force95&&power==95&&height<3)continue;
    if(power!=95&&height>0&&(!fit||defenders.empty()))continue;
    for(int i=0;i<(fit&&!stationary&&!defenders.empty()?9:1);++i)for(bool lob:{false,true}){
+    if(force95&&lob)continue; // Beam never switches to the high ballistic root.
     Vec offset=offsets[i]+Vec{0,height,0};auto s=solve(origin,target+offset,movement,power,gravity,latency,lob,5);
     if(!acceptable(s,offset,power))continue;
     const double margin=defenders.empty()?10:coverageMargin(s,gravity,defenders,latency);
     Plan candidate{s,offset,power,margin,!defenders.empty(),lob};
-    const double score=fitScore(candidate,fit);
+    const double score=scorePlan(candidate);
     if(score>bestScore){bestScore=score;best=candidate;}
    }
   }
