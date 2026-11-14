@@ -20,15 +20,15 @@ inline void renderHud(PumpSurface& surface,const ff3Native::Frame& f,bool presen
  text(g,L"QUARTERBACK",18,13,10,Color(255,151,174,212),true);
  text(g,basketballUi::widen(ff3qb::presetName(f.mode)),302,12,11,color,true,125);
  text(g,f.name.empty()?L"Find your receiver":basketballUi::widen(f.name),18,32,20,Color(255,239,245,255),true,265);
- text(g,!f.ready?L"WAITING":!f.coverageKnown?L"UNSCOUTED":f.margin>.15?L"OPEN ESTIMATE":L"CONTESTED",302,36,10,color,true,128);
+ text(g,!f.ready?L"WAITING":!f.coverageKnown?L"UNSCOUTED":f.coverageCount==0?L"NO OTHER CATCHERS":f.margin>.15?L"OPEN ESTIMATE":L"CONTESTED",302,36,10,color,true,128);
  const std::wstring values[]={f.ready?number(f.power):L"--",f.ready?number(f.solution.angle)+L" deg":L"--",f.ready?number(f.solution.time,2)+L" s":L"--",f.ready?number(f.distance)+L" st":L"--"};
  const wchar_t* labels[]={L"POWER / 95",L"ANGLE",L"FLIGHT",L"DISTANCE"};
  for(int i=0;i<4;i++){float x=18.f+106*i;text(g,labels[i],x,65,9,Color(255,133,151,181));text(g,values[i],x,79,19,i==0?color:Color(255,228,236,250),true,103);}
  Pen base(Color(80,151,180,255),3),bar(color,3);g.DrawLine(&base,18.f,112.f,428.f,112.f);if(f.ready)g.DrawLine(&bar,18.f,112.f,18.f+410.f*float(std::clamp(f.power/95.,0.,1.)),112.f);
- auto detail=f.ready?(basketballUi::widen(f.route)+L"  /  "+(f.coverageKnown?L"margin "+number(f.margin,2)+L"s":L"coverage unknown")):basketballUi::widen(f.reason);
+ auto detail=f.ready?(basketballUi::widen(f.route)+L" / "+basketballUi::widen(f.coverageDetail)):basketballUi::widen(f.reason);
  if(ff3Native::packetStatus){auto setup=ff3Native::packetStatus();if(!setup.first)detail=setup.second;}
  text(g,detail,18,122,11,Color(255,174,191,217),false,410);
- text(g,ff3Native::automaticAngle?L"AUTO ANGLE  /  Aim near a receiver, click to pass":ff3Native::autoPower?L"R  raise angle     F  lower angle  /  Power follows":L"GAME POWER  /  R and F control the game's power",18,142,10,Color(255,126,153,195),false,410);
+ text(g,(f.locked?L"Q  unlock":L"Q  lock")+std::wstring(L"    Z  pass type    R / F  angle")+(ff3Native::automaticAngle?L"    AUTO":L"    MANUAL"),18,142,10,Color(255,126,153,195),false,410);
  if(present)surface.present({f.origin.x+(f.client.right-width)/2,f.origin.y+f.client.bottom-height-28});
 }
 inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool present=true){
@@ -52,7 +52,7 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  if(f.ready)for(int i=0;i<4;i++){double t=std::fmod(phase+i*.25,1.);auto p=ff3qb::project(ff3qb::point(f.solution,f.gravity,f.solution.time*t),f.matrix,w,h);if(p.valid)g.FillEllipse(&dots,REAL(p.x)-2,REAL(p.y)-2,4.f,4.f);}
  const float rx=float(f.receiver.x),ry=float(f.receiver.y),r=17,len=7;
  for(int dx:{-1,1})for(int dy:{-1,1}){g.DrawLine(&shadow,rx+dx*r,ry+dy*r,rx+dx*(r-len),ry+dy*r);g.DrawLine(&shadow,rx+dx*r,ry+dy*r,rx+dx*r,ry+dy*(r-len));g.DrawLine(&line,rx+dx*r,ry+dy*r,rx+dx*(r-len),ry+dy*r);g.DrawLine(&line,rx+dx*r,ry+dy*r,rx+dx*r,ry+dy*(r-len));}
- rounded(g,{rx-105,ry-47,210,24},7,Color(225,10,18,32),Color(90,color.GetR(),color.GetG(),color.GetB()));text(g,basketballUi::widen(f.name),rx-96,ry-44,12,color,true,191);
+ rounded(g,{rx-105,ry-47,210,24},7,Color(225,10,18,32),Color(90,color.GetR(),color.GetG(),color.GetB()));text(g,(f.locked?L"[LOCK] ":L"")+basketballUi::widen(f.name),rx-96,ry-44,12,color,true,191);
  if(!points.empty()&&points.back().valid){float cx=float(points.back().x),cy=float(points.back().y);g.DrawEllipse(&shadow,cx-6,cy-6,12.f,12.f);g.DrawEllipse(&line,cx-6,cy-6,12.f,12.f);g.DrawLine(&line,cx-11,cy,cx+11,cy);g.DrawLine(&line,cx,cy-11,cx,cy+11);Pen lead(Color(130,color.GetR(),color.GetG(),color.GetB()),1);lead.SetDashStyle(DashStyleDash);g.DrawLine(&lead,rx,ry,cx,cy);}
  if(present)surface.present({f.origin.x+x,f.origin.y+y});
 }

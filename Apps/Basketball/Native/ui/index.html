@@ -535,6 +535,9 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   .mini-btn.busy svg { animation: spin .8s linear infinite; }
 
 
+
+  .qb-mode-card{display:grid;grid-template-columns:90px 1fr auto;align-items:center;gap:14px;margin-top:12px;padding:17px;border-radius:14px;border:1px solid #90b4ff55;background:linear-gradient(120deg,#7a9cff20,#7a9cff05)}
+  .qb-mode-card svg{width:90px;height:50px;fill:none;stroke:#aac4ff;stroke-width:2}.qb-mode-card b{display:block;font-size:19px;color:var(--text)}.qb-mode-card span{display:block;margin-top:5px;font-size:11px;color:var(--text-2)}.qb-mode-actions{display:flex;gap:6px}.qb-mode-actions button{padding:9px 12px;border:1px solid #a9c2ff44;background:#8aaaff15;border-radius:9px;color:var(--text);cursor:pointer}.qb-mode-actions button:hover{background:#8aaaff35}.qb-key-guide{display:flex;gap:20px;margin-top:12px;font-size:10px;color:var(--text-2)}.qb-key-guide kbd,.qb-mode-card kbd{border:1px solid #ffffff25;border-radius:4px;padding:2px 5px;font-family:inherit;font-size:10px;margin-right:4px}
   .qb-dashboard{margin:16px 18px 10px;padding:20px;border:1px solid #8cafff35;border-radius:18px;background:radial-gradient(ellipse at 100% 0,#648fff23,transparent 65%),#0b1224c9;color:#edf3ff}
   .qb-eyebrow{display:flex;justify-content:space-between;gap:12px;font-size:10px;letter-spacing:.15em;font-weight:700;color:#a9bfff}.qb-eyebrow span{letter-spacing:0;color:var(--text-2);font-weight:400}
   .qb-target{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0 3px}.qb-target strong{font-size:25px;letter-spacing:-.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1583,11 +1586,12 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       {id:'ff3_qb',name:'QB aim',meta:'Receiver lead · aim and power',icon:ICONS.launch,on:false,open:true,rows:[
         {type:'ff3status',id:'status',label:'Live throw plan'},
         {type:'choice',id:'preset',label:'Pass library',value:0,options:[[0,'Auto route'],[1,'Bullet'],[2,'Lob'],[3,'Mag'],[4,'Slant'],[5,'Touch']]},
-        {type:'switch',id:'autoangle',label:'Automatic angle',description:'Reads distance and route direction. Short passes stay low; deep routes gain loft.',value:true},
-        {type:'slider',id:'angle',label:'Manual angle · R / F',description:'Turn Automatic angle off. R raises the angle; F lowers it while holding a ball.',value:35,min:5,max:75,step:1,unit:'°'},
-        {type:'switch',id:'power',label:'Calculate power for the angle',description:'Recomputes continuously, up to 95. Off uses the game’s power and legacy arc.',value:true},
-        {type:'switch',id:'fit',label:'Smart fit',description:'Tests nearby catch points against estimated defender reach. May lead left, right or behind the route.',value:true},
-        {type:'slider',id:'radius',label:'Mouse selection radius',value:180,min:40,max:350,step:10,unit:' px'},
+        {type:'switch',id:'autoangle',label:'Automatic angle',description:'Tracks recent receiver movement and cuts, then smoothly adjusts the angle.',value:true},
+        {type:'slider',id:'angle',label:'Manual angle · R / F',description:'R / F switch to manual angle with calculated power. Z or a pass button restores preset control.',value:35,min:5,max:75,step:1,unit:'°'},
+        {type:'switch',id:'power',label:'Calculate power for the angle',description:'Recomputes continuously, up to 95. R/F automatically enable it.',value:true},
+        {type:'switch',id:'fit',label:'Smart fit',description:'Tests catch points against all other catchers, including bots, jump height and estimated dive reach. Contested means no exclusive opening was found.',value:true},
+        {type:'slider',id:'radius',label:'Mouse selection radius',value:260,min:40,max:700,step:10,unit:' px'},
+        {type:'slider',id:'dive',label:'Estimated dive reach',description:'Extra reach allowed to other catchers. Conservative estimate, not a measured game limit.',value:12,min:0,max:24,step:1,unit:' studs',advanced:true},
         {type:'switch',id:'visuals',label:'Trajectory, target and catch marker',value:true},
         {type:'switch',id:'hud',label:'In-game quarterback HUD',value:true},
         {type:'switch',id:'candidates',label:'Other receiver markers',value:true},
@@ -1960,12 +1964,16 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     </section>`;
   }
 
+  function ff3PassCardHTML(r){
+    const v=r.value,paths=['M8 36Q58 1 112 28','M8 36Q65 22 112 28','M8 36Q58 -24 112 28','M8 36Q62 -5 112 28','M8 36Q60 30 112 8','M8 36Q65 0 112 28'];
+    return `<div class="qb-mode-card"><svg viewBox="0 0 120 44" aria-hidden="true"><path d="${paths[v]}"/></svg><div><b>${esc(r.options[v][1])}</b><span>${['Reads recent motion and route cuts','Fast, low delivery','High, deep arc','Elevated touch','Quick crossing pass','Balanced air time'][v]}</span></div><div class="qb-mode-actions"><button data-key="ff3_qb.preset" data-choice="${(v+5)%6}" aria-label="Previous pass type">‹</button><button data-pass-next data-key="ff3_qb.preset" data-choice="${(v+1)%6}" aria-label="Next pass type">Next <kbd>Z</kbd></button></div></div><div class="qb-key-guide"><span><kbd>Q</kbd> Lock / unlock</span><span><kbd>R</kbd> Raise angle</span><span><kbd>F</kbd> Lower angle</span></div>`;
+  }
   function rowHTML(f, r, i) {
     const key = `${f.id}.${r.id}`;
     const open = (cls = '') => `<div class="row ${cls}" data-row="${key}" style="--i:${i}"><span class="row-label" title="${esc(r.hint||'')}">${esc(r.label)}${r.description?`<span class="row-description">${esc(r.description)}</span>`:''}</span>`;
     if(r.type==='moduleinfo')return `${open('row-wide')}<span style="max-width:340px;text-align:right;font-size:12px;color:var(--text-2);line-height:1.5">${esc(r.text)}</span></div>`;
     if(r.type==='ff3status')return `<div class="qb-dashboard" data-ff3-dashboard>${ff3Dashboard()}</div>`;
-    if(f.id==='ff3_qb'&&r.id==='preset')return `<div class="qb-library"><div class="qb-eyebrow">PASS LIBRARY <span>Choose your release</span></div><div class="qb-presets">${r.options.map(([v,l])=>`<button class="qb-preset ${v===r.value?'sel':''}" data-key="${key}" data-choice="${v}" aria-label="${l} pass"><svg viewBox="0 0 120 44" aria-hidden="true"><path class="qb-baseline" d="M8 36H112"/><path d="${['M8 36Q58 1 112 28','M8 36Q65 22 112 28','M8 36Q58 -24 112 28','M8 36Q62 -5 112 28','M8 36Q60 30 112 8','M8 36Q65 0 112 28'][v]}"/><circle cx="8" cy="36" r="3"/><circle cx="112" cy="${v===4?8:28}" r="3"/></svg><b>${l}</b><span>${['Adapts to the route','Fast, low delivery','High, deep arc','Elevated touch','Quick crossing pass','Balanced air time'][v]}</span></button>`).join('')}</div></div>`;
+    if(f.id==='ff3_qb'&&r.id==='preset')return `<div class="qb-library"><div class="qb-eyebrow">PASS MODE <span>Z cycles · Q locks receiver</span></div><div data-ff3-pass-card>${ff3PassCardHTML(r)}</div></div>`;
     if (r.type === 'slider') return `${open()}
         <div class="slider" tabindex="0" role="slider" aria-label="${esc(r.label)}" aria-valuemin="${r.min}" aria-valuemax="${r.max}" data-key="${key}">
           <div class="track"><div class="fill"></div>${r.zero ? `<span class="zero" style="left:${pct(r, 0)}%"></span>` : ''}</div>
@@ -2433,6 +2441,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     $$('[data-act="rowswitch"]').forEach(s => s.setAttribute('aria-checked', find(s.dataset.key).r.value));
     $$('.keycap').forEach(k => { const v = find(k.dataset.key).r.keys[+k.dataset.i]; if (k.classList.contains('listening')) return; k.textContent = v || 'None'; k.classList.toggle('empty', !v); });
     $$('.swatch').forEach(s => s.classList.toggle('sel', find(s.dataset.key).r.value === s.dataset.color));
+    $$('[data-ff3-pass-card]').forEach(n=>{const r=find('ff3_qb.preset').r;if(n.dataset.mode!==String(r.value)){n.innerHTML=ff3PassCardHTML(r);n.dataset.mode=String(r.value);}});
     $$('[data-choice]').forEach(b => b.classList.toggle('sel', String(find(b.dataset.key).r.value) === b.dataset.choice));
     renderCount(); updateNav(); updateHomeStats(); updateProfileBtn();
   }
@@ -2888,9 +2897,9 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   // Messages from the C++ host
   function ff3Dashboard(){
     const m=ff3Live,valid=!!m.ready,num=(x,d=0)=>Number.isFinite(x)?x.toFixed(d):'—';
-    const pressure=!valid?'WAITING':!m.coverageKnown?'UNSCOUTED':m.margin>.15?'OPEN ESTIMATE':'CONTESTED';
+    const pressure=!valid?'WAITING':!m.coverageKnown?'INCOMPLETE':m.coverageCount===0?'NO OTHER CATCHERS':m.margin>.15?'OPEN ESTIMATE':'CONTESTED';
     const metric=(label,value,unit)=>`<div class="qb-metric"><label>${label}</label><b>${valid?value:'—'}</b><small>${unit}</small></div>`;
-    return `<div class="qb-eyebrow">QUARTERBACK LAB <span>Live throw plan</span></div><div class="qb-target"><strong>${esc(m.target||'Find your receiver')}</strong><span class="qb-badge ${valid&&m.coverageKnown?(m.margin>.15?'open':'risk'):''}">${pressure}</span></div><div class="qb-route">${esc(m.preset||'Auto route')} · ${esc(m.route||'Aim near a teammate')} ${valid?'· '+num(m.distance)+' studs':''}</div><div class="qb-metrics">${metric('Power',num(m.power),' / 95')}${metric('Launch',num(m.angle),'°')}${metric('Flight',num(m.flight,2),'s')}${metric('Catch margin',m.coverageKnown?num(m.margin,2):'—',m.coverageKnown?'s':'unknown')}</div><div class="qb-power-track"><i style="width:${valid?clamp(m.power/95*100,0,100):0}%"></i></div><div class="qb-footer"><span class="${m.held?'live':''}">${m.held?'Ball equipped':'No ball equipped'}</span><span class="${m.wheel?'live':''}">${m.wheel?'Game power '+num(m.gamePower):m.held&&m.automaticPower?'Calculated power · wheel not needed':'Waiting for game power'}</span><span>Fit offset ${valid?num(m.fitOffset,1):'—'} studs</span></div><span class="qb-status" data-ff3-status>${esc(m.reason||'QB aim off')}</span>`;
+    return `<div class="qb-eyebrow">QUARTERBACK LAB <span>Live throw plan</span></div><div class="qb-target"><strong>${esc((m.locked?'🔒 ':'')+(m.target||'Find your receiver'))}</strong><span class="qb-badge ${valid&&m.coverageKnown?(m.margin>.15?'open':'risk'):''}">${pressure}</span></div><div class="qb-route">${esc(m.preset||'Auto route')} · ${esc(m.route||'Aim near a teammate')} ${valid?'· '+num(m.distance)+' studs':''}</div><div class="qb-metrics">${metric('Power',num(m.power),' / 95')}${metric('Launch',num(m.angle),'°')}${metric('Flight',num(m.flight,2),'s')}${metric('Catch margin',m.coverageKnown&&m.coverageCount>0?num(m.margin,2):'—',m.coverageKnown?(m.coverageCount>0?'s':'none seen'):'incomplete')}</div><div class="qb-power-track"><i style="width:${valid?clamp(m.power/95*100,0,100):0}%"></i></div><div class="qb-footer"><span class="${m.held?'live':''}">${m.held?'Ball equipped':'No ball equipped'}</span><span class="${m.wheel?'live':''}">${m.wheel?'Game power '+num(m.gamePower):m.held&&m.automaticPower?'Calculated power · wheel not needed':'Waiting for game power'}</span><span>${esc(m.coverageDetail||'Reading coverage')}</span><span>Fit ${valid?num(m.fitOffset,1):'—'} studs</span></div><span class="qb-status" data-ff3-status>${esc(m.reason||'QB aim off')}</span>`;
   }
   function ff3StatusText(){return (ff3Live.setup&&!ff3Live.transportReady?ff3Live.setup+' · ':'')+(ff3Live.lastAction?ff3Live.lastAction+' · ':'')+ff3Live.reason+(ff3Live.flight>0?` · ${Math.round(ff3Live.angle)}° · ${ff3Live.flight.toFixed(2)} s · power ${Number(ff3Live.power).toFixed(1)}`:'');}
   function onHostMessage(m) {
@@ -3592,7 +3601,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       check(!!$('[data-nav="ff3"]')&&!$('[data-nav="shooting"]')&&!$('[data-nav="defense"]'),'FF3 opens only its own module');
       check(!!$('#stack [data-fsw="ff3_qb"]')&&!!$('[data-ff3-status]'),'FF3 has QB controls and live throw status');
       $('[data-fsw="ff3_qb"]').click();check((await native()).ff3.ff3_qb.on,'QB toggle reaches FF3 state');
-      $('[data-key="ff3_qb.preset"][data-choice="2"]').click();check((await native()).ff3.ff3_qb.rows.preset===2,'Lob preset card reaches native state');
+      $('[data-pass-next]').click();await until(()=>find('ff3_qb.preset').r.value===1);$('[data-pass-next]').click();check((await native()).ff3.ff3_qb.rows.preset===2,'Lob preset card reaches native state');
       hostSend('setting',{key:'ff3_qb.angle',value:42});check((await native()).ff3.ff3_qb.rows.angle===42,'Angle control reaches native state');
       hostSend('setting',{key:'ff3_qb.autoangle',value:false});check(!(await native()).ff3.ff3_qb.rows.autoangle,'Manual angle mode reaches native state');
       hostSend('setting',{key:'ff3_qb.fit',value:true});check((await native()).ff3.ff3_qb.rows.fit,'Smart fit reaches native state');
@@ -3606,7 +3615,8 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       check((await hostAsk('testCapture',{name:'ff3'})).ok,'FF3 workspace captured');
       $('[data-row="ff3_qb.autoangle"]').scrollIntoView({block:'end'});await delay(300);
       check((await hostAsk('testCapture',{name:'ff3passes'})).ok,'Pass library captured');
-      check($$('.qb-preset').length===6,'All six pass presets render');
+      check(!!$('[data-ff3-pass-card]')&&$('[data-ff3-pass-card]').textContent.includes('Lob'),'Pass mode card and cycle button render');
+      const passButton=$('[data-pass-next]');syncDom();check(passButton===$('[data-pass-next]'),'Live settings refresh preserves the pass button');
       await hostAsk('testConnection',{scenario:'wrong'});await until(()=>BBS.reconnecting);
       check(!(await native()).ff3.ff3_qb.on,'Connection loss turns QB aim off');
       check(!(await hostAsk('workspace')).ok,'Unsupported game remains blocked after FF3');

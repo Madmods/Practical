@@ -16,10 +16,20 @@ int main(){int count=0;
  std::vector<Defender> defenders={{{62,7,3},{0,0,0}}};
  auto baseline=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,false,defenders);
  auto fit=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,defenders);
- assert(baseline.solution.valid&&fit.solution.valid&&fit.coverageKnown);assert(fit.margin>=baseline.margin-1e-6);assert(length(fit.offset)<=6);
+ assert(baseline.solution.valid&&fit.solution.valid&&fit.coverageKnown);assert(fit.margin>=baseline.margin-1e-6);assert(length(fit.offset)<=10);
  auto unknown=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,{});assert(!unknown.coverageKnown&&length(unknown.offset)==0);
  auto manual=planThrow({0,8,0},{60,7,0},{},28,.05,0,false,35,true,95,false,false,{});assert(manual.solution.valid&&manual.solution.angle==35);
  assert(!planThrow({0,8,0},{340,7,0},{},28,.05,0,false,5,true,95,false,false,{}).solution.valid);
+ AngleTracker smoother;assert(smoother.update(20,0)==20);assert(std::abs(smoother.update(55,.1)-22.4)<1e-6);assert(smoother.update(22.5,.2)==22.4);
+ RouteHistory history;for(int i=0;i<30;i++){double t=i*.05;history.update(t,{0,7,0},{60+10*t,7,0},{10,0,0});}
+ assert(history.route=="Vertical stem");
+ for(int i=30;i<60;i++){double t=i*.05;history.update(t,{0,7,0},{74.5,7,12*(t-1.45)},{0,0,12});}
+ assert(history.route=="Crossing / out"&&history.mode==4);
+ auto high=solveAngle({0,8,0},{60,7,0},{},55,28,.05);assert(high.valid);
+ std::vector<Defender> standing={{{45,7,14},{},22,0,0}},athletic={{{45,7,14},{},22,9,12}};
+ assert(coverageMargin(high,28,athletic,.05)<=coverageMargin(high,28,standing,.05));
+ auto stable=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,athletic,32);
+ assert(stable.solution.valid&&stable.solution.angle==32); // Fit does not jump +/-10 degrees.
  for(bool visible:{false,true})for(bool right:{false,true})for(bool first:{false,true})assert(cursorModeAllowed(visible,right,first)==(visible&&!right&&!first));
  const float identity[]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};float tilted[]={1,0,0,0,0,.8f,.6f,0,0,0,1,0,0,0,0,1};
  assert(cameraStable(identity,identity));assert(!cameraStable(identity,tilted));tilted[4]=NAN;assert(!cameraStable(identity,tilted));

@@ -25,11 +25,12 @@ First-session setup: enable QB aim before rejoining if prompted. Keep Vanta and 
 
 Enable QB aim in the Football Fusion 3 workspace. Equip a football, wait for a ready target, and click normally. Calculated power works without waiting for the wheel. Manual game-power mode requires a valid visible display; hidden copies left by an earlier ball are ignored.
 
-- Auto route adapts elevation to distance and route direction. Other presets are Bullet, Lob, Mag, Slant and Touch. Mag is an elevated touch preset; it does not expand catch range.
-- With Calculate power enabled, power is solved for the angle on each update, within the game's 1–95 range. Turn Automatic angle off to set a fixed elevation; R raises it and F lowers it while the game is focused and the ball is equipped.
-- With Calculate power off, the game's power and the advanced Direct/Lob setting determine the throw. R/F retain their normal game behavior.
-- Smart fit compares nearby catch points and estimated defender reach along the flight. Green is an estimated opening, amber is contested, and unscouted means no usable defender information. Predictions cannot guarantee a catch or prevent an interception.
-- The trajectory, receiver markers and HUD can be toggled separately. Mouse selection follows the receiver's projected body, with a small retention preference to reduce target switching.
+- Q locks or unlocks the selected receiver. Z cycles the pass mode; the pass card has previous/next buttons. Modes are Auto route, Bullet, Lob, Mag, Slant and Touch. Mag is an elevated touch preset; it does not expand catch range.
+- Auto route estimates the route from recent movement and sustained cuts, then smoothly adjusts elevation. This is an estimate, not knowledge of the receiver's intended play. Smart fit uses one elevation across catch-point candidates to avoid arc switching.
+- R raises the angle and F lowers it, switching to manual angle with calculated power. Power updates continuously within the game's 1–95 range; unreachable angles are reported. Cycling the pass mode restores automatic angle and calculated power. Hotkeys require the game to be focused and do not activate while typing.
+- With Calculate power off, the game's visible power and the advanced Direct/Lob setting determine the throw until a pass-mode or R/F action enables calculated power again.
+- Smart fit compares nearby catch points against all other active players and practice bots, allowing estimated running, jumping and diving reach along the flight. Dive reach is adjustable in Advanced. Green means an estimated opening, amber means contested, and incomplete means some catcher data could not be read. No other active catchers is reported separately. Predictions cannot guarantee a catch or prevent an interception.
+- The trajectory, receiver markers and HUD can be toggled separately. Mouse selection follows the projected body with a minimum hit area and retention preference. Receivers can be selected up to 1,000 studs away; actual throw range still depends on the ballistic solution and power limit.
 
 ## Validation and collaboration
 

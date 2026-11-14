@@ -82,41 +82,85 @@ inline const char* routeName(Vec origin,Vec target,Vec movement){
  return distance>90?"Deep route":"Short route";
 }
 inline double presetAngle(int mode,Vec origin,Vec target,Vec movement){
- double distance=length(target-origin);
  if(mode==1)return 12;if(mode==2)return 55;if(mode==3)return 38;if(mode==4)return 18;if(mode==5)return 32;
- auto route=std::string(routeName(origin,target,movement));
- if(route=="Crossing"||route=="Comeback")return distance>100?30:18;
- return distance>120?48:distance>65?32:15;
+ double d=length(target-origin);auto route=std::string(routeName(origin,target,movement));
+ double angle=14+34*std::clamp((d-35)/135.,0.,1.);
+ if(route=="Crossing"||route=="Comeback")angle=std::min(angle,18+12*std::clamp((d-60)/100.,0.,1.));
+ return angle;
 }
-struct Defender {Vec position,velocity;};
+struct RouteHistory {
+ struct Sample{double time;Vec position;};std::vector<Sample> samples;
+ Vec axis{1,0,0},movement{};std::string route="Reading route",pending;double pendingAt=0;int mode=5;
+ void reset(){*this={};}
+ void update(double time,Vec origin,Vec position,Vec velocity){
+  if(samples.empty()){axis=position-origin;axis.y=0;axis=axis*(1/std::max(1.,length(axis)));movement=velocity;}
+  if(!samples.empty()&&time-samples.back().time<.04)return;
+  if(!samples.empty()){double dt=time-samples.back().time;if(dt>.5){reset();update(time,origin,position,velocity);return;}auto measured=(position-samples.back().position)*(1/dt);measured.y=0;if(length(measured)<=40)velocity=velocity*.5+measured*.5;movement=movement*.65+velocity*.35;}
+  samples.push_back({time,position});while(samples.size()>2&&time-samples.front().time>1.2)samples.erase(samples.begin());
+  if(samples.size()<4)return;
+  double speed=std::hypot(movement.x,movement.z),forward=dot(movement,axis),side=std::abs(movement.x*axis.z-movement.z*axis.x),distance=length(position-origin);
+  std::string next;int selected=5;
+  if(speed<2){next="Stationary";selected=distance>120?2:1;}
+  else if(forward<-3){next="Comeback / curl";selected=1;}
+  else if(side>std::abs(forward)*1.7){next="Crossing / out";selected=4;}
+  else if(side>speed*.35){next="Slant / post";selected=4;}
+  else{next=distance>90?"Go / deep":"Vertical stem";selected=distance>100?2:5;}
+  if(next!=pending){pending=next;pendingAt=time;}
+  if(time-pendingAt>=.2){route=next;mode=selected;}
+ }
+ double angle(Vec origin,Vec target)const{
+  double angle=14+34*std::clamp((length(target-origin)-35)/135.,0.,1.);
+  if(route=="Comeback / curl")angle=std::min(angle,22.);
+  if(route=="Crossing / out"||route=="Slant / post")angle=std::min(angle,28.);
+  return angle;
+ }
+};
+struct AngleTracker {
+ bool initialized=false;double value=35,at=0;
+ double update(double desired,double time){
+  if(!initialized||time<at||time-at>.5){initialized=true;value=desired;}
+  else{double delta=desired-value;if(std::abs(delta)>.35)value+=std::clamp(delta,-24*std::max(0.,time-at),24*std::max(0.,time-at));}
+  at=time;return value;
+ }
+};
+struct Defender {Vec position,velocity;double speed=22,jumpHeight=7,diveReach=12;};
 struct Plan {Solution solution;Vec offset;double power=0,margin=0;bool coverageKnown=false;};
 // Reach estimates intentionally allow defenders to turn. Sample the catchable
 // portion of the whole flight, not just separation at the final catch point.
 inline double coverageMargin(const Solution& s,double gravity,const std::vector<Defender>& defenders,double latency){
- double margin=10;
- for(const auto& d:defenders)for(int i=1;i<=24;i++){
-  double t=s.time*i/24.;auto p=point(s,gravity,t);
-  if(std::abs(p.y-d.position.y)>7)continue;
+ double margin=10;const int steps=std::clamp(int(std::ceil(s.time/.04)),24,200);
+ for(const auto& d:defenders)for(int i=1;i<=steps;i++){
+  double t=s.time*i/steps;auto p=point(s,gravity,t);
+  // Conservative estimated envelope: a catcher can jump late in the flight
+  // and redirect a dive. These are reach estimates, not guaranteed game limits.
+  double rise=std::max(d.jumpHeight,std::max(0.,d.velocity.y*.2));
+  if(p.y>d.position.y+4+rise||p.y<d.position.y-8)continue;
   double distance=std::hypot(p.x-d.position.x,p.z-d.position.z);
-  double speed=std::clamp(std::hypot(d.velocity.x,d.velocity.z)+3.,20.,32.);
-  margin=std::min(margin,std::max(0.,distance-4.)/speed-t-latency);
+  double speed=std::clamp(std::max(d.speed,std::hypot(d.velocity.x,d.velocity.z)),16.,45.);
+  double dive=std::min(d.diveReach,std::max(0.,t-.1)*45);
+  margin=std::min(margin,std::max(0.,distance-4.-dive)/speed-t-latency);
  }return margin;
 }
-inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,int mode,bool automaticAngle,double manualAngle,bool automaticPower,double gamePower,bool lob,bool fit,const std::vector<Defender>& defenders){
+inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,int mode,bool automaticAngle,double manualAngle,bool automaticPower,double gamePower,bool lob,bool fit,const std::vector<Defender>& defenders,double preferredAngle=NAN,Vec previousOffset={}){
  Plan best;double bestScore=-1e9;
- const double desired=automaticAngle?presetAngle(mode,origin,target,movement):manualAngle;
- const Vec offsets[]={{},{3,0,0},{-3,0,0},{0,0,3},{0,0,-3},{4,0,4},{-4,0,4},{4,0,-4},{-4,0,-4}};
- for(int index=0;index<(fit&&!defenders.empty()?9:1);++index)for(int elevation=0;elevation<(fit&&automaticAngle&&automaticPower&&!defenders.empty()?3:1);++elevation){
+ const double desired=std::isfinite(preferredAngle)?preferredAngle:automaticAngle?presetAngle(mode,origin,target,movement):manualAngle;
+ double angle=std::clamp(desired,5.,75.);
+ // Resolve reach once for the receiver. Fit candidates share this elevation,
+ // so changing the preferred catch offset cannot switch the arc on each frame.
+ if(automaticPower&&automaticAngle&&!solveAngle(origin,target,movement,angle,gravity,latency).valid){
+  bool found=false;
+  for(int step=1;step<=70&&!found;step++)for(int sign:{1,-1}){double candidate=desired+sign*step;if(candidate<5||candidate>75)continue;if(solveAngle(origin,target,movement,candidate,gravity,latency).valid){angle=candidate;found=true;break;}}
+  if(!found)return best;
+ }
+ const Vec offsets[]={{},{3,0,0},{-3,0,0},{0,0,3},{0,0,-3},{4,0,4},{-4,0,4},{4,0,-4},{-4,0,-4},{9,0,0},{-9,0,0},{0,0,9},{0,0,-9}};
+ for(int index=0;index<(fit&&!defenders.empty()?13:1);++index){
   auto offset=offsets[index];Solution s;
-  const double angle=std::clamp(desired+(elevation==1?10:elevation==2?-10:0),5.,75.);
   if(automaticPower){
    s=solveAngle(origin,target+offset,movement,angle,gravity,latency);
-   // Automatic angle may trade elevation for reach; manual mode stays exact.
-   if(!s.valid&&automaticAngle)for(double a:{25.,35.,45.,55.,65.}){auto candidate=solveAngle(origin,target+offset,movement,a,gravity,latency);if(candidate.valid&&(!s.valid||std::abs(candidate.angle-desired)<std::abs(s.angle-desired)))s=candidate;}
   }else s=solve(origin,target+offset,movement,gamePower,gravity,latency,lob||mode==2);
-  if(!s.valid||length(offset)>std::min(6.,2.+s.time*3.))continue;
+  if(!s.valid||length(offset)>std::min(10.,4.+s.time*3.))continue;
   const double margin=defenders.empty()?0:coverageMargin(s,gravity,defenders,latency);
-  double score=(defenders.empty()?0:std::min(margin,1.5))*10-length(offset)*.12-s.time*.03-std::abs(s.angle-desired)*.012;
+  double score=(defenders.empty()?0:std::min(margin,1.5))*10-length(offset)*.12-length(offset-previousOffset)*.15-s.time*.03-std::abs(s.angle-desired)*.012;
   if(score>bestScore){bestScore=score;best={s,offset,length(s.velocity),margin,!defenders.empty()};}
  }return best;
 }
@@ -131,7 +175,7 @@ inline Screen project(Vec p,const float* m,int width,int height){
  if(!finite(p)||width<100||height<100)return {};
  const double w=m[12]*p.x+m[13]*p.y+m[14]*p.z+m[15];if(!std::isfinite(w)||w<.01)return {};
  const double x=(m[0]*p.x+m[1]*p.y+m[2]*p.z+m[3])/w,y=(m[4]*p.x+m[5]*p.y+m[6]*p.z+m[7])/w;
- if(!std::isfinite(x)||!std::isfinite(y)||std::abs(x)>.98||std::abs(y)>.98)return {};
+ if(!std::isfinite(x)||!std::isfinite(y)||std::abs(x)>1.02||std::abs(y)>1.02)return {};
  return {(x+1)*width*.5,(1-y)*height*.5,true};
 }
 struct ClickGate {
