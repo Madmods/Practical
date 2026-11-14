@@ -70,24 +70,13 @@ struct Reader {
   }
   f.held=f.tool&&defense::classOf(h,f.tool)=="Tool"&&descendant(h,f.tool,f.own)&&descendant(h,ball,f.tool);
   if(!f.held){f.reason="Equip a football";return f;}
-  const auto gravity=path(h,ball,{"Configuration","Gravity"});
-  f.gravity=-rd<double>(h,gravity+Offsets::Misc::Value,NAN);
-  if(!gravity||defense::classOf(h,gravity)!="NumberValue"||!std::isfinite(f.gravity)||f.gravity<1||f.gravity>300){f.reason="Ball physics unavailable";return f;}
-  for(auto gui:children(h,child(h,player,"PlayerGui")))if(nm(h,gui)=="BallGui"&&rd<unsigned char>(h,gui+Offsets::GuiObject::ScreenGui_Enabled)==1){
-   auto frame=child(h,gui,"Frame0"),display=child(h,frame,"Disp");auto text=defense::textAt(h,display+Offsets::GuiObject::Text);
-   int value=ff3qb::visiblePower(1,rd<unsigned char>(h,frame+Offsets::GuiObject::Visible),text);
-   if(value<0){f.reason="Visible throw power is invalid";return f;}if(!value)continue;
-   if(f.power&&f.power!=value){f.reason="Power displays disagree";return f;}f.power=value;
-  }
-  if(!f.power){f.reason="Waiting for visible throw power";return f;}
-  f.gamePower=f.power;f.wheelVisible=true;f.mode=passMode;
-  auto ping=path(h,root,{"Stats","PerformanceStats","Ping"});double pingValue=rd<double>(h,ping+0x98,NAN);
-  if(!std::isfinite(pingValue)||pingValue<1||pingValue>400){f.reason="Waiting for usable ping";return f;}f.ping=pingValue;
   f.window=GetForegroundWindow();if(!focused(f.pid)){f.reason="Focus Football Fusion 3";return f;}
   if(!GetClientRect(f.window,&f.client)||!ClientToScreen(f.window,&f.origin)||!GetCursorPos(&f.cursor)){f.reason="Waiting for viewport";return f;}
   const int width=f.client.right,height=f.client.bottom;
   auto camera=rd<addr>(h,ws+Offsets::Workspace::CurrentCamera);Vec cameraPosition=vector(rd<shooting::Vec>(h,camera+Offsets::Camera::Position,{NAN,NAN,NAN}));
   if(!packetMode&&(!freeCursor()||rd<int>(h,player+Offsets::Player::CameraMode,-1)!=0||ff3qb::length(cameraPosition-position(h,head))<2.0)){f.reason="Use third-person with shift-lock off; release right mouse";return f;}
+  CURSORINFO cursorState{sizeof cursorState};
+  if(packetMode&&GetCursorInfo(&cursorState)&&!(cursorState.flags&CURSOR_SHOWING))f.cursor={f.origin.x+width/2,f.origin.y+height/2};
   if(f.cursor.x<f.origin.x||f.cursor.y<f.origin.y||f.cursor.x>=f.origin.x+width||f.cursor.y>=f.origin.y+height){f.reason="Move the cursor into the game";return f;}
   auto mouseService=child(h,root,"MouseService"),mouseInput=rd<addr>(h,mouseService+Offsets::MouseService::InputObject);
   f.gameMouse=vector(rd<shooting::Vec>(h,mouseInput+Offsets::MouseService::MousePosition,{NAN,NAN,NAN}));
@@ -100,7 +89,7 @@ struct Reader {
   if(!ff3qb::finite(cameraPosition)||!visual||!std::all_of(std::begin(f.matrix),std::end(f.matrix),[](float v){return std::isfinite(v);})){f.reason="Camera data unavailable";return f;}
   const auto ownTeam=rd<addr>(h,player+Offsets::Player::Team);const bool practicePlace=session.placeId==81310542478972ULL;
   if(model!=root||f.at-scanAt>.25){
-   actors.clear();model=root;scanAt=f.at;
+   actors.clear();if(model!=root)retained=0;model=root;scanAt=f.at;
    for(auto p:children(h,players)){auto rig=rd<addr>(h,p+Offsets::Player::ModelInstance);if(p!=player&&rig)actors.push_back({rig,p,rd<addr>(h,p+Offsets::Player::Team),false});}
    if(practicePlace)for(auto group:children(h,child(h,ws,"npcwr")))for(auto rig:children(h,group))if(defense::classOf(h,rig)=="Model"&&child(h,rig,"WR"))actors.push_back({rig,0,0,true});
   }
@@ -119,7 +108,7 @@ struct Reader {
    else if(!practice||!practicePlace||rd<addr>(h,a.player+Offsets::Player::Team)!=0)continue;
    auto hrp=child(h,a.rig,"HumanoidRootPart"),targetHum=child(h,a.rig,"Humanoid");auto hp=rd<float>(h,targetHum+Offsets::Humanoid::Health,NAN);
    if(!std::isfinite(hp)||hp<=0||!hrp)continue;
-   Vec p=position(h,hrp)+Vec{0,1.5,0},v=velocity(h,hrp);if(!ff3qb::finite(p)||!ff3qb::finite(v)||ff3qb::length(v)>40||std::abs(v.y)>8)continue;v.y=0;
+   Vec p=position(h,hrp)+Vec{0,1.5,0},v=velocity(h,hrp);if(!ff3qb::finite(p)||!ff3qb::finite(v)||std::hypot(v.x,v.z)>40)continue;v.y=0;
    auto screen=ff3qb::project(p,f.matrix,width,height);if(!screen.valid)continue;
    auto top=ff3qb::project(p+Vec{0,2,0},f.matrix,width,height),bottom=ff3qb::project(p-Vec{0,3,0},f.matrix,width,height);
    double distance=top.valid&&bottom.valid?ff3qb::selectionDistance(f.cursor.x-f.origin.x,f.cursor.y-f.origin.y,bottom.x,bottom.y,top.x,top.y,std::clamp(std::abs(top.y-bottom.y)*.3,7.,26.),a.rig==retained):std::hypot(screen.x-(f.cursor.x-f.origin.x),screen.y-(f.cursor.y-f.origin.y));
@@ -131,6 +120,20 @@ struct Reader {
   if(!f.target){retained=0;f.reason="Aim near a teammate or practice receiver";return f;}
   retained=f.target;for(auto& c:f.candidates)c.selected=c.screen.x==f.receiver.x&&c.screen.y==f.receiver.y;
   f.targetPosition=targetPosition;f.targetVelocity=targetVelocity;
+  const auto gravity=path(h,ball,{"Configuration","Gravity"});
+  f.gravity=-rd<double>(h,gravity+Offsets::Misc::Value,NAN);
+  if(!gravity||defense::classOf(h,gravity)!="NumberValue"||!std::isfinite(f.gravity)||f.gravity<1||f.gravity>300){f.reason="Ball physics unavailable";return f;}
+  for(auto gui:children(h,child(h,player,"PlayerGui")))if(nm(h,gui)=="BallGui"&&rd<unsigned char>(h,gui+Offsets::GuiObject::ScreenGui_Enabled)==1){
+   auto frame=child(h,gui,"Frame0"),display=child(h,frame,"Disp");auto text=defense::textAt(h,display+Offsets::GuiObject::Text);
+   int value=ff3qb::visiblePower(1,rd<unsigned char>(h,frame+Offsets::GuiObject::Visible),text);
+   if(value<0){f.reason="Visible throw power is invalid";return f;}if(!value)continue;
+   if(f.power&&f.power!=value){f.reason="Power displays disagree";return f;}f.power=value;
+  }
+  if(!f.power){f.reason="Waiting for visible throw power";return f;}
+  f.gamePower=f.power;f.wheelVisible=true;f.mode=passMode;
+  auto ping=path(h,root,{"Stats","PerformanceStats","Ping"});double pingValue=rd<double>(h,ping+0x98,NAN);
+  if(!std::isfinite(pingValue)||pingValue<1||pingValue>400){f.reason="Waiting for usable ping";return f;}f.ping=pingValue;
+
   // Normal throws spawn forward of the head. Iterate the direction-dependent
   // offset rather than using a hand position displaced by the animation.
   Vec launch=origin;ff3qb::Solution solution;ff3qb::Plan planned;
@@ -183,7 +186,7 @@ inline LRESULT CALLBACK keyboardProc(int n,WPARAM w,LPARAM l){
 }
 inline bool install(){if(!mouse)mouse=SetWindowsHookExW(WH_MOUSE_LL,mouseProc,GetModuleHandleW(nullptr),0);if(!keyboard)keyboard=SetWindowsHookExW(WH_KEYBOARD_LL,keyboardProc,GetModuleHandleW(nullptr),0);return mouse&&keyboard;}
 inline void uninstall(){if(mouse)UnhookWindowsHookEx(mouse);if(keyboard)UnhookWindowsHookEx(keyboard);mouse=keyboard=nullptr;angleKeyOwned[0]=angleKeyOwned[1]=false;std::lock_guard<std::mutex> lock(mutex);clicks={};requested={};}
-inline void stop(){enabled=false;++revision;physicalClickAt=0;{std::lock_guard<std::mutex> lock(mutex);clicks.cancel();current={};current.reason="QB aim off";}if(packetStop)packetStop();}
+inline void stop(bool stopTransport=true){enabled=false;++revision;physicalClickAt=0;{std::lock_guard<std::mutex> lock(mutex);clicks.cancel();current={};current.reason="QB aim off";}if(stopTransport&&packetStop)packetStop();}
 inline bool moveTo(POINT point){const int x=GetSystemMetrics(SM_XVIRTUALSCREEN),y=GetSystemMetrics(SM_YVIRTUALSCREEN),w=GetSystemMetrics(SM_CXVIRTUALSCREEN),h=GetSystemMetrics(SM_CYVIRTUALSCREEN);if(w<2||h<2)return false;INPUT in{};in.type=INPUT_MOUSE;in.mi.dwFlags=MOUSEEVENTF_MOVE|MOUSEEVENTF_ABSOLUTE|MOUSEEVENTF_VIRTUALDESK;in.mi.dx=LONG(std::lround((point.x-x)*65535./(w-1)));in.mi.dy=LONG(std::lround((point.y-y)*65535./(h-1)));return SendInput(1,&in,sizeof in)==1;}
 inline void tapPower(){INPUT in[2]{};in[0].type=in[1].type=INPUT_KEYBOARD;in[0].ki.wVk=in[1].ki.wVk='R';in[1].ki.dwFlags=KEYEVENTF_KEYUP;if(SendInput(2,in,sizeof(INPUT))==1)SendInput(1,&in[1],sizeof(INPUT));}
 inline void worker(){
@@ -242,7 +245,7 @@ inline bool set(const std::wstring& key,const json::Value& v){
  if(key==L"ff3_qb"){enabled=v.b;++revision;if(!v.b)stop();else{std::lock_guard<std::mutex> lock(mutex);current={};current.reason="Waiting for game data";}return true;}
  if(key==L"ff3_qb.autoangle")automaticAngle=v.b;else if(key==L"ff3_qb.fit")smartFit=v.b;else if(key==L"ff3_qb.hud")showHud=v.b;else if(key==L"ff3_qb.candidates")showCandidates=v.b;else if(key==L"ff3_qb.power")autoPower=v.b;else if(key==L"ff3_qb.practice")practice=v.b;else if(key==L"ff3_qb.visuals")visuals=v.b;else return false;++revision;return true;
 }
-inline json::Value report(){using namespace basketballUi;auto f=snapshot();auto out=object();out.o[L"type"]=string(L"ff3Live");out.o[L"modules"]=modules();out.o[L"reason"]=string(widen(f.reason));if(enabled&&packetMode&&packetStatus){const auto state=packetStatus();if(!state.first)out.o[L"reason"]=string(state.second);}out.o[L"target"]=string(widen(f.name));out.o[L"power"]=number(f.power);out.o[L"gamePower"]=number(f.gamePower);out.o[L"held"]=basketballUi::boolean(f.held);out.o[L"wheel"]=basketballUi::boolean(f.wheelVisible);out.o[L"ready"]=basketballUi::boolean(f.ready);out.o[L"route"]=string(widen(f.route));out.o[L"preset"]=string(widen(ff3qb::presetName(f.mode)));out.o[L"distance"]=number(f.distance);out.o[L"coverageKnown"]=basketballUi::boolean(f.coverageKnown);out.o[L"margin"]=number(f.margin);out.o[L"fitOffset"]=number(ff3qb::length(f.fitOffset));out.o[L"angle"]=number(f.solution.angle);out.o[L"flight"]=number(f.solution.time);{std::lock_guard<std::mutex> lock(mutex);out.o[L"lastAction"]=string(now()-actionAt<3?widen(lastAction):L"");out.o[L"throws"]=number(throwCount);}return out;}
+inline json::Value report(){using namespace basketballUi;auto f=snapshot();auto out=object();out.o[L"type"]=string(L"ff3Live");out.o[L"modules"]=modules();out.o[L"reason"]=string(widen(f.reason));if(enabled&&packetMode&&packetStatus){const auto state=packetStatus();out.o[L"setup"]=string(state.second);out.o[L"transportReady"]=basketballUi::boolean(state.first);}out.o[L"target"]=string(widen(f.name));out.o[L"power"]=number(f.power);out.o[L"gamePower"]=number(f.gamePower);out.o[L"held"]=basketballUi::boolean(f.held);out.o[L"wheel"]=basketballUi::boolean(f.wheelVisible);out.o[L"ready"]=basketballUi::boolean(f.ready);out.o[L"route"]=string(widen(f.route));out.o[L"preset"]=string(widen(ff3qb::presetName(f.mode)));out.o[L"distance"]=number(f.distance);out.o[L"coverageKnown"]=basketballUi::boolean(f.coverageKnown);out.o[L"margin"]=number(f.margin);out.o[L"fitOffset"]=number(ff3qb::length(f.fitOffset));out.o[L"angle"]=number(f.solution.angle);out.o[L"flight"]=number(f.solution.time);{std::lock_guard<std::mutex> lock(mutex);out.o[L"lastAction"]=string(now()-actionAt<3?widen(lastAction):L"");out.o[L"throws"]=number(throwCount);}return out;}
 inline void load(const std::filesystem::path& file){auto cfg=basketballUi::readConfig(file);for(auto key:{L"arc",L"power",L"practice",L"visuals",L"preset",L"angle",L"radius",L"autoangle",L"fit",L"hud",L"candidates"})if(cfg[key].type!=json::Value::Null)set(L"ff3_qb."+std::wstring(key),cfg[key]);enabled=false;}
 inline bool save(const std::filesystem::path& file){auto data=modules()[L"ff3_qb"][L"rows"];auto temp=file;temp+=L".tmp";{std::ofstream out(temp,std::ios::binary);out<<winrt::to_string(json::dump(data));out.flush();if(!out)return false;}return MoveFileExW(temp.c_str(),file.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE;}
 }

@@ -21,6 +21,8 @@ The Roblox offsets and protocol schema are version dependent. The current offset
 
 ## Quarterback controls
 
+First-session setup: enable QB aim before rejoining if prompted. Keep Vanta and the Roblox process open. The bounded setup listener can continue across reconnection, refresh connection keys, and save the validated schema. After the game loads, press Continue and enable QB aim again. Turning QB aim off explicitly or closing Vanta stops setup. Setup expires after two minutes.
+
 Enable QB aim in the Football Fusion 3 workspace. Equip a football, wait for a visible power wheel and a ready target, and click normally.
 
 - Auto route adapts elevation to distance and route direction. Other presets are Bullet, Lob, Mag, Slant and Touch. Mag is an elevated touch preset; it does not expand catch range.

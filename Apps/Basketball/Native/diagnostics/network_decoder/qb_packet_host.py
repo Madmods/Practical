@@ -66,19 +66,21 @@ def row(raw,index):
 
 def run(folder,pid,parent,seconds=None):
     from network_decoder_host import publish
-    folder.mkdir(parents=True,exist_ok=True);state_path=folder/'state.json';stop=folder/'stop';plan_path=folder/'plan.json'
+    folder.mkdir(parents=True,exist_ok=True);state_path=folder/'state.json';stop=folder/'stop';plan_path=folder/'plan.json';setup_only=folder/'setup-only';cache_path=folder.parent/'schema-cache.json'
     kernel=ctypes.windll.kernel32;kernel.GetTickCount64.restype=ctypes.c_ulonglong
     kernel.OpenProcess.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_ulong];kernel.OpenProcess.restype=ctypes.c_void_p
     kernel.WaitForSingleObject.argtypes=[ctypes.c_void_p,ctypes.c_ulong];kernel.CloseHandle.argtypes=[ctypes.c_void_p]
     parent_handle=kernel.OpenProcess(0x100000,False,parent) if parent else None
     owner=network_schema_cache.identity(pid);keys=[];live=LiveDecoder(keys,network_schema_cache.load(folder.parent/'schema-cache.json',owner,max_age=None))
     driver=None;handles=[];ending=threading.Event();scan_done=threading.Event();scan_result={};editor=None;mode='Preparing';error='';seen=0;started=time.monotonic();draining=None;last_edit=0;pending={};acked=set();last_publish=0;last_plan=0;plan={};flow=None;out_context=None;in_context=None
+    scan_rounds=0;scan_groups=set();last_scan=0
     def status(message,ready=False):
-        publish(state_path,dict(capture=mode,decoder=message,status=message,calls=[],ready=ready,error=error,stats=dict(editor.stats) if editor else {},last=editor.last if editor else None,keysWritten=False))
-    def wants_stop():return stop.exists() or (parent_handle and kernel.WaitForSingleObject(parent_handle,0)==0) or (seconds is not None and time.monotonic()-started>=seconds)
+        publish(state_path,dict(capture=mode,decoder=message,status=message,calls=[],ready=ready,error=error,stats={**dict(live.counts),**(dict(editor.stats) if editor else {}),'observedPackets':seen,'scanRounds':scan_rounds},last=editor.last if editor else None,keysWritten=False))
+    def wants_stop():return stop.exists() or (mode!='Preparing' and setup_only.exists()) or (parent_handle and kernel.WaitForSingleObject(parent_handle,0)==0) or (seconds is not None and time.monotonic()-started>=seconds)
     def scan():
         try:
-            found,stats=candidates(pid,10000,stop_path=stop);keys.extend(found);found.clear();scan_result.update(stats)
+            found,stats=candidates(pid,10000,stop_path=stop);keys.extend(k for k in found if k not in keys);found.clear();scan_result.update(stats)
+        except Exception as exc:scan_result['error']=str(exc)
         finally:scan_done.set()
     scan_thread=None;watcher=None;active_handle=[None]
     def watch():
@@ -86,14 +88,14 @@ def run(folder,pid,parent,seconds=None):
         while not ending.wait(.1):
             if mode=='Running' and wants_stop():mode='Draining';draining=time.monotonic()
             drained=mode=='Draining' and draining is not None and ((not pending or all(clicked in acked for clicked in list(pending.values()))) and time.monotonic()-last_edit>=2 or time.monotonic()-draining>10)
-            if active_handle[0] and ((mode=='Preparing' and (wants_stop() or time.monotonic()-started>60)) or drained):
+            if active_handle[0] and ((mode=='Preparing' and (wants_stop() or time.monotonic()-started>120)) or drained):
                 driver.shutdown(active_handle[0]);return
     try:
         if not owner or (parent and not parent_handle):raise RuntimeError('QB game or app process is unavailable')
         driver=Driver();warm=driver.open(GAME_FILTER,True);handles.append(warm);active_handle[0]=warm;status('Preparing QB throw control')
-        scan_thread=threading.Thread(target=scan);scan_thread.start();watcher=threading.Thread(target=watch);watcher.start()
+        scan_rounds=1;last_scan=time.monotonic();scan_thread=threading.Thread(target=scan);scan_thread.start();watcher=threading.Thread(target=watch);watcher.start()
         observed=[];owned=ports(pid);last_ports=time.monotonic();last_decode=0
-        while not wants_stop() and time.monotonic()-started<60:
+        while not wants_stop() and time.monotonic()-started<120:
             received=driver.recv(warm)
             if received is None:break
             raw,_=received;seen+=1;r=row(raw,seen)
@@ -102,6 +104,9 @@ def run(folder,pid,parent,seconds=None):
             if r['connection'][0][1] not in owned:continue
             observed.append(r)
             if len(observed)>20000:raise RuntimeError('QB warm-up packet budget reached; retry setup')
+            signature=(r['connection'],r['cid'])
+            if scan_done.is_set() and signature not in scan_groups and scan_rounds<3 and time.monotonic()-last_scan>10:
+                scan_thread.join();scan_groups={(item['connection'],item['cid']) for item in observed};scan_done.clear();scan_result.clear();scan_rounds+=1;last_scan=time.monotonic();scan_thread=threading.Thread(target=scan);scan_thread.start()
             if scan_done.is_set() and time.monotonic()-last_decode>.5:
                 if scan_result.get('error'):raise RuntimeError('QB transport keys are unavailable for this client')
                 live.ingest(observed);last_decode=time.monotonic()
@@ -109,10 +114,14 @@ def run(folder,pid,parent,seconds=None):
                     if group[1]=='outgoing' and state['context'] and group[0] in live.schemas:
                         incoming=next((s['context'] for g,s in live.groups.items() if g[0]==group[0] and g[1]=='incoming' and s['context']),None)
                         if incoming:flow=group[0];out_context=state['context'];in_context=incoming;break
-                if flow:break
+                if flow:
+                    network_schema_cache.save(cache_path,owner,live)
+                    break
                 status('Rejoin once to finish QB setup' if live.counts['authenticatedPackets'] else 'Preparing QB transport keys')
         if not flow:
-            mode='Stopped';status('QB setup stopped' if wants_stop() else 'QB setup needs a fresh join');return 1
+            mode='Stopped';status('QB setup stopped' if wants_stop() else 'Setup timed out. Enable QB aim before rejoining; wait for setup to finish');return 1
+        if setup_only.exists():
+            mode='Stopped';status('Join setup saved. Enable QB aim in Football Fusion 3');return 0
         editor=Editor(live.schemas[flow])
         def process_warm(r):
             if r['connection']!=flow:return

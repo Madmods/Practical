@@ -79,7 +79,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
    if(!test&&!hooks){hooks=installInput();if(!hooks){uninstallInput();gameModules::router.close();error(L"Input setup failed. Restart the app to retry.");return false;}}
   }else{
    if(hooks){uninstallInput();hooks=false;}
-   ff3Native::stop();
+   ff3Native::stop(false);
    if(!test&&!ff3Native::install()){gameModules::router.close();error(L"Football input setup failed. Restart the app to retry.");return false;}
   }
   ui.MenuKeys(VK_INSERT);workspaceEntered=true;sessionUnlocked=!test&&selected==gameModules::Id::Basketball;
@@ -88,7 +88,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
  };
  cb.signedOut=[&](){inspector.reset();authenticated=false;workspaceEntered=false;sessionUnlocked=false;gameModules::router.close();basketballUi::stop();ff3Native::stop();ff3Native::uninstall();ui.MenuKeys(0);if(hooks){uninstallInput();hooks=false;}publish();};
  cb.custom=[&](const std::wstring& type,const json::Value& msg){
-  if(type==L"connectionNotice"){workspaceEntered=false;sessionUnlocked=false;gameModules::router.close();ff3Native::stop();ff3Native::uninstall();return;}
+  if(type==L"connectionNotice"){if(!test)qbPackets.suspendForRejoin();workspaceEntered=false;sessionUnlocked=false;gameModules::router.close();ff3Native::stop(false);ff3Native::uninstall();return;}
   if(test&&type==L"testConnection"){
    const auto fixture=msg[L"scenario"].str();testFixture=fixture==L"ready"?1:fixture==L"wrong"?2:fixture==L"meter"?3:fixture==L"outdated"?4:fixture==L"ff3"?5:0;
    // Invalidate immediately so even a click before the next UI status cannot pass.
@@ -186,7 +186,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
   auto release=vantaRelease::get();if(test&&testFixture==4)release={false,L"Update needed",L"A newer local Vanta build is available."};
   basketballConnection::releaseCurrent=release.current;
   const auto connection=gameModules::router.get();if(!test)inspector.observe(connection.pid,connection.model,connection.universeId);const bool ready=gameModules::ready(connection,now())&&release.current;
-  if(gameModules::router.active(now(),release.current)==gameModules::Id::None&&workspaceEntered.exchange(false)){sessionUnlocked=false;ff3Native::stop();}
+  if(gameModules::router.active(now(),release.current)==gameModules::Id::None&&workspaceEntered.exchange(false)){sessionUnlocked=false;if(!test)qbPackets.suspendForRejoin();ff3Native::stop(false);}
   ui.Post(json::dump(gameModuleUi::connection(connection,workspaceEntered,release)));
   if(ready&&basketballConnection::targetGame(connection)&&livePing)ui.SetPing(pingMs);
   if(gameModules::router.active(now(),release.current)==gameModules::Id::FootballFusion3){ui.Post(json::dump(ff3Native::report()));const auto f=ff3Native::snapshot();if(f.ping>0&&now()-f.at<.3)ui.SetPing(int(std::lround(f.ping)));}
