@@ -27,7 +27,7 @@ class Driver:
         error=ctypes.c_char_p();position=ctypes.c_uint()
         return bool(self.dll.WinDivertHelperCompileFilter(filter.encode('ascii'),0,None,0,ctypes.byref(error),ctypes.byref(position)))
     def open(self,filter,sniff=False):
-        handle=self.dll.WinDivertOpen(filter.encode('ascii'),0,1000,5 if sniff else 0)
+        handle=self.dll.WinDivertOpen(filter.encode('ascii'),0,1100 if sniff else 1000,5 if sniff else 0)
         if handle in (None,ctypes.c_void_p(-1).value):raise OSError(ctypes.get_last_error(),'Cannot open QB transport')
         return handle
     def recv(self,handle):
@@ -64,6 +64,22 @@ def row(raw,index):
     outgoing=wrapper==31;source=socket.inet_ntoa(raw[12:16]);destination=socket.inet_ntoa(raw[16:20]);local=(source,source_port) if outgoing else (destination,destination_port);server=(destination,destination_port) if outgoing else (source,source_port)
     return dict(frame=index,time=time.time(),payload=payload,direction='outgoing' if outgoing else 'incoming',connection=(local,server),cid=payload[wrapper+1:wrapper+21],udp_offset=ihl+8)
 
+def current_flow(live,observed,owned):
+    # Rejoins retain old authenticated groups. Choose only the newest observed
+    # connection on a socket still owned by this process, with both current CIDs.
+    recent=[r for r in observed[-512:] if r['connection'][0][1] in owned]
+    if not recent:return None
+    connection=recent[-1]['connection']
+    if connection not in live.schemas:return None
+    contexts=[]
+    for direction in ('outgoing','incoming'):
+        latest=next((r for r in reversed(recent) if r['connection']==connection and r['direction']==direction),None)
+        if latest is None:return None
+        state=live.groups.get((connection,direction,latest['cid']))
+        if not state or not state['context']:return None
+        contexts.append(state['context'])
+    return connection,*contexts
+
 def run(folder,pid,parent,seconds=None):
     from network_decoder_host import publish
     folder.mkdir(parents=True,exist_ok=True);state_path=folder/'state.json';stop=folder/'stop';plan_path=folder/'plan.json';setup_only=folder/'setup-only';cache_path=folder.parent/'schema-cache.json'
@@ -73,9 +89,9 @@ def run(folder,pid,parent,seconds=None):
     parent_handle=kernel.OpenProcess(0x100000,False,parent) if parent else None
     owner=network_schema_cache.identity(pid);keys=[];live=LiveDecoder(keys,network_schema_cache.load(folder.parent/'schema-cache.json',owner,max_age=None))
     driver=None;handles=[];ending=threading.Event();scan_done=threading.Event();scan_result={};editor=None;mode='Preparing';error='';seen=0;started=time.monotonic();draining=None;last_edit=0;pending={};acked=set();last_publish=0;last_plan=0;plan={};flow=None;out_context=None;in_context=None
-    scan_rounds=0;scan_groups=set();last_scan=0
+    scan_rounds=0;scan_groups=set();last_scan=0;last_receive=0;last_port_check=0
     def status(message,ready=False):
-        publish(state_path,dict(capture=mode,decoder=message,status=message,calls=[],ready=ready,error=error,stats={**dict(live.counts),**(dict(editor.stats) if editor else {}),'observedPackets':seen,'scanRounds':scan_rounds},last=editor.last if editor else None,keysWritten=False))
+        publish(state_path,dict(capture=mode,decoder=message,status=message,calls=[],ready=ready,error=error,stats={**dict(live.counts),**(dict(editor.stats) if editor else {}),'observedPackets':seen,'scanRounds':scan_rounds},last=editor.last if editor else None,heartbeat=int(kernel.GetTickCount64()),localPort=flow[0][1] if flow else None,keysWritten=False))
     def wants_stop():return stop.exists() or (mode!='Preparing' and setup_only.exists()) or (parent_handle and kernel.WaitForSingleObject(parent_handle,0)==0) or (seconds is not None and time.monotonic()-started>=seconds)
     def scan():
         try:
@@ -84,9 +100,16 @@ def run(folder,pid,parent,seconds=None):
         finally:scan_done.set()
     scan_thread=None;watcher=None;active_handle=[None]
     def watch():
-        nonlocal mode,draining
+        nonlocal mode,draining,error,last_port_check
         while not ending.wait(.1):
-            if mode=='Running' and wants_stop():mode='Draining';draining=time.monotonic()
+            if mode=='Running':
+                stamp=time.monotonic()
+                if stamp-last_receive>3:
+                    error='QB traffic stopped; normal throwing restored. Toggle QB aim to reconnect';mode='Draining';draining=stamp
+                elif flow and stamp-last_port_check>1:
+                    last_port_check=stamp
+                    if flow[0][1] not in ports(pid):error='Game connection changed; toggle QB aim to reconnect';mode='Draining';draining=stamp
+                if wants_stop():mode='Draining';draining=stamp
             drained=mode=='Draining' and draining is not None and ((not pending or all(clicked in acked for clicked in list(pending.values()))) and time.monotonic()-last_edit>=2 or time.monotonic()-draining>10)
             if active_handle[0] and ((mode=='Preparing' and (wants_stop() or time.monotonic()-started>120)) or drained):
                 driver.shutdown(active_handle[0]);return
@@ -110,10 +133,8 @@ def run(folder,pid,parent,seconds=None):
             if scan_done.is_set() and time.monotonic()-last_decode>.5:
                 if scan_result.get('error'):raise RuntimeError('QB transport keys are unavailable for this client')
                 live.ingest(observed);last_decode=time.monotonic()
-                for group,state in live.groups.items():
-                    if group[1]=='outgoing' and state['context'] and group[0] in live.schemas:
-                        incoming=next((s['context'] for g,s in live.groups.items() if g[0]==group[0] and g[1]=='incoming' and s['context']),None)
-                        if incoming:flow=group[0];out_context=state['context'];in_context=incoming;break
+                selected=current_flow(live,observed,ports(pid))
+                if selected:flow,out_context,in_context=selected
                 if flow:
                     network_schema_cache.save(cache_path,owner,live)
                     break
@@ -144,13 +165,13 @@ def run(folder,pid,parent,seconds=None):
             if received is None:break
             seen+=1;r=row(received[0],seen)
             if r:process_warm(r)
-        driver.close(warm);handles.remove(warm);active_handle[0]=active;mode='Running';status('QB throw control ready',True)
+        driver.close(warm);handles.remove(warm);active_handle[0]=active;last_receive=time.monotonic();mode='Running';status('Checking live QB traffic',False)
         while True:
             if wants_stop() and draining is None:draining=time.monotonic();mode='Draining';status('Finishing the previous throw')
             if draining is not None and (not pending or all(clicked in acked for clicked in pending.values())) and time.monotonic()-last_edit>=2:break
             received=driver.recv(active)
             if received is None:break
-            raw,address=received;changed=raw;seen+=1;requires_edit=False
+            raw,address=received;last_receive=time.monotonic();changed=raw;seen+=1;requires_edit=False
             try:
                 r=row(raw,seen)
                 if r and r['connection']==flow:

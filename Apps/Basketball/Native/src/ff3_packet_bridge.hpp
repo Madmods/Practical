@@ -41,7 +41,7 @@ public:
     write(session_/L"plan.json",plan);lastWrite_=tick;
    }
    if(tick-lastRead_>=200){lastRead_=tick;try{
-     auto path=session_/L"state.json";if(std::filesystem::exists(path)&&std::filesystem::file_size(path)<=65536){std::ifstream in(path,std::ios::binary);std::string bytes((std::istreambuf_iterator<char>(in)),{});auto root=json::parse(std::wstring(winrt::to_hstring(bytes)));ready_=root[L"ready"].boolean();message_=root[L"error"].str();if(message_.empty())message_=root[L"status"].str(L"Preparing QB throw control");auto count=root[L"stats"][L"modifiedThrows"].num();if(count>applied_&&count<100000){applied_=unsigned(count);recorded=true;}}
+     auto path=session_/L"state.json";if(std::filesystem::exists(path)&&std::filesystem::file_size(path)<=65536){std::ifstream in(path,std::ios::binary);std::string bytes((std::istreambuf_iterator<char>(in)),{});auto root=json::parse(std::wstring(winrt::to_hstring(bytes)));const double heartbeat=root[L"heartbeat"].num();const bool fresh=heartbeat>0&&double(tick)>=heartbeat&&double(tick)-heartbeat<3000;ready_=root[L"ready"].boolean()&&fresh;message_=root[L"error"].str();if(message_.empty())message_=root[L"status"].str(L"Preparing QB throw control");if(root[L"ready"].boolean()&&!fresh)message_=L"QB traffic stalled; reconnecting is required";auto count=root[L"stats"][L"modifiedThrows"].num();if(count>applied_&&count<100000){applied_=unsigned(count);recorded=true;}}
     }catch(...){}
     if(WaitForSingleObject(host_,0)==WAIT_OBJECT_0){CloseHandle(host_);host_=nullptr;ready_=false;if(message_.empty())message_=L"QB throw control stopped; toggle QB aim to retry";}
    }
