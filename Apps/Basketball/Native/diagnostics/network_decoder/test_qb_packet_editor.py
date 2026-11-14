@@ -21,6 +21,15 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def test_selected_power_and_jump_target_reach_packet(self):
+        for selected in (60,75,90,95):
+            p=plan();p.update(plannedPower=selected,targetPosition=[70,10,0])
+            e=editor();args=arguments(e.process_plain(payload(),p,1010));self.assertEqual(args[3],selected)
+            origin=args[1]['components'];direction=tuple(a-b for a,b in zip(args[2]['components'],origin));norm=length(direction);direction=tuple(v/norm for v in direction);t=e.last['flight']
+            landed=[origin[i]+direction[i]*(5+selected*t)-(.5*28*t*t if i==1 else 0) for i in range(3)]
+            self.assertLess(length(tuple(a-b for a,b in zip(landed,p['targetPosition']))),.001)
+        for invalid in (True,0,96,float('nan'),'95'):
+            p=plan();p['plannedPower']=invalid;self.assertEqual(editor().process_plain(payload(),p,1010),payload())
     def test_transmitted_throw_lands_after_server_spawn_offset(self):
         for angle in (None,12,35,55):
             for moving in ([0,0,0],[8,0,2]):

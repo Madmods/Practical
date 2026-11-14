@@ -88,7 +88,8 @@ def replacement(body,call,plan,tick):
     if not 0<=tick-issued<=150 or not issued<=tick<=expires<=issued+200 or not 0<=tick-clicked<=350 or clicked<=0:return None
     origin,aim_offset,power_offset,old_power=fields
     if length(tuple(a-b for a,b in zip(vector(origin),vector(plan['head']))))>12:raise DecodeError('Throw origin disagrees with held character')
-    power=95.0 if plan.get('autoPower') is True else old_power
+    power=plan.get('plannedPower',95.0) if plan.get('autoPower') is True else old_power
+    if isinstance(power,bool) or not isinstance(power,(int,float)) or not math.isfinite(power) or not 1<=power<=95:raise DecodeError('Planned power bounds')
     if plan.get('anglePower') is True and plan.get('autoPower') is True:
         launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],float(plan['angle']),float(plan['gravity']),float(plan['latency']),spawn=5)
     else:

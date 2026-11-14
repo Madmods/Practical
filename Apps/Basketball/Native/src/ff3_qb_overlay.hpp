@@ -25,7 +25,7 @@ inline void renderHud(PumpSurface& surface,const ff3Native::Frame& f,bool presen
  const wchar_t* labels[]={L"POWER / 95",L"ANGLE",L"FLIGHT",L"DISTANCE"};
  for(int i=0;i<4;i++){float x=18.f+106*i;text(g,labels[i],x,65,9,Color(255,133,151,181));text(g,values[i],x,79,19,i==0?color:Color(255,228,236,250),true,103);}
  Pen base(Color(80,151,180,255),3),bar(color,3);g.DrawLine(&base,18.f,112.f,428.f,112.f);if(f.ready)g.DrawLine(&bar,18.f,112.f,18.f+410.f*float(std::clamp(f.power/95.,0.,1.)),112.f);
- auto detail=f.ready?(basketballUi::widen(f.route)+L" / "+basketballUi::widen(f.coverageDetail)):basketballUi::widen(f.reason);
+ auto detail=f.ready?((f.fitOffset.y>=3?L"Jump +"+number(f.fitOffset.y,1)+L" st / ":L"Head catch / ")+basketballUi::widen(f.route)+L" / "+basketballUi::widen(f.coverageDetail)):basketballUi::widen(f.reason);
  if(ff3Native::packetStatus){auto setup=ff3Native::packetStatus();if(!setup.first)detail=setup.second;}
  text(g,detail,18,122,11,Color(255,174,191,217),false,410);
  text(g,(f.locked?L"Q  unlock":L"Q  lock")+std::wstring(L"    Z  pass type    R / F  angle")+(ff3Native::automaticAngle?L"    AUTO":L"    MANUAL"),18,142,10,Color(255,126,153,195),false,410);

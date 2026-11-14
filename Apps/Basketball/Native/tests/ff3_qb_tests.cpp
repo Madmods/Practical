@@ -44,6 +44,23 @@ int main(){int count=0;
  }
  auto directAuto=planThrow({0,8,0},{150,8,0},{},28,.05,0,true,35,true,60,false,true,athletic,48,{},true,5);
  assert(directAuto.solution.angle<20); // No arbitrary distance-based lob.
+ auto jump95=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,true,7,196.2);
+ assert(jump95.solution.valid&&jump95.power==95&&jump95.offset.y>=3&&jump95.offset.y<=7);
+ assert(jump95.offset.x==0&&jump95.offset.z==0);
+ assert(length(point(jump95.solution,28,jump95.solution.time)-jump95.solution.catchPoint)<1e-5);
+ assert(!planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,true,0,196.2).solution.valid);
+ auto noJump=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,0,196.2);
+ assert(noJump.solution.valid&&noJump.power<95&&noJump.offset.y==0);
+ std::vector<Defender> underneath={{{45,8,0},{},22,10,12}};
+ auto adaptive=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,false,7,196.2);
+ auto forced95=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,true,7,196.2);
+ assert(adaptive.solution.valid&&forced95.solution.valid);
+ assert(adaptive.power<95&&adaptive.margin>.15&&forced95.margin<=.15);
+ auto retained=planCoverageThrow({0,8,0},{150.1,8,0},{},28,.05,underneath,true,false,7,196.2,adaptive.offset,adaptive.power,adaptive.lob);
+ assert(retained.power==adaptive.power&&retained.lob==adaptive.lob);
+ std::vector<Defender> onReceiver={{{100,8,0},{},22,9,12}};
+ auto contested=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,onReceiver,true,false,7,196.2);
+ assert(contested.solution.valid&&contested.margin<=.15); // A jump does not create guaranteed exclusivity.
  for(bool visible:{false,true})for(bool right:{false,true})for(bool first:{false,true})assert(cursorModeAllowed(visible,right,first)==(visible&&!right&&!first));
  const float identity[]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};float tilted[]={1,0,0,0,0,.8f,.6f,0,0,0,1,0,0,0,0,1};
  assert(cameraStable(identity,identity));assert(!cameraStable(identity,tilted));tilted[4]=NAN;assert(!cameraStable(identity,tilted));

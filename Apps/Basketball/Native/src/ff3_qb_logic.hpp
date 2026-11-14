@@ -127,7 +127,7 @@ struct AngleTracker {
  }
 };
 struct Defender {Vec position,velocity;double speed=22,jumpHeight=7,diveReach=12;};
-struct Plan {Solution solution;Vec offset;double power=0,margin=0;bool coverageKnown=false;};
+struct Plan {Solution solution;Vec offset;double power=0,margin=0;bool coverageKnown=false,lob=false;};
 // Reach estimates intentionally allow defenders to turn. Sample the catchable
 // portion of the whole flight, not just separation at the final catch point.
 inline double coverageMargin(const Solution& s,double gravity,const std::vector<Defender>& defenders,double latency){
@@ -169,6 +169,33 @@ inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double l
   double score=(defenders.empty()?0:std::min(margin,1.5))*10-length(offset)*.12-length(offset-previousOffset)*.15-s.time*.03-std::abs(s.angle-desired)*.012;
   if(score>bestScore){bestScore=score;best={s,offset,length(s.velocity),margin,!defenders.empty()};}
  }return best;
+}
+// Compare power, arc and reachable catch heights. An estimated opening always
+// outranks a contested trajectory; when none exists, retain a contested result.
+inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool force95,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false){
+ Plan best;double bestScore=-1e9;
+ if(!std::isfinite(receiverJump)||receiverJump<0||receiverJump>40||!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)return best;
+ const bool stationary=length(movement)<.5;if(stationary)movement={};
+ const double jump=std::min(8.,receiverJump*.85);
+ const Vec offsets[]={{},{3,0,0},{-3,0,0},{0,0,3},{0,0,-3},{4,0,4},{-4,0,4},{4,0,-4},{-4,0,-4}};
+ for(double power:{95.,90.,85.,80.,75.,70.,65.,60.,55.,50.}){
+  if(force95&&power!=95)continue;
+  for(double height:{0.,jump*.65,jump}){
+   // A 95-power pass explicitly asks for a jump catch, including stationary WRs.
+   if(power==95&&height<3)continue;
+   if(power!=95&&height>0&&(!fit||defenders.empty()))continue;
+   for(int i=0;i<(fit&&!stationary&&!defenders.empty()?9:1);++i)for(bool lob:{false,true}){
+    Vec offset=offsets[i]+Vec{0,height,0};auto s=solve(origin,target+offset,movement,power,gravity,latency,lob,5);
+    if(!s.valid)continue;
+    if(height>0){double riseTime=(std::sqrt(2*worldGravity*receiverJump)-std::sqrt(2*worldGravity*(receiverJump-height)))/worldGravity;if(s.time<.15+riseTime)continue;}
+    const double margin=defenders.empty()?10:coverageMargin(s,gravity,defenders,latency);
+    double score=(margin>.15?1000:0)+std::min(margin,.6)*20-s.time*.8-length(offsets[i])*.1-height*.06-length(offset-previousOffset)*.12;
+    if(power==previousPower&&lob==previousLob&&length(offset-previousOffset)<1)score+=.5;
+    if(score>bestScore){bestScore=score;best={s,offset,power,margin,!defenders.empty(),lob};}
+   }
+  }
+ }
+ return best;
 }
 // Mouse distance to a projected body capsule, with a bounded retention bonus.
 inline double selectionDistance(double x,double y,double footX,double footY,double headX,double headY,double radius,bool retained){
