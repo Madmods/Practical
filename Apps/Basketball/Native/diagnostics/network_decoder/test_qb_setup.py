@@ -6,6 +6,42 @@ from network_wire_lab import Schema
 import qb_packet_host as host
 
 class SetupTests(unittest.TestCase):
+    def test_setup_status_does_not_request_rejoin_for_missing_current_keys(self):
+        c=(('10.0.0.1',1000),('10.0.0.2',2000));cid=bytes(20)
+        rows=[dict(connection=c,direction=d,cid=cid) for d in ('outgoing','incoming')]
+        live=SimpleNamespace(schemas={c:True},groups={})
+        self.assertIn('Preparing keys',host.setup_status(live,rows,{1000}))
+        live.groups={(c,d,cid):{'context':True} for d in ('outgoing','incoming')}
+        live.schemas.clear();self.assertIn('Rejoin once',host.setup_status(live,rows,{1000}))
+    def test_new_socket_gets_fresh_retries_after_old_socket_exhausts_them(self):
+        old=(('10.0.0.1',1000),('10.0.0.2',2000));new=(('10.0.0.1',3000),('10.0.0.3',4000));cid=bytes(20);scans=[];joined=[False];created=[]
+        class Live:
+            def __init__(self,keys,cached):
+                self.keys=keys;self.groups={};self.schemas={};self.schema_packets={};self.counts=collections.Counter();created.append(self)
+            def ingest(self,rows):
+                if len(self.keys)<4:return
+                self.assert_current=all(r['connection']==new for r in rows)
+                self.schemas[new]=Schema.from_packet(fixture_schema());self.schema_packets[new]=fixture_schema()
+                self.groups={(new,d,cid):{'context':{'cid':cid}} for d in ('incoming','outgoing')}
+        class Thread:
+            def __init__(self,target):self.target=target
+            def start(self):
+                if self.target.__name__=='scan':self.target()
+            def join(self):pass
+        def scan(*args,**kwargs):scans.append(len(scans)+1);return [bytes([len(scans)])*32],{}
+        def row(raw,index):
+            if len(scans)>=3:joined[0]=True
+            return dict(frame=index,payload=b'',connection=new if joined[0] else old,cid=cid,direction='outgoing' if index%2 else 'incoming')
+        tick=[0.]
+        def clock():tick[0]+=.2;return tick[0]
+        driver=Mock();driver.recv.return_value=(b'packet',None);driver.open.return_value=123
+        kernel=Mock();kernel.GetTickCount64=Mock(return_value=1000)
+        with tempfile.TemporaryDirectory() as folder:
+            session=pathlib.Path(folder)/'session';session.mkdir();(session/'setup-only').touch()
+            with patch.object(host.ctypes,'windll',SimpleNamespace(kernel32=kernel)),patch.object(host,'Driver',return_value=driver),patch.object(host,'LiveDecoder',Live),patch.object(host,'candidates',side_effect=scan),patch.object(host,'ports',side_effect=lambda pid:{3000} if joined[0] else {1000}),patch.object(host,'row',side_effect=row),patch.object(host.time,'monotonic',side_effect=clock),patch.object(host.threading,'Thread',Thread),patch.object(host.network_schema_cache,'identity',return_value={'pid':10,'created':20}):
+                self.assertEqual(host.run(session,10,0),0,(session/'state.json').read_text())
+            self.assertEqual(len(scans),4);self.assertEqual(len(created),2);self.assertTrue(created[-1].assert_current)
+            driver.open.assert_called_once_with(host.GAME_FILTER,True)
     def test_idle_active_connection_is_closed(self):
         import threading,time
         connection=(('10.0.0.1',1000),('10.0.0.2',2000));cid=bytes(20)

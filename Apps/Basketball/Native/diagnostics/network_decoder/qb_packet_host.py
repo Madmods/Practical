@@ -80,6 +80,16 @@ def current_flow(live,observed,owned):
         contexts.append(state['context'])
     return connection,*contexts
 
+def setup_status(live,observed,owned):
+    recent=[r for r in observed[-512:] if r['connection'][0][1] in owned]
+    if not recent:return 'Waiting for the current game connection'
+    connection=recent[-1]['connection']
+    for direction in ('outgoing','incoming'):
+        latest=next((r for r in reversed(recent) if r['connection']==connection and r['direction']==direction),None)
+        if latest is None or not live.groups.get((connection,direction,latest['cid']),{}).get('context'):
+            return 'Preparing keys for the current game connection'
+    return 'Rejoin once to finish QB setup' if connection not in live.schemas else 'Checking current QB connection'
+
 def run(folder,pid,parent,seconds=None):
     from network_decoder_host import publish
     folder.mkdir(parents=True,exist_ok=True);state_path=folder/'state.json';stop=folder/'stop';plan_path=folder/'plan.json';setup_only=folder/'setup-only';cache_path=folder.parent/'schema-cache.json'
@@ -117,7 +127,7 @@ def run(folder,pid,parent,seconds=None):
         if not owner or (parent and not parent_handle):raise RuntimeError('QB game or app process is unavailable')
         driver=Driver();warm=driver.open(GAME_FILTER,True);handles.append(warm);active_handle[0]=warm;status('Preparing QB throw control')
         scan_rounds=1;last_scan=time.monotonic();scan_thread=threading.Thread(target=scan);scan_thread.start();watcher=threading.Thread(target=watch);watcher.start()
-        observed=[];owned=ports(pid);last_ports=time.monotonic();last_decode=0
+        observed=[];owned=ports(pid);last_ports=time.monotonic();last_decode=0;warm_connection=None
         while not wants_stop() and time.monotonic()-started<120:
             received=driver.recv(warm)
             if received is None:break
@@ -125,10 +135,16 @@ def run(folder,pid,parent,seconds=None):
             if not r:continue
             if time.monotonic()-last_ports>.2 or r['connection'][0][1] not in owned:owned=ports(pid);last_ports=time.monotonic()
             if r['connection'][0][1] not in owned:continue
+            if warm_connection and warm_connection!=r['connection'] and warm_connection[0][1] not in owned:
+                # A real rejoin closed the old socket. Its queued packets,
+                # decoder limits and key retry count must not starve the join.
+                observed=[];live=LiveDecoder(keys,network_schema_cache.load(cache_path,owner,max_age=None))
+                scan_rounds=0;scan_groups=set();last_scan=0;last_decode=0
+            warm_connection=r['connection']
             observed.append(r)
             if len(observed)>20000:raise RuntimeError('QB warm-up packet budget reached; retry setup')
             signature=(r['connection'],r['cid'])
-            if scan_done.is_set() and signature not in scan_groups and scan_rounds<3 and time.monotonic()-last_scan>10:
+            if scan_done.is_set() and scan_rounds<3 and time.monotonic()-last_scan>10 and (signature not in scan_groups or 'Preparing keys' in setup_status(live,observed,owned)):
                 scan_thread.join();scan_groups={(item['connection'],item['cid']) for item in observed};scan_done.clear();scan_result.clear();scan_rounds+=1;last_scan=time.monotonic();scan_thread=threading.Thread(target=scan);scan_thread.start()
             if scan_done.is_set() and time.monotonic()-last_decode>.5:
                 if scan_result.get('error'):raise RuntimeError('QB transport keys are unavailable for this client')
@@ -138,7 +154,7 @@ def run(folder,pid,parent,seconds=None):
                 if flow:
                     network_schema_cache.save(cache_path,owner,live)
                     break
-                status('Rejoin once to finish QB setup' if live.counts['authenticatedPackets'] else 'Preparing QB transport keys')
+                status(setup_status(live,observed,ports(pid)))
         if not flow:
             mode='Stopped';status('QB setup stopped' if wants_stop() else 'Setup timed out. Enable QB aim before rejoining; wait for setup to finish');return 1
         if setup_only.exists():
