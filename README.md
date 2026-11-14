@@ -23,7 +23,7 @@ The Roblox offsets and protocol schema are version dependent. The current offset
 
 First-session setup: enable QB aim before rejoining if prompted. Keep Vanta and the Roblox process open. The bounded setup listener can continue across reconnection, refresh connection keys, and save the validated schema. After the game loads, press Continue and enable QB aim again. Turning QB aim off explicitly or closing Vanta stops setup. Setup expires after two minutes.
 
-Enable QB aim in the Football Fusion 3 workspace. Equip a football, wait for a visible power wheel and a ready target, and click normally.
+Enable QB aim in the Football Fusion 3 workspace. Equip a football, wait for a ready target, and click normally. Calculated power works without waiting for the wheel. Manual game-power mode requires a valid visible display; hidden copies left by an earlier ball are ignored.
 
 - Auto route adapts elevation to distance and route direction. Other presets are Bullet, Lob, Mag, Slant and Touch. Mag is an elevated touch preset; it does not expand catch range.
 - With Calculate power enabled, power is solved for the angle on each update, within the game's 1–95 range. Turn Automatic angle off to set a fixed elevation; R raises it and F lowers it while the game is focused and the ball is equipped.

@@ -23,8 +23,17 @@ int main(){int count=0;
  for(bool visible:{false,true})for(bool right:{false,true})for(bool first:{false,true})assert(cursorModeAllowed(visible,right,first)==(visible&&!right&&!first));
  const float identity[]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};float tilted[]={1,0,0,0,0,.8f,.6f,0,0,0,1,0,0,0,0,1};
  assert(cameraStable(identity,identity));assert(!cameraStable(identity,tilted));tilted[4]=NAN;assert(!cameraStable(identity,tilted));
- assert(visiblePower(1,2,"95")==95);assert(visiblePower(1,0,"75")==0);assert(visiblePower(0,2,"95")==0);
- assert(visiblePower(1,2,"96")==-1);assert(visiblePower(1,2,"0")==-1);assert(visiblePower(1,2,"95x")==-1);assert(visiblePower(1,2,"")==-1);
+ // Real repro: hidden old wheel 70 and current visible wheel 75.
+ assert(readPower(true,{{1,0,"70"},{1,2,"75"}})==75);
+ assert(readPower(true,{{1,2,"75"},{1,0,"70"}})==75);
+ assert(readPower(true,{{1,0,"70"}})==0);
+ assert(readPower(false,{{1,2,"75"}})==0);
+ assert(readPower(true,{{0,2,"75"},{1,2," 95 "}})==95);
+ assert(readPower(true,{{1,2,"70"},{1,2,"75"}})==-2);
+ for(const auto* text:{"96","0","95x","","nan","-5","100"})assert(readPower(true,{{1,2,text}})==-1);
+ assert(powerAvailable(true,true,0));assert(powerAvailable(true,true,-2));assert(!powerAvailable(true,false,0));assert(!powerAvailable(true,false,-2));assert(powerAvailable(true,false,75));assert(!powerAvailable(false,true,75));
+ assert(readPower(true,{{1,2,"45"}})==45);assert(readPower(false,{{1,2,"45"}})==0);
+
  for(double speed:{50.,75.,95.})for(double gravity:{28.,40.})for(double distance:{20.,50.,80.})for(double drift:{-12.,0.,12.})for(bool lob:{false,true}){
   Vec origin{0,8,0},target{distance,7,10},v{0,0,drift};auto s=solve(origin,target,v,speed,gravity,.05,lob);
   if(s.valid){assert(length(point(s,gravity,s.time)-s.catchPoint)<1e-5);assert(length(s.catchPoint-(target+v*(s.time+.05)))<1e-5);assert(std::abs(length(s.velocity)-speed)<1e-5);++count;}

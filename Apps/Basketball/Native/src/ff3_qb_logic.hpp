@@ -5,14 +5,23 @@
 #include <vector>
 #include <string>
 namespace ff3qb {
-// The version-gated FF3 Frame0 visibility byte was observed as 2 when visible,
-// 0 when hidden; it is a flag field, not a C++ bool equal to 1.
-inline int visiblePower(unsigned enabled,unsigned flags,std::string text){
- if(enabled!=1||!(flags&2))return 0;
- auto first=text.find_first_not_of(" \r\n\t"),last=text.find_last_not_of(" \r\n\t");text=first==std::string::npos?"":text.substr(first,last-first+1);
- if(text.empty()||text.size()>2||text.find_first_not_of("0123456789")!=std::string::npos)return -1;
- int value=0;for(char c:text)value=value*10+(c-'0');return value>=1&&value<=95?value:-1;
+// BallGui copies can remain enabled after unequip. Only current visible
+// displays contribute manual game power; automatic ballistics need no GUI value.
+struct PowerDisplay {unsigned enabled=0,flags=0;std::string text;};
+inline int readPower(bool held,const std::vector<PowerDisplay>& displays){
+ if(!held)return 0;
+ int power=0;bool invalid=false;
+ for(const auto& display:displays){
+  if(display.enabled!=1||!(display.flags&2))continue;
+  auto text=display.text;auto first=text.find_first_not_of(" \r\n\t"),last=text.find_last_not_of(" \r\n\t");text=first==std::string::npos?"":text.substr(first,last-first+1);
+  if(text.empty()||text.size()>2||text.find_first_not_of("0123456789")!=std::string::npos){invalid=true;continue;}
+  int value=0;for(char c:text)value=value*10+(c-'0');
+  if(value<1||value>95){invalid=true;continue;}
+  if(power&&power!=value)return -2;power=value;
+ }
+ return invalid?-1:power;
 }
+inline bool powerAvailable(bool held,bool automatic,int gamePower){return held&&(automatic||gamePower>0);}
 inline bool cursorModeAllowed(bool visible,bool rightHeld,bool firstPerson){return visible&&!rightHeld&&!firstPerson;}
 inline bool cameraStable(const float* a,const float* b){
  for(int row:{0,4}){

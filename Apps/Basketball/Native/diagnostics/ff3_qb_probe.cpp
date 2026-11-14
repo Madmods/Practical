@@ -20,7 +20,7 @@ int main(int argc,char** argv){HANDLE h=nullptr;DWORD pid=0;addr base=0;if(!conn
   gameModules::publish(inspectBasketball(h,base,pid));
   auto start=now();auto f=reader.read();
   if(targets)for(const auto& a:reader.actors)if(a.npc){auto candidate=reader.read(a.rig);if(candidate.ready){f=candidate;break;}}
-  std::cout<<"reason="<<f.reason<<" held="<<f.held<<" power="<<f.power<<" gravity="<<f.gravity<<" ping="<<f.ping<<" target="<<f.name<<" angle="<<f.solution.angle<<" flight="<<f.solution.time<<" aim="<<f.aim.x<<','<<f.aim.y<<" receiver="<<f.receiver.x<<','<<f.receiver.y<<" readMs="<<(now()-start)*1000<<'\n';Sleep(100);
+  std::cout<<"reason="<<f.reason<<" held="<<f.held<<" wheel="<<f.wheelVisible<<" gamePower="<<f.gamePower<<" power="<<f.power<<" gravity="<<f.gravity<<" ping="<<f.ping<<" target="<<f.name<<" angle="<<f.solution.angle<<" flight="<<f.solution.time<<" aim="<<f.aim.x<<','<<f.aim.y<<" receiver="<<f.receiver.x<<','<<f.receiver.y<<" readMs="<<(now()-start)*1000<<'\n';Sleep(100);
  }
  CloseHandle(h);
 }
