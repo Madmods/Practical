@@ -104,7 +104,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
   }
   if(test && type==L"testCapture"){
    const auto rid=(int)msg[L"rid"].num();const auto name=msg[L"name"].str();
-   if(name==L"ff3passes"||name==L"network"||name==L"ff3"||name==L"shooting"||name==L"reviewer"||name==L"defense"||name==L"home"||name==L"login"||name==L"connection"||name==L"reconnect"||name==L"recovered"||name==L"quit")ui.Capture((testFolder/(L"webui-"+name+L".png")).wstring(),[&,rid](bool ok){ui.Post(L"{\"type\":\"reply\",\"rid\":"+std::to_wstring(rid)+L",\"ok\":"+(ok?L"true":L"false")+L"}");});return;
+   if(name==L"ff3-live"||name==L"ff3passes"||name==L"network"||name==L"ff3"||name==L"shooting"||name==L"reviewer"||name==L"defense"||name==L"home"||name==L"login"||name==L"connection"||name==L"reconnect"||name==L"recovered"||name==L"quit")ui.Capture((testFolder/(L"webui-"+name+L".png")).wstring(),[&,rid](bool ok){ui.Post(L"{\"type\":\"reply\",\"rid\":"+std::to_wstring(rid)+L",\"ok\":"+(ok?L"true":L"false")+L"}");});return;
   }
   if(test&&type==L"testNetworkLog"){
    auto reply=networkInspector::object();reply.o[L"type"]=networkInspector::text(L"reply");reply.o[L"rid"]=msg[L"rid"];reply.o[L"ok"]=networkInspector::flag(false);

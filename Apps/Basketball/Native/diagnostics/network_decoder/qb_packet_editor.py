@@ -94,7 +94,7 @@ def catch_path_margin(origin,launch,flight,power,gravity,latency,catchers):
             p=[origin[j]+launch[j]*(5/power+t)-(.5*gravity*t*t if j==1 else 0) for j in range(3)]
             if p[1]>position[1]+6+rise or p[1]<position[1]-8:continue
             distance=math.hypot(p[0]-position[0],p[2]-position[2]);reach=min(dive,max(0,t-.1)*45)
-            margin=min(margin,max(0,distance-6-reach)/speed-t-latency)
+            margin=min(margin,(distance-6-reach)/speed-t-latency)
     return margin
 
 def replacement(body,call,plan,tick):

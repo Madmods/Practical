@@ -51,7 +51,10 @@ int main(){
   Frame sample;sample.client={0,0,1280,720};sample.ready=sample.held=sample.wheelVisible=sample.coverageKnown=true;sample.name="Practice receiver";sample.route="Go / deep";sample.coverageCount=3;sample.coverageDetail="3 catchers / jump + dive estimate";sample.locked=true;sample.mode=2;sample.margin=.24;sample.power=78;sample.distance=146;sample.solution.angle=48;sample.solution.time=2.36;
   PumpSurface hud;ff3Visual::renderHud(hud,sample,false);check(hud.bits&&!hud.visible);
   {Bitmap image(hud.width,hud.height,hud.width*4,PixelFormat32bppPARGB,(BYTE*)hud.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-hud-preview.png",&png,nullptr)==Ok);}
-  hud.close();PumpSurface field;sample.ready=false;sample.target=123;sample.receiver={640,300,true};ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);field.close();GdiplusShutdown(token);
+  hud.close();PumpSurface field;sample.target=123;sample.gravity=28;sample.fitOffset={4,4,0};sample.solution=ff3qb::solveAngle({0,8,0},{104,12,0},{},35,28,.05,5);sample.matrix[0]=.012f;sample.matrix[5]=.025f;sample.matrix[6]=.012f;sample.matrix[3]=-.65f;sample.matrix[7]=-.5f;sample.matrix[15]=1;sample.receiver=ff3qb::project({100,8,0},sample.matrix,1280,720);
+  ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
+  {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-field-preview.png",&png,nullptr)==Ok);}
+  field.close();GdiplusShutdown(token);
  }
  winrt::uninit_apartment();
 }

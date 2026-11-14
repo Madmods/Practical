@@ -149,8 +149,28 @@ inline double coverageMargin(const Solution& s,double gravity,const std::vector<
   double distance=std::hypot(p.x-d.position.x,p.z-d.position.z);
   double speed=std::clamp(std::max(d.speed,std::hypot(d.velocity.x,d.velocity.z)),16.,45.);
   double dive=std::min(d.diveReach,std::max(0.,t-.1)*45);
-  margin=std::min(margin,std::max(0.,distance-6.-dive)/speed-t-latency);
+  // Keep penetration signed: two catchable paths can have very different
+  // placement quality. Clamping here erased the benefit of throwing past a DB.
+  margin=std::min(margin,(distance-6.-dive)/speed-t-latency);
  }return margin;
+}
+inline std::vector<Vec> fitOffsets(Vec origin,Vec target,Vec movement,const std::vector<Defender>& defenders){
+ std::vector<Vec> offsets{{},{3,0,0},{-3,0,0},{0,0,3},{0,0,-3},{4,0,4},{-4,0,4},{4,0,-4},{-4,0,-4}};
+ const double estimate=std::clamp(length(target-origin)/80.,.1,3.);
+ Vec receiver=target+movement*estimate,away{};double nearest=1e9;
+ for(const auto& d:defenders){auto delta=receiver-(d.position+d.velocity*std::min(.35,estimate));delta.y=0;double distance=length(delta);if(distance<nearest){nearest=distance;away=delta;}}
+ Vec forward=movement;forward.y=0;if(length(forward)<.5){forward=target-origin;forward.y=0;}
+ if(length(away)<.1)away=forward;
+ for(auto direction:{away,forward})if(length(direction)>.1){direction=direction*(1/length(direction));for(double reach:{4.,6.,8.})offsets.push_back(direction*reach);}
+ return offsets;
+}
+inline bool receiverCanReach(Vec offset,Vec movement,double flight,double jump){
+ // Head target already includes route lead. Extra placement must fit a modest
+ // catch radius plus time to adjust; high jump catches get less lateral reach.
+ const double horizontal=std::hypot(offset.x,offset.z),speed=std::hypot(movement.x,movement.z);
+ const double reach=4.+(speed>.5?std::min(4.,std::max(0.,flight-.2)*6.):0.);
+ const double jumpCost=jump>0?std::clamp(offset.y/jump,0.,1.)*2.:0.;
+ return horizontal<=std::max(3.,reach-jumpCost)+.001;
 }
 inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,int mode,bool automaticAngle,double manualAngle,bool automaticPower,double gamePower,bool lob,bool fit,const std::vector<Defender>& defenders,double preferredAngle=NAN,Vec previousOffset={},bool powerFirst=false,double spawn=0){
  Plan best;double bestScore=-1e9;
@@ -165,14 +185,14 @@ inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double l
   for(int step=1;step<=70&&!found;step++)for(int sign:{1,-1}){double candidate=desired+sign*step;if(candidate<5||candidate>75)continue;if(solveAngle(origin,target,movement,candidate,gravity,latency,spawn).valid){angle=candidate;found=true;break;}}
   if(!found)return best;
  }
- const Vec offsets[]={{},{3,0,0},{-3,0,0},{0,0,3},{0,0,-3},{4,0,4},{-4,0,4},{4,0,-4},{-4,0,-4},{9,0,0},{-9,0,0},{0,0,9},{0,0,-9}};
- for(int index=0;index<(fit&&!stationary&&!defenders.empty()?13:1);++index){
+ const auto offsets=fitOffsets(origin,target,movement,defenders);
+ for(size_t index=0;index<(fit&&!defenders.empty()?offsets.size():1);++index){
   auto offset=offsets[index];Solution s;
   if(fixedPower)s=solve(origin,target+offset,movement,95,gravity,latency,false,spawn);
   else if(automaticPower){
    s=solveAngle(origin,target+offset,movement,angle,gravity,latency,spawn);
   }else s=solve(origin,target+offset,movement,gamePower,gravity,latency,lob||mode==2,spawn);
-  if(!s.valid||length(offset)>std::min(10.,4.+s.time*3.))continue;
+  if(!s.valid||!receiverCanReach(offset,movement,s.time,0))continue;
   const double margin=defenders.empty()?0:coverageMargin(s,gravity,defenders,latency);
   double score=(defenders.empty()?0:std::min(margin,1.5))*10-length(offset)*.12-length(offset-previousOffset)*.15-s.time*.03-std::abs(s.angle-desired)*.012;
   if(score>bestScore){bestScore=score;best={s,offset,length(s.velocity),margin,!defenders.empty()};}
@@ -193,7 +213,7 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  auto acceptable=[&](const Solution& s,Vec offset,double power){
   if(!s.valid||s.angle<(force95?-30:5)||s.angle>(force95?beamMaxAngle:75)||offset.y<0||offset.y>jump+.001)return false;
   if(!force95&&power>=94.5&&offset.y<3)return false;
-  if(stationary&&std::hypot(offset.x,offset.z)>.01)return false;
+  if(!receiverCanReach(offset,movement,s.time,jump))return false;
   if(offset.y>0){double riseTime=(std::sqrt(2*worldGravity*receiverJump)-std::sqrt(2*worldGravity*(receiverJump-offset.y)))/worldGravity;if(s.time<.15+riseTime)return false;}
   return true;
  };
@@ -211,14 +231,14 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
    bestScore=scorePlan(best)+.8;
   }
  }
- const Vec offsets[]={{},{3,0,0},{-3,0,0},{0,0,3},{0,0,-3},{4,0,4},{-4,0,4},{4,0,-4},{-4,0,-4}};
+ const auto offsets=fitOffsets(origin,target,movement,defenders);
  for(double power:{95.,90.,85.,80.,75.,70.,65.,60.,55.,50.,45.,40.,35.,30.,25.,20.,15.}){
   if(force95&&power!=95)continue;
   for(double height:{0.,jump*.65,jump}){
    // A 95-power pass explicitly asks for a jump catch, including stationary WRs.
    if(!force95&&power==95&&height<3)continue;
    if(power!=95&&height>0&&(!fit||defenders.empty()))continue;
-   for(int i=0;i<(fit&&!stationary&&!defenders.empty()?9:1);++i)for(bool lob:{false,true}){
+   for(size_t i=0;i<(fit&&!defenders.empty()?offsets.size():1);++i)for(bool lob:{false,true}){
     if(force95&&lob)continue; // Beam never switches to the high ballistic root.
     Vec offset=offsets[i]+Vec{0,height,0};auto s=solve(origin,target+offset,movement,power,gravity,latency,lob,5);
     if(!acceptable(s,offset,power))continue;

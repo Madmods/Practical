@@ -21,6 +21,11 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def test_signed_clearance_distinguishes_inside_catch_radius(self):
+        defender=dict(position=[70,5,0],velocity=[0,0,0],speed=22,jump=9,dive=12)
+        central=catch_path_margin([65,5,0],[95,0,0],0,95,28,.05,[defender])
+        beyond=catch_path_margin([68,5,0],[95,0,0],0,95,28,.05,[defender])
+        self.assertGreater(beyond,central);self.assertLess(beyond,0)
     def test_beam_uses_low_root_and_exact_power_at_actual_origin(self):
         for distance,height in ((15,0),(35,5),(150,5),(220,5)):
             p=plan();p.update(beam95=True,plannedPower=95,lob=True,anglePower=True,angle=75,targetPosition=[distance,5+height,0])

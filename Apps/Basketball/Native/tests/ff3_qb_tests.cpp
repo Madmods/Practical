@@ -18,6 +18,12 @@ int main(){int count=0;
  auto baseline=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,false,defenders);
  auto fit=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,defenders);
  assert(baseline.solution.valid&&fit.solution.valid&&fit.margin<=catchSafetyMargin); // Coverage does not veto a reachable throw.
+ assert(fit.offset.x<0&&fit.margin>baseline.margin); // Stationary WR: away from the DB on their far shoulder.
+ auto past=planCoverageThrow({0,8,0},{60,8,0},{10,0,0},28,.05,{{{55,8,0},{},22,9,12}},true,false,7,196.2);
+ assert(past.solution.valid&&past.offset.x>0); // Put a trailing DB behind the catch, not on it.
+ assert(receiverCanReach(past.offset,{10,0,0},past.solution.time,5.95));
+ auto still=planCoverageThrow({0,8,0},{60,8,0},{},28,.05,{{{57,8,0},{},22,9,12}},true,false,7,196.2);
+ assert(still.solution.valid&&length(still.solution.catchPoint-Vec{57,8,0})>length(Vec{60,8,0}-Vec{57,8,0})&&std::hypot(still.offset.x,still.offset.z)<=4.001);
  auto unknown=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,{});assert(!unknown.coverageKnown&&length(unknown.offset)==0);
  auto manual=planThrow({0,8,0},{60,7,0},{},28,.05,0,false,35,true,95,false,false,{});assert(manual.solution.valid&&manual.solution.angle==35);
  assert(!planThrow({0,8,0},{340,7,0},{},28,.05,0,false,5,true,95,false,false,{}).solution.valid);
