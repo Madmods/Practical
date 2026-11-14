@@ -92,9 +92,10 @@ def catch_path_margin(origin,launch,flight,power,gravity,latency,catchers):
         for i in range(steps+1):
             t=flight*i/steps
             p=[origin[j]+launch[j]*(5/power+t)-(.5*gravity*t*t if j==1 else 0) for j in range(3)]
-            if p[1]>position[1]+6+rise or p[1]<position[1]-8:continue
             distance=math.hypot(p[0]-position[0],p[2]-position[2]);reach=min(dive,max(0,t-.1)*45)
-            margin=min(margin,(distance-6-reach)/speed-t-latency)
+            horizontal=(distance-6-reach)/speed-t-latency
+            excess=max(0,p[1]-position[1]-6-rise,position[1]-8-p[1]);blend=min(1,excess/4)
+            margin=min(margin,horizontal*(1-blend)+(.5+excess/speed)*blend)
     return margin
 
 def replacement(body,call,plan,tick):
@@ -109,8 +110,8 @@ def replacement(body,call,plan,tick):
     if isinstance(power,bool) or not isinstance(power,(int,float)) or not math.isfinite(power) or not 1<=power<=95:raise DecodeError('Planned power bounds')
     beam=plan.get('beam95') is True
     if beam:
-        if plan.get('autoPower') is not True or power!=95:raise DecodeError('Beam requires fixed 95 power')
-        launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],95,float(plan['gravity']),float(plan['latency']),False,spawn=5)
+        if plan.get('autoPower') is not True:raise DecodeError('Beam requires calculated power')
+        launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],power,float(plan['gravity']),float(plan['latency']),False,spawn=5)
         elevation=math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2])))
         if not -30<=elevation<=35:raise DecodeError('Receiver outside low-arc Beam range')
     elif plan.get('anglePower') is True and plan.get('autoPower') is True:

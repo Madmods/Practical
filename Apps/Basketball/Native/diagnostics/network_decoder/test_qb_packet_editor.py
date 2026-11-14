@@ -37,6 +37,11 @@ class Tests(unittest.TestCase):
             direction=tuple(aim[i]-args[1]['components'][i] for i in range(3));norm=length(direction);t=e.last['flight']
             landed=[args[1]['components'][i]+direction[i]/norm*(5+95*t)-(.5*28*t*t if i==1 else 0) for i in range(3)]
             self.assertLess(length(tuple(landed[i]-p['targetPosition'][i] for i in range(3))),.001)
+    def test_beam_can_transmit_reduced_power_for_close_jump_catch(self):
+        p=plan();p.update(beam95=True,plannedPower=45,targetPosition=[25,9,0])
+        e=editor();args=arguments(e.process_plain(payload(),p,1010))
+        self.assertEqual(e.stats['modifiedThrows'],1);self.assertEqual(args[3],45)
+        aim=args[2]['components'];self.assertLessEqual(math.degrees(math.atan2(aim[1]-5,math.hypot(aim[0],aim[2]))),35)
     def test_beam_never_falls_back_to_sky_lob(self):
         for target in ([25,100,0],[320,5,0],[500,5,0]):
             p=plan();p.update(beam95=True,plannedPower=95,lob=True,targetPosition=target)

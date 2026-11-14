@@ -1,5 +1,6 @@
 #pragma once
 #include "ff3_qb_logic.hpp"
+#include "ff3_ball_flights.hpp"
 #include "basketball_ui_bridge.hpp"
 #include <iomanip>
 #include <functional>
@@ -12,7 +13,7 @@ inline std::atomic<bool> automaticAngle{true},smartFit{true},showHud{true},showC
 inline std::atomic<unsigned> revision{0};
 inline std::atomic<addr> lockedTarget{0};
 inline std::atomic<int> diveReach{12};
-inline std::atomic<bool> force95{false};
+inline std::atomic<bool> force95{false},ballTrails{true};
 inline std::filesystem::path logPath;
 inline HHOOK mouse=nullptr;
 inline HHOOK keyboard=nullptr;
@@ -22,6 +23,7 @@ struct Frame {
  unsigned revision=0;
  double at=0,gravity=0,power=0,gamePower=0,ping=0,margin=0,distance=0;DWORD pid=0;addr model=0,own=0,tool=0,target=0;
  HWND window=nullptr;RECT client{};POINT origin{},cursor{};float matrix[16]{};
+ std::vector<ff3qb::BallFlight> balls;
  ff3qb::Solution solution;ff3qb::Screen aim,receiver;
  Vec gameMouse{NAN,NAN,NAN};
  Vec head{},targetPosition{},targetVelocity{};
@@ -49,20 +51,54 @@ inline Vec position(HANDLE h,addr part){auto primitive=rd<addr>(h,part+Offsets::
 inline Vec velocity(HANDLE h,addr part){return vector(rd<shooting::Vec>(h,rd<addr>(h,part+Offsets::BasePart::Primitive)+Offsets::Primitive::AssemblyLinearVelocity,{NAN,NAN,NAN}));}
 inline bool descendant(HANDLE h,addr part,addr parent){return part&&parent&&rd<addr>(h,part+Offsets::Instance::Parent)==parent;}
 struct Reader {
+ ff3qb::FlightTracker flightTracker;std::vector<addr> flightParts;addr flightWorkspace=0;double flightScanAt=-10;
+ void collectBalls(HANDLE h,addr ws,Frame& f){
+  if(!ballTrails){flightTracker.clear();flightParts.clear();return;}
+  if(flightWorkspace!=ws){flightTracker.clear();flightParts.clear();flightScanAt=-10;flightWorkspace=ws;}
+  if(f.at-flightScanAt>.15){
+   flightParts.clear();flightScanAt=f.at;std::vector<std::pair<addr,int>> queue{{ws,0}};size_t budget=0;
+   for(size_t index=0;index<queue.size()&&budget<2048&&flightParts.size()<64;index++)for(auto o:children(h,queue[index].first)){
+    if(++budget>2048)break;auto cls=defense::classOf(h,o);
+    if(nm(h,o)=="Football"&&(cls=="Part"||cls=="MeshPart"||cls=="UnionOperation"))flightParts.push_back(o);
+    else if(queue[index].second<2&&(cls=="Folder"||cls=="Model")&&!child(h,o,"Humanoid"))queue.push_back({o,queue[index].second+1});
+   }
+  }
+  std::vector<ff3qb::BallObservation> observations;
+  for(auto part:flightParts){auto parent=rd<addr>(h,part+Offsets::Instance::Parent);auto cls=defense::classOf(h,parent);if(!parent||cls=="Tool"||child(h,parent,"Humanoid"))continue;
+   addr ancestor=parent;for(int depth=0;depth<4&&ancestor&&ancestor!=ws;depth++)ancestor=rd<addr>(h,ancestor+Offsets::Instance::Parent);if(ancestor!=ws)continue;
+   auto primitive=rd<addr>(h,part+Offsets::BasePart::Primitive);auto p=position(h,part),v=velocity(h,part);if(!primitive||!ff3qb::finite(p)||!ff3qb::finite(v))continue;
+   double gravity=-rd<double>(h,path(h,part,{"Configuration","Gravity"})+Offsets::Misc::Value,NAN);if(!std::isfinite(gravity)||gravity<1||gravity>300)gravity=0;
+   observations.push_back({part,p,v,gravity,(rd<unsigned char>(h,primitive+Offsets::Primitive::Flags)&Offsets::PrimitiveFlags::Anchored)!=0});
+  }
+  flightTracker.update(observations,f.at);f.balls=flightTracker.visible();
+ }
+
  HANDLE handle=nullptr;DWORD pid=0;addr model=0,moduleBase=0,retained=0;double scanAt=-10;
- addr routeTarget=0,routeTool=0;ff3qb::RouteHistory routeHistory;ff3qb::AngleTracker angleHistory;Vec previousFit{};double previousPower=0;bool previousLob=false;double previousAngle=NAN;unsigned plannerRevision=0;
+ addr routeTarget=0,routeTool=0;ff3qb::RouteHistory routeHistory;ff3qb::AngleTracker angleHistory;Vec previousFit{};double previousPower=0;bool previousLob=false;double previousAngle=NAN;unsigned plannerRevision=0;double nextPlanSearch=0;
  struct Actor{addr rig=0,player=0,team=0;bool npc=false;};std::vector<Actor> actors;
  ~Reader(){if(handle)CloseHandle(handle);}
  Frame read(addr forced=0){
   Frame f;f.at=now();f.revision=revision;f.mode=passMode;auto session=gameModules::router.get();f.pid=session.pid;f.model=session.model;
   if(!admitted()){f.reason="Connect to Football Fusion 3";return f;}
-  if(pid!=f.pid){if(handle)CloseHandle(handle);handle=OpenProcess(PROCESS_VM_READ|SYNCHRONIZE,FALSE,f.pid);pid=f.pid;model=moduleBase=0;lockedTarget=0;routeTarget=0;}
+  if(pid!=f.pid){if(handle)CloseHandle(handle);handle=OpenProcess(PROCESS_VM_READ|SYNCHRONIZE,FALSE,f.pid);pid=f.pid;model=moduleBase=0;lockedTarget=0;routeTarget=0;flightWorkspace=0;flightTracker.clear();}
   if(!handle||WaitForSingleObject(handle,0)!=WAIT_TIMEOUT){f.reason="Waiting for the game process";return f;}
   auto h=handle;auto root=f.model;auto ws=child(h,root,"Workspace"),players=child(h,root,"Players");
   auto player=rd<addr>(h,players+Offsets::Player::LocalPlayer);f.own=rd<addr>(h,player+Offsets::Player::ModelInstance);
   auto head=child(h,f.own,"Head"),hum=child(h,f.own,"Humanoid");
   const float health=rd<float>(h,hum+Offsets::Humanoid::Health,NAN);
+  f.window=GetForegroundWindow();if(!focused(f.pid)){f.reason="Focus Football Fusion 3";return f;}
+  if(!GetClientRect(f.window,&f.client)||!ClientToScreen(f.window,&f.origin)||!GetCursorPos(&f.cursor)){f.reason="Waiting for viewport";return f;}
+  const int width=f.client.right,height=f.client.bottom;
+  auto camera=rd<addr>(h,ws+Offsets::Workspace::CurrentCamera);Vec cameraPosition=vector(rd<shooting::Vec>(h,camera+Offsets::Camera::Position,{NAN,NAN,NAN}));
+  // Project using camera view/projection from the same version-gated process.
+  // Resolve once per process, independently of Basketball's cleared scene.
+  if(!moduleBase){HANDLE modules=CreateToolhelp32Snapshot(TH32CS_SNAPMODULE|TH32CS_SNAPMODULE32,pid);MODULEENTRY32W entry{sizeof entry};if(modules!=INVALID_HANDLE_VALUE){if(Module32FirstW(modules,&entry))moduleBase=(addr)entry.modBaseAddr;CloseHandle(modules);}}
+  const auto visual=rd<addr>(h,moduleBase+Offsets::VisualEngine::Pointer);
+  struct Matrix{float m[16];};Matrix invalid;for(auto& v:invalid.m)v=NAN;const auto matrix=rd<Matrix>(h,visual+Offsets::VisualEngine::ViewMatrix,invalid);std::copy(std::begin(matrix.m),std::end(matrix.m),f.matrix);
+  if(!ff3qb::finite(cameraPosition)||!visual||!std::all_of(std::begin(f.matrix),std::end(f.matrix),[](float v){return std::isfinite(v);})){f.reason="Camera data unavailable";return f;}
+  collectBalls(h,ws,f);
   if(!f.own||!std::isfinite(health)||health<=0){f.reason="Waiting for your live character";return f;}
+  if(!enabled){f.reason="QB aim off";return f;}
   auto ui=child(h,root,"UserInputService"),input=rd<addr>(h,ui+Offsets::UserInputService::WindowInputState);
   f.textFocus=!input||rd<addr>(h,input+Offsets::WindowInputState::CurrentTextBox)!=0;
   if(f.textFocus){f.reason="Typing or input data unavailable";return f;}
@@ -83,10 +119,7 @@ struct Reader {
   const int visiblePower=ff3qb::readPower(f.held,powerDisplays);
   f.gamePower=std::max(0,visiblePower);f.wheelVisible=f.gamePower>0;f.power=f.gamePower;
   const std::string powerReason=visiblePower==-2?"Visible power displays disagree":visiblePower==-1?"Football power text is invalid":"Waiting for game power; enable calculated power to throw without the wheel";
-  f.window=GetForegroundWindow();if(!focused(f.pid)){f.reason="Focus Football Fusion 3";return f;}
-  if(!GetClientRect(f.window,&f.client)||!ClientToScreen(f.window,&f.origin)||!GetCursorPos(&f.cursor)){f.reason="Waiting for viewport";return f;}
-  const int width=f.client.right,height=f.client.bottom;
-  auto camera=rd<addr>(h,ws+Offsets::Workspace::CurrentCamera);Vec cameraPosition=vector(rd<shooting::Vec>(h,camera+Offsets::Camera::Position,{NAN,NAN,NAN}));
+
   if(!packetMode&&(!freeCursor()||rd<int>(h,player+Offsets::Player::CameraMode,-1)!=0||ff3qb::length(cameraPosition-position(h,head))<2.0)){f.reason="Use third-person with shift-lock off; release right mouse";return f;}
   CURSORINFO cursorState{sizeof cursorState};
   if(packetMode&&GetCursorInfo(&cursorState)&&!(cursorState.flags&CURSOR_SHOWING))f.cursor={f.origin.x+width/2,f.origin.y+height/2};
@@ -94,12 +127,7 @@ struct Reader {
   auto mouseService=child(h,root,"MouseService"),mouseInput=rd<addr>(h,mouseService+Offsets::MouseService::InputObject);
   f.gameMouse=vector(rd<shooting::Vec>(h,mouseInput+Offsets::MouseService::MousePosition,{NAN,NAN,NAN}));
   if(!packetMode&&(!ff3qb::finite(f.gameMouse)||f.gameMouse.x<0||f.gameMouse.x>width||f.gameMouse.y<0||f.gameMouse.y>height)){f.reason="Game cursor data unavailable";return f;}
-  // Project using camera view/projection from the same version-gated process.
-  // Resolve once per process, independently of Basketball's cleared scene.
-  if(!moduleBase){HANDLE modules=CreateToolhelp32Snapshot(TH32CS_SNAPMODULE|TH32CS_SNAPMODULE32,pid);MODULEENTRY32W entry{sizeof entry};if(modules!=INVALID_HANDLE_VALUE){if(Module32FirstW(modules,&entry))moduleBase=(addr)entry.modBaseAddr;CloseHandle(modules);}}
-  const auto visual=rd<addr>(h,moduleBase+Offsets::VisualEngine::Pointer);
-  struct Matrix{float m[16];};Matrix invalid;for(auto& v:invalid.m)v=NAN;const auto matrix=rd<Matrix>(h,visual+Offsets::VisualEngine::ViewMatrix,invalid);std::copy(std::begin(matrix.m),std::end(matrix.m),f.matrix);
-  if(!ff3qb::finite(cameraPosition)||!visual||!std::all_of(std::begin(f.matrix),std::end(f.matrix),[](float v){return std::isfinite(v);})){f.reason="Camera data unavailable";return f;}
+
   const auto ownTeam=rd<addr>(h,player+Offsets::Player::Team);const bool practicePlace=session.placeId==81310542478972ULL;
   if(model!=root||f.at-scanAt>.25){
    actors.clear();if(model!=root){retained=0;lockedTarget=0;routeTarget=0;}model=root;scanAt=f.at;
@@ -128,7 +156,7 @@ struct Reader {
   }
   if(!f.target){retained=0;f.reason=pinned?"Locked receiver unavailable or off screen; Q unlocks":"Aim near a teammate or practice receiver";return f;}
   retained=f.target;for(auto& c:f.candidates)c.selected=c.screen.x==f.receiver.x&&c.screen.y==f.receiver.y;
-  if(routeTarget!=f.target||routeTool!=f.tool||plannerRevision!=f.revision){plannerRevision=f.revision;routeTarget=f.target;routeTool=f.tool;routeHistory.reset();angleHistory={};previousFit={};previousPower=0;previousLob=false;previousAngle=NAN;}
+  if(routeTarget!=f.target||routeTool!=f.tool||plannerRevision!=f.revision){plannerRevision=f.revision;routeTarget=f.target;routeTool=f.tool;routeHistory.reset();angleHistory={};previousFit={};previousPower=0;previousLob=false;previousAngle=NAN;nextPlanSearch=0;}
   routeHistory.update(f.at,origin,position(h,child(h,f.target,"HumanoidRootPart")),targetVelocity);targetVelocity=routeHistory.movement;if(ff3qb::length(targetVelocity)<.5)targetVelocity={};
   f.route=routeHistory.route;
   bool coverageComplete=true;
@@ -169,10 +197,11 @@ struct Reader {
    // Unknown receiver jump capability cannot justify an elevated catch point.
    if(!std::isfinite(jump)||jump<0||jump>40)jump=0;
    if(!std::isfinite(world)||world<10||world>300){world=196.2;jump=0;}
-   planned=ff3qb::planCoverageThrow(origin,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,force95,jump,world,previousFit,previousPower,previousLob,previousAngle);
+   planned=ff3qb::planCoverageThrow(origin,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,force95,jump,world,previousFit,previousPower,previousLob,previousAngle,f.at>=nextPlanSearch);
+   if(f.at>=nextPlanSearch)nextPlanSearch=f.at+.10;
   }
   auto solution=planned.solution;
-  if(!solution.valid){f.fitBlocked=smartFit;f.reason=powerFirst&&force95?"Outside low-arc Beam range; disable Beam for adaptive power":"No reachable throw at these settings";return f;}
+  if(!solution.valid){f.fitBlocked=smartFit;f.reason=powerFirst&&force95?"No reachable Beam arc; choose Auto route for a higher arc":"No reachable throw at these settings";return f;}
   f.power=planned.power;f.fitOffset=planned.offset;f.targetPosition=targetPosition+planned.offset;f.margin=defenders.empty()?10:planned.margin;previousFit=planned.offset;previousPower=planned.power;previousLob=planned.lob;previousAngle=planned.solution.angle;f.selectedLob=planned.lob;f.distance=ff3qb::length(targetPosition-origin);
   f.solution=solution;
   // A distant point minimizes camera/head parallax. Normal mouse hit testing
@@ -232,8 +261,9 @@ inline void tapPower(){INPUT in[2]{};in[0].type=in[1].type=INPUT_KEYBOARD;in[0].
 inline void worker(){
  Reader reader;double powerAt=-10;
  while(running){
-  if(!enabled||!admitted()){Frame idle;idle.reason=enabled?"Connect to Football Fusion 3":"QB aim off";publish(idle);{std::lock_guard<std::mutex> lock(mutex);clicks.cancel();}Sleep(30);continue;}
+  if((!enabled&&!ballTrails)||!admitted()){reader.flightTracker.clear();Frame idle;idle.reason=enabled?"Connect to Football Fusion 3":"QB aim off";publish(idle);{std::lock_guard<std::mutex> lock(mutex);clicks.cancel();}Sleep(30);continue;}
   auto f=reader.read();
+  if(!enabled){publish(f);Sleep(16);continue;}
   if(packetMode){
    const auto clicked=physicalClickAt.load();
    if(clicked&&GetTickCount64()-clicked<350){Frame locked;{std::lock_guard<std::mutex> lock(mutex);locked=requested;}if(locked.ready){auto fresh=reader.read(locked.target);if(sameIdentity(locked,fresh))f=fresh;else{f.ready=false;f.reason="Throw target changed";}}else{f.ready=false;f.reason="No ready receiver at click";}}
@@ -272,7 +302,7 @@ inline void worker(){
   Sleep(8);
  }
 }
-inline json::Value modules(){using namespace basketballUi;auto out=object(),m=object(),rows=object();m.o[L"on"]=basketballUi::boolean(enabled);rows.o[L"arc"]=number(arc);rows.o[L"preset"]=number(passMode);rows.o[L"angle"]=number(manualAngle);rows.o[L"radius"]=number(selectionRadius);rows.o[L"dive"]=number(diveReach);rows.o[L"autoangle"]=basketballUi::boolean(automaticAngle);rows.o[L"fit"]=basketballUi::boolean(smartFit);rows.o[L"hud"]=basketballUi::boolean(showHud);rows.o[L"candidates"]=basketballUi::boolean(showCandidates);rows.o[L"power"]=basketballUi::boolean(autoPower);rows.o[L"force95"]=basketballUi::boolean(force95);rows.o[L"practice"]=basketballUi::boolean(practice);rows.o[L"visuals"]=basketballUi::boolean(visuals);m.o[L"rows"]=rows;out.o[L"ff3_qb"]=m;return out;}
+inline json::Value modules(){using namespace basketballUi;auto out=object(),m=object(),rows=object();m.o[L"on"]=basketballUi::boolean(enabled);rows.o[L"arc"]=number(arc);rows.o[L"preset"]=number(passMode);rows.o[L"angle"]=number(manualAngle);rows.o[L"radius"]=number(selectionRadius);rows.o[L"dive"]=number(diveReach);rows.o[L"autoangle"]=basketballUi::boolean(automaticAngle);rows.o[L"fit"]=basketballUi::boolean(smartFit);rows.o[L"hud"]=basketballUi::boolean(showHud);rows.o[L"candidates"]=basketballUi::boolean(showCandidates);rows.o[L"power"]=basketballUi::boolean(autoPower);rows.o[L"force95"]=basketballUi::boolean(force95);rows.o[L"trails"]=basketballUi::boolean(ballTrails);rows.o[L"practice"]=basketballUi::boolean(practice);rows.o[L"visuals"]=basketballUi::boolean(visuals);m.o[L"rows"]=rows;out.o[L"ff3_qb"]=m;return out;}
 inline bool set(const std::wstring& key,const json::Value& v){
  if(key==L"ff3_qb.arc"){if(v.type!=json::Value::Number||(v.n!=0&&v.n!=1))return false;arc=int(v.n);++revision;return true;}
  if(key==L"ff3_qb.preset"||key==L"ff3_qb.angle"||key==L"ff3_qb.radius"||key==L"ff3_qb.dive"){
@@ -284,9 +314,9 @@ inline bool set(const std::wstring& key,const json::Value& v){
  }
  if(v.type!=json::Value::Bool)return false;
  if(key==L"ff3_qb"){enabled=v.b;++revision;if(!v.b)stop();else{std::lock_guard<std::mutex> lock(mutex);current={};current.reason="Waiting for game data";}return true;}
- if(key==L"ff3_qb.force95"){force95=v.b;if(v.b){passMode=0;automaticAngle=true;autoPower=true;}}else if(key==L"ff3_qb.autoangle"){automaticAngle=v.b;if(!v.b)force95=false;}else if(key==L"ff3_qb.fit")smartFit=v.b;else if(key==L"ff3_qb.hud")showHud=v.b;else if(key==L"ff3_qb.candidates")showCandidates=v.b;else if(key==L"ff3_qb.power"){autoPower=v.b;if(!v.b)force95=false;}else if(key==L"ff3_qb.practice")practice=v.b;else if(key==L"ff3_qb.visuals")visuals=v.b;else return false;++revision;return true;
+ if(key==L"ff3_qb.force95"){force95=v.b;if(v.b){passMode=0;automaticAngle=true;autoPower=true;}}else if(key==L"ff3_qb.autoangle"){automaticAngle=v.b;if(!v.b)force95=false;}else if(key==L"ff3_qb.fit")smartFit=v.b;else if(key==L"ff3_qb.hud")showHud=v.b;else if(key==L"ff3_qb.candidates")showCandidates=v.b;else if(key==L"ff3_qb.power"){autoPower=v.b;if(!v.b)force95=false;}else if(key==L"ff3_qb.practice")practice=v.b;else if(key==L"ff3_qb.visuals")visuals=v.b;else if(key==L"ff3_qb.trails")ballTrails=v.b;else return false;++revision;return true;
 }
-inline json::Value report(){using namespace basketballUi;auto f=snapshot();auto out=object();out.o[L"type"]=string(L"ff3Live");out.o[L"modules"]=modules();out.o[L"reason"]=string(widen(f.reason));if(enabled&&packetMode&&packetStatus){const auto state=packetStatus();out.o[L"setup"]=string(state.second);out.o[L"transportReady"]=basketballUi::boolean(state.first);}out.o[L"target"]=string(widen(f.name));out.o[L"power"]=number(f.power);out.o[L"gamePower"]=number(f.gamePower);out.o[L"automaticPower"]=basketballUi::boolean(autoPower);out.o[L"held"]=basketballUi::boolean(f.held);out.o[L"wheel"]=basketballUi::boolean(f.wheelVisible);out.o[L"ready"]=basketballUi::boolean(f.ready);out.o[L"fitBlocked"]=basketballUi::boolean(f.fitBlocked);out.o[L"route"]=string(widen(f.route));out.o[L"preset"]=string(force95?L"Beam":widen(ff3qb::presetName(f.mode)));out.o[L"distance"]=number(f.distance);out.o[L"locked"]=basketballUi::boolean(f.locked);out.o[L"coverageCount"]=number(f.coverageCount);out.o[L"coverageDetail"]=string(widen(f.coverageDetail));out.o[L"coverageKnown"]=basketballUi::boolean(f.coverageKnown);out.o[L"margin"]=number(f.margin);out.o[L"fitOffset"]=number(std::hypot(f.fitOffset.x,f.fitOffset.z));out.o[L"catchHeight"]=number(f.fitOffset.y);out.o[L"force95"]=basketballUi::boolean(force95);out.o[L"angle"]=number(f.solution.angle);out.o[L"flight"]=number(f.solution.time);auto profile=array();if(f.ready){for(int i=0;i<=24;i++){auto p=ff3qb::point(f.solution,f.gravity,f.solution.time*i/24.);auto sample=array();sample.a.push_back(number(std::hypot(p.x-f.solution.origin.x,p.z-f.solution.origin.z)));sample.a.push_back(number(p.y-f.solution.origin.y));profile.a.push_back(sample);}}out.o[L"trajectory"]=profile;{std::lock_guard<std::mutex> lock(mutex);out.o[L"lastAction"]=string(now()-actionAt<3?widen(lastAction):L"");out.o[L"throws"]=number(throwCount);}return out;}
-inline void load(const std::filesystem::path& file){auto cfg=basketballUi::readConfig(file);for(auto key:{L"arc",L"preset",L"power",L"practice",L"visuals",L"angle",L"radius",L"dive",L"autoangle",L"fit",L"hud",L"candidates",L"force95"})if(cfg[key].type!=json::Value::Null)set(L"ff3_qb."+std::wstring(key),cfg[key]);enabled=false;}
+inline json::Value report(){using namespace basketballUi;auto f=snapshot();auto out=object();out.o[L"type"]=string(L"ff3Live");out.o[L"modules"]=modules();out.o[L"reason"]=string(widen(f.reason));if(enabled&&packetMode&&packetStatus){const auto state=packetStatus();out.o[L"setup"]=string(state.second);out.o[L"transportReady"]=basketballUi::boolean(state.first);}out.o[L"target"]=string(widen(f.name));out.o[L"power"]=number(f.power);out.o[L"gamePower"]=number(f.gamePower);out.o[L"automaticPower"]=basketballUi::boolean(autoPower);out.o[L"held"]=basketballUi::boolean(f.held);out.o[L"wheel"]=basketballUi::boolean(f.wheelVisible);out.o[L"ready"]=basketballUi::boolean(f.ready);out.o[L"fitBlocked"]=basketballUi::boolean(f.fitBlocked);out.o[L"route"]=string(widen(f.route));out.o[L"preset"]=string(force95?L"Beam":widen(ff3qb::presetName(f.mode)));out.o[L"distance"]=number(f.distance);out.o[L"locked"]=basketballUi::boolean(f.locked);out.o[L"coverageCount"]=number(f.coverageCount);out.o[L"coverageDetail"]=string(widen(f.coverageDetail));out.o[L"coverageKnown"]=basketballUi::boolean(f.coverageKnown);out.o[L"margin"]=number(f.margin);out.o[L"fitOffset"]=number(std::hypot(f.fitOffset.x,f.fitOffset.z));out.o[L"catchHeight"]=number(f.fitOffset.y);out.o[L"force95"]=basketballUi::boolean(force95);out.o[L"balls"]=number(double(f.balls.size()));out.o[L"angle"]=number(f.solution.angle);out.o[L"flight"]=number(f.solution.time);auto profile=array();if(f.ready){for(int i=0;i<=24;i++){auto p=ff3qb::point(f.solution,f.gravity,f.solution.time*i/24.);auto sample=array();sample.a.push_back(number(std::hypot(p.x-f.solution.origin.x,p.z-f.solution.origin.z)));sample.a.push_back(number(p.y-f.solution.origin.y));profile.a.push_back(sample);}}out.o[L"trajectory"]=profile;{std::lock_guard<std::mutex> lock(mutex);out.o[L"lastAction"]=string(now()-actionAt<3?widen(lastAction):L"");out.o[L"throws"]=number(throwCount);}return out;}
+inline void load(const std::filesystem::path& file){auto cfg=basketballUi::readConfig(file);for(auto key:{L"arc",L"preset",L"power",L"practice",L"visuals",L"angle",L"radius",L"dive",L"autoangle",L"fit",L"hud",L"candidates",L"force95",L"trails"})if(cfg[key].type!=json::Value::Null)set(L"ff3_qb."+std::wstring(key),cfg[key]);enabled=false;}
 inline bool save(const std::filesystem::path& file){auto data=modules()[L"ff3_qb"][L"rows"];auto temp=file;temp+=L".tmp";{std::ofstream out(temp,std::ios::binary);out<<winrt::to_string(json::dump(data));out.flush();if(!out)return false;}return MoveFileExW(temp.c_str(),file.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE;}
 }

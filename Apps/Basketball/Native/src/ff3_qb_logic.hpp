@@ -104,7 +104,7 @@ struct RouteHistory {
  void update(double time,Vec origin,Vec position,Vec velocity){
   if(samples.empty()){axis=position-origin;axis.y=0;axis=axis*(1/std::max(1.,length(axis)));movement=velocity;}
   if(!samples.empty()&&time-samples.back().time<.04)return;
-  if(!samples.empty()){double dt=time-samples.back().time;if(dt>.5){reset();update(time,origin,position,velocity);return;}auto measured=(position-samples.back().position)*(1/dt);measured.y=0;const bool stopped=length(velocity)<.5&&length(measured)<.5;if(length(measured)<=40)velocity=velocity*.5+measured*.5;movement=stopped?Vec{}:movement*.65+velocity*.35;}
+  if(!samples.empty()){double dt=time-samples.back().time;if(dt>.5){reset();update(time,origin,position,velocity);return;}auto measured=(position-samples.back().position)*(1/dt);measured.y=0;const bool stopped=length(velocity)<.5&&length(measured)<.5;if(length(measured)<=40)velocity=velocity*.5+measured*.5;double blend=length(velocity-movement)>8?.7:.4;movement=stopped?Vec{}:movement*(1-blend)+velocity*blend;}
   samples.push_back({time,position});while(samples.size()>2&&time-samples.front().time>1.2)samples.erase(samples.begin());
   if(samples.size()<4)return;
   double speed=std::hypot(movement.x,movement.z),forward=dot(movement,axis),side=std::abs(movement.x*axis.z-movement.z*axis.x),distance=length(position-origin);
@@ -145,13 +145,16 @@ inline double coverageMargin(const Solution& s,double gravity,const std::vector<
   // Conservative estimated envelope: a catcher can jump late in the flight
   // and redirect a dive. These are reach estimates, not guaranteed game limits.
   double rise=std::max(d.jumpHeight,std::max(0.,d.velocity.y*.2));
-  if(p.y>d.position.y+6+rise||p.y<d.position.y-8)continue;
+
   double distance=std::hypot(p.x-d.position.x,p.z-d.position.z);
   double speed=std::clamp(std::max(d.speed,std::hypot(d.velocity.x,d.velocity.z)),16.,45.);
   double dive=std::min(d.diveReach,std::max(0.,t-.1)*45);
   // Keep penetration signed: two catchable paths can have very different
   // placement quality. Clamping here erased the benefit of throwing past a DB.
-  margin=std::min(margin,(distance-6.-dive)/speed-t-latency);
+  const double horizontal=(distance-6.-dive)/speed-t-latency;
+  const double excess=std::max(0.,std::max(p.y-d.position.y-6-rise,d.position.y-8-p.y));
+  const double blend=std::clamp(excess/4.,0.,1.);
+  margin=std::min(margin,horizontal*(1-blend)+(.5+excess/speed)*blend);
  }return margin;
 }
 inline std::vector<Vec> fitOffsets(Vec origin,Vec target,Vec movement,const std::vector<Defender>& defenders){
@@ -201,18 +204,18 @@ inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double l
 // Defender reach ranks otherwise reachable throws; a contest is not a veto.
 // Cap the benefit of extra clearance so open throws do not grow needless arcs.
 inline double fitScore(const Plan& p,bool fit){
- return (fit&&p.coverageKnown?std::min(p.margin,.5)*20:0)-p.solution.time*.6-std::hypot(p.offset.x,p.offset.z)*.06-p.offset.y*.03;
+ return (fit&&p.coverageKnown?std::min(p.margin,.5)*20:0)-p.solution.time*.8-std::hypot(p.offset.x,p.offset.z)*.06-p.offset.y*.03-(95-p.power)*.035-std::pow(std::max(0.,p.solution.angle-30.),2)*.004;
 }
 // Compare power, arc and reachable catch heights, including contested passes.
-inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool force95,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN){
- Plan best;double bestScore=-1e9;
+inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool force95,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN,bool search=true){
+ Plan best,heldPlan;double bestScore=-1e9;
  if(!std::isfinite(receiverJump)||receiverJump<0||receiverJump>40||!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)return best;
  const bool stationary=length(movement)<.5;if(stationary)movement={};
  const double jump=std::min(8.,receiverJump*.85);
- auto scorePlan=[&](const Plan& p){return fitScore(p,fit)+(force95?p.offset.y*.35:0);};
+ double closeCoverage=0;for(const auto& d:defenders)if(length(target-origin)<55&&length(d.position-target)<18)closeCoverage=1;
+ auto scorePlan=[&](const Plan& p){return fitScore(p,fit)+(fit&&closeCoverage&&jump>0?20*p.offset.y/jump:0);};
  auto acceptable=[&](const Solution& s,Vec offset,double power){
-  if(!s.valid||s.angle<(force95?-30:5)||s.angle>(force95?beamMaxAngle:75)||offset.y<0||offset.y>jump+.001)return false;
-  if(!force95&&power>=94.5&&offset.y<3)return false;
+  if(!s.valid||s.angle<(force95?-30:5)||s.angle>(force95?beamMaxAngle:60)||offset.y<0||offset.y>jump+.001)return false;
   if(!receiverCanReach(offset,movement,s.time,jump))return false;
   if(offset.y>0){double riseTime=(std::sqrt(2*worldGravity*receiverJump)-std::sqrt(2*worldGravity*(receiverJump-offset.y)))/worldGravity;if(s.time<.15+riseTime)return false;}
   return true;
@@ -221,23 +224,21 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  // paths compete against alternatives with hysteresis to suppress tiny changes.
  // No interpolation or settling gap may turn a valid click into an unassisted one.
  if(previousPower>0){
-  auto held=force95?solve(origin,target+previousOffset,movement,95,gravity,latency,false,5):solveAngle(origin,target+previousOffset,movement,previousAngle,gravity,latency,5);
+  auto held=force95?solve(origin,target+previousOffset,movement,std::min(95.,previousPower),gravity,latency,false,5):solveAngle(origin,target+previousOffset,movement,previousAngle,gravity,latency,5);
   if(!held.valid&&previousPower>=94.5)held=solve(origin,target+previousOffset,movement,95,gravity,latency,force95?false:previousLob,5);
-  double power=force95?95:std::min(95.,length(held.velocity));
+  double power=std::min(95.,length(held.velocity));
   if(acceptable(held,previousOffset,power)){
    auto low=solve(origin,target+previousOffset,movement,power,gravity,latency,false,5);
    best={held,previousOffset,power,defenders.empty()?10:coverageMargin(held,gravity,defenders,latency),!defenders.empty(),!low.valid||std::abs(low.time-held.time)>.02};
-   if(!force95&&(!fit||defenders.empty()||best.margin>catchSafetyMargin))return best;
-   bestScore=scorePlan(best)+.8;
+   heldPlan=best;
+   if(!search)return best;
+   bestScore=scorePlan(best)+(fit&&!defenders.empty()?1.2:.1);
   }
  }
  const auto offsets=fitOffsets(origin,target,movement,defenders);
  for(double power:{95.,90.,85.,80.,75.,70.,65.,60.,55.,50.,45.,40.,35.,30.,25.,20.,15.}){
-  if(force95&&power!=95)continue;
   for(double height:{0.,jump*.65,jump}){
-   // A 95-power pass explicitly asks for a jump catch, including stationary WRs.
-   if(!force95&&power==95&&height<3)continue;
-   if(power!=95&&height>0&&(!fit||defenders.empty()))continue;
+   if(height>0&&(!fit||defenders.empty()))continue;
    for(size_t i=0;i<(fit&&!defenders.empty()?offsets.size():1);++i)for(bool lob:{false,true}){
     if(force95&&lob)continue; // Beam never switches to the high ballistic root.
     Vec offset=offsets[i]+Vec{0,height,0};auto s=solve(origin,target+offset,movement,power,gravity,latency,lob,5);
@@ -247,6 +248,16 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
     const double score=scorePlan(candidate);
     if(score>bestScore){bestScore=score;best=candidate;}
    }
+  }
+ }
+ if(heldPlan.solution.valid&&best.solution.valid&&(std::abs(best.solution.angle-heldPlan.solution.angle)>3||length(best.offset-heldPlan.offset)>1)){
+  Vec delta=best.offset-heldPlan.offset;auto offset=heldPlan.offset+delta*std::min(1.,1./std::max(.001,length(delta)));
+  double power=heldPlan.power+std::clamp(best.power-heldPlan.power,-5.,5.);
+  auto smooth=force95?solve(origin,target+offset,movement,power,gravity,latency,false,5):solveAngle(origin,target+offset,movement,heldPlan.solution.angle+std::clamp(best.solution.angle-heldPlan.solution.angle,-3.,3.),gravity,latency,5);
+  if(!force95)power=std::min(95.,length(smooth.velocity));
+  if(acceptable(smooth,offset,power)){
+   double margin=defenders.empty()?10:coverageMargin(smooth,gravity,defenders,latency);
+   if(!fit||margin>=heldPlan.margin-.05){auto low=solve(origin,target+offset,movement,power,gravity,latency,false,5);return {smooth,offset,power,margin,!defenders.empty(),!low.valid||std::abs(low.time-smooth.time)>.02};}
   }
  }
  return best;

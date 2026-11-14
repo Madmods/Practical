@@ -20,7 +20,7 @@ inline void renderHud(PumpSurface& surface,const ff3Native::Frame& f,bool presen
  const auto color=accent(f);const Color white(255,235,243,248),muted(255,134,151,168);
  rounded(g,{3,3,514,198},16,Color(244,10,16,24),Color(90,108,135,153));
  text(g,L"VANTA  /  QUARTERBACK",20,15,9,muted,true,280);
- text(g,ff3Native::force95?L"BEAM / 95":basketballUi::widen(ff3qb::presetName(f.mode)),388,14,10,color,true,112);
+ text(g,ff3Native::force95?L"ADAPTIVE BEAM":basketballUi::widen(ff3qb::presetName(f.mode)),388,14,10,color,true,112);
  text(g,f.name.empty()?L"Select a receiver":basketballUi::widen(f.name),20,32,22,white,true,340);
  text(g,f.locked?L"LOCKED  /  Q":L"CURSOR  /  Q",389,39,9,muted,false,112);
  Pen divider(Color(50,108,135,153),1);g.DrawLine(&divider,20.f,65.f,500.f,65.f);
@@ -56,26 +56,44 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  segment(points,shadow);segment(points,glow);segment(points,line);segment(catchRing,glow);segment(catchRing,line);
  if(ff3Native::showCandidates)for(const auto& c:f.candidates)if(!c.selected&&c.screen.valid){float cx=float(c.screen.x),cy=float(c.screen.y);g.DrawEllipse(&muted,cx-6,cy-6,12.f,12.f);}
  // Moving time dots show direction without flashing the entire trajectory.
- SolidBrush dots(Color(255,237,246,255));double phase=std::fmod(now()*.22,1.);
- if(f.ready)for(int i=0;i<4;i++){double t=std::fmod(phase+i*.25,1.);auto p=ff3qb::project(ff3qb::point(f.solution,f.gravity,f.solution.time*t),f.matrix,w,h);if(p.valid)g.FillEllipse(&dots,REAL(p.x)-2,REAL(p.y)-2,4.f,4.f);}
+ SolidBrush dots(Color(255,237,246,255));double phase=.125;
+ if(f.ready)for(int i=0;i<4;i++){double t=phase+i*.25;auto p=ff3qb::project(ff3qb::point(f.solution,f.gravity,f.solution.time*t),f.matrix,w,h);if(p.valid)g.FillEllipse(&dots,REAL(p.x)-2,REAL(p.y)-2,4.f,4.f);}
  const float rx=float(f.receiver.x),ry=float(f.receiver.y),r=17,len=7;
  for(int dx:{-1,1})for(int dy:{-1,1}){g.DrawLine(&shadow,rx+dx*r,ry+dy*r,rx+dx*(r-len),ry+dy*r);g.DrawLine(&shadow,rx+dx*r,ry+dy*r,rx+dx*r,ry+dy*(r-len));g.DrawLine(&line,rx+dx*r,ry+dy*r,rx+dx*(r-len),ry+dy*r);g.DrawLine(&line,rx+dx*r,ry+dy*r,rx+dx*r,ry+dy*(r-len));}
  rounded(g,{rx-105,ry+29,210,24},7,Color(225,10,18,32),Color(90,color.GetR(),color.GetG(),color.GetB()));text(g,(f.locked?L"LOCKED / ":L"")+basketballUi::widen(f.name),rx-96,ry+32,12,color,true,191);
  if(!points.empty()&&points.back().valid){float cx=float(points.back().x),cy=float(points.back().y);g.DrawEllipse(&shadow,cx-6,cy-6,12.f,12.f);g.DrawEllipse(&line,cx-6,cy-6,12.f,12.f);g.DrawLine(&line,cx-11,cy,cx+11,cy);g.DrawLine(&line,cx,cy-11,cx,cy+11);rounded(g,{cx-71,cy-40,142,26},6,Color(235,10,16,24),Color(75,color.GetR(),color.GetG(),color.GetB()));text(g,(f.fitOffset.y>=3?L"JUMP CATCH":L"CATCH POINT")+std::wstring(L" / ")+number(f.solution.time,1)+L"s",cx-62,cy-34,9,color,true,126);Pen lead(Color(130,color.GetR(),color.GetG(),color.GetB()),1);lead.SetDashStyle(DashStyleDash);g.DrawLine(&lead,rx,ry,cx,cy);}
  if(present)surface.present({f.origin.x+x,f.origin.y+y});
 }
+// Observed flight history and a short, separately dashed gravity forecast.
+inline void renderBalls(PumpSurface& surface,const ff3Native::Frame& f,bool present=true){
+ using namespace Gdiplus;int w=f.client.right,h=f.client.bottom;double left=w,top=h,right=0,bottom=0;
+ struct Path{std::vector<ff3qb::Screen> trail,future;ff3qb::Screen ball;};std::vector<Path> paths;
+ auto project=[&](ff3qb::Vec p){auto q=ff3qb::project(p,f.matrix,w,h);if(q.valid){left=std::min(left,q.x-12);top=std::min(top,q.y-12);right=std::max(right,q.x+12);bottom=std::max(bottom,q.y+12);}return q;};
+ for(const auto& flight:f.balls){Path path;for(auto p:flight.trail)path.trail.push_back(project(p));path.ball=project(flight.position);
+  if(flight.gravity>0)for(int i=0;i<=20;i++){double t=i*.03;path.future.push_back(project(flight.position+flight.velocity*t+ff3qb::Vec{0,-.5*flight.gravity*t*t,0}));}paths.push_back(path);
+ }
+ int x=std::clamp(int(left),0,w),y=std::clamp(int(top),0,h),x1=std::clamp(int(right)+1,0,w),y1=std::clamp(int(bottom)+1,0,h);
+ if(x1<=x||y1<=y||!surface.prepare(x1-x,y1-y)){surface.hide();return;}
+ Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.TranslateTransform(REAL(-x),REAL(-y));
+ for(const auto& path:paths){
+  for(size_t i=1;i<path.trail.size();i++)if(path.trail[i-1].valid&&path.trail[i].valid){Pen shadow(Color(150,4,12,20),4),trail(Color(BYTE(50+190*i/path.trail.size()),100,218,255),2);g.DrawLine(&shadow,REAL(path.trail[i-1].x),REAL(path.trail[i-1].y),REAL(path.trail[i].x),REAL(path.trail[i].y));g.DrawLine(&trail,REAL(path.trail[i-1].x),REAL(path.trail[i-1].y),REAL(path.trail[i].x),REAL(path.trail[i].y));}
+  Pen forecast(Color(130,145,215,245),1);forecast.SetDashStyle(DashStyleDash);for(size_t i=1;i<path.future.size();i++)if(i%3!=0&&path.future[i-1].valid&&path.future[i].valid)g.DrawLine(&forecast,REAL(path.future[i-1].x),REAL(path.future[i-1].y),REAL(path.future[i].x),REAL(path.future[i].y));
+  if(path.ball.valid){Pen ring(Color(255,187,240,255),1.5f);SolidBrush core(Color(240,225,250,255));g.DrawEllipse(&ring,REAL(path.ball.x)-5,REAL(path.ball.y)-5,10.f,10.f);g.FillEllipse(&core,REAL(path.ball.x)-2,REAL(path.ball.y)-2,4.f,4.f);}
+ }
+ if(present)surface.present({f.origin.x+x,f.origin.y+y});
+}
 // The renderer owns both small transparent surfaces, independent of input and UI.
 inline void worker(){
- using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;if(GdiplusStartup(&token,&startup,nullptr)!=Ok)return;PumpSurface field,hud;
+ using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;if(GdiplusStartup(&token,&startup,nullptr)!=Ok)return;PumpSurface field,hud,balls;
  while(running){
   MSG message{};while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
-  auto f=ff3Native::snapshot();bool live=ff3Native::enabled&&ff3Native::admitted()&&ff3Native::focused(f.pid)&&now()>=f.at&&now()-f.at<.15;
-  if(!live){field.hide();hud.hide();Sleep(30);continue;}
+  auto f=ff3Native::snapshot();bool live=(ff3Native::enabled||ff3Native::ballTrails)&&ff3Native::admitted()&&ff3Native::focused(f.pid)&&now()>=f.at&&now()-f.at<.15;
+  if(!live){field.hide();hud.hide();balls.hide();Sleep(30);continue;}
   if(!f.client.right){f.window=GetForegroundWindow();GetClientRect(f.window,&f.client);ClientToScreen(f.window,&f.origin);}
-  if(f.client.right>8000||f.client.bottom>5000){field.hide();hud.hide();Sleep(30);continue;}
-  if(ff3Native::showHud)renderHud(hud,f);else hud.hide();
-  if(ff3Native::visuals&&f.target&&f.receiver.valid&&!f.textFocus&&f.revision==ff3Native::revision)renderField(field,f);else field.hide();Sleep(16);
+  if(f.client.right>8000||f.client.bottom>5000){field.hide();hud.hide();balls.hide();Sleep(30);continue;}
+  if(ff3Native::enabled&&ff3Native::showHud)renderHud(hud,f);else hud.hide();
+  if(ff3Native::enabled&&ff3Native::visuals&&f.target&&f.receiver.valid&&!f.textFocus&&f.revision==ff3Native::revision)renderField(field,f);else field.hide();if(ff3Native::ballTrails&&!f.balls.empty())renderBalls(balls,f);else balls.hide();Sleep(16);
  }
- field.close();hud.close();GdiplusShutdown(token);
+ field.close();hud.close();balls.close();GdiplusShutdown(token);
 }
 }
