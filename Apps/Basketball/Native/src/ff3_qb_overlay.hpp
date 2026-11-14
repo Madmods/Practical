@@ -46,6 +46,8 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  auto bounds=[&](ff3qb::Screen p){if(p.valid){left=std::min(left,p.x-90);top=std::min(top,p.y-60);right=std::max(right,p.x+90);bottom=std::max(bottom,p.y+52);}};
  if(f.ready)for(int i=0;i<=64;i++){auto p=ff3qb::project(ff3qb::point(f.solution,f.gravity,f.solution.time*i/64.),f.matrix,w,h);points.push_back(p);bounds(p);}
  if(f.ready)for(int i=0;i<=40;i++){double a=i*6.283185307/40;auto p=ff3qb::project(f.solution.catchPoint+ff3qb::Vec{3*cos(a),-3,3*sin(a)},f.matrix,w,h);catchRing.push_back(p);bounds(p);}
+ std::vector<std::pair<ff3qb::Screen,ff3qb::Screen>> coverage;
+ if(ff3Native::showCandidates)for(const auto& d:f.defenders)if(ff3qb::length(d.position-(f.targetPosition-f.fitOffset))<30&&coverage.size()<4){auto base=ff3qb::project(d.position,f.matrix,w,h),reach=ff3qb::project(d.position+ff3qb::Vec{0,6+d.jumpHeight,0},f.matrix,w,h);coverage.push_back({base,reach});bounds(base);bounds(reach);}
  if(ff3Native::showCandidates)for(const auto& c:f.candidates)bounds(c.screen);
  if(f.ready){auto launch=ff3qb::project(f.solution.origin,f.matrix,w,h);bounds(launch);}
  const int x=std::clamp(int(std::floor(left))-8,0,w),y=std::clamp(int(std::floor(top))-8,0,h),x1=std::clamp(int(std::ceil(right))+8,0,w),y1=std::clamp(int(std::ceil(bottom))+8,0,h);
@@ -53,6 +55,8 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);g.TranslateTransform(REAL(-x),REAL(-y));g.SetClip(Rect(0,0,w,h));
  Color color=accent(f);Pen shadow(Color(170,5,10,20),4),glow(Color(30,color.GetR(),color.GetG(),color.GetB()),9),line(color,2),muted(Color(100,164,188,228),1);line.SetStartCap(LineCapRound);line.SetEndCap(LineCapRound);
  auto segment=[&](const auto& path,Pen& pen){for(size_t i=1;i<path.size();i++)if(path[i-1].valid&&path[i].valid)g.DrawLine(&pen,PointF(REAL(path[i-1].x),REAL(path[i-1].y)),PointF(REAL(path[i].x),REAL(path[i].y)));};
+ Pen pressure(Color(185,255,125,123),1);pressure.SetDashStyle(DashStyleDash);
+ for(const auto& d:coverage){if(d.first.valid){g.DrawEllipse(&pressure,REAL(d.first.x)-9,REAL(d.first.y)-9,18.f,18.f);if(d.second.valid){g.DrawLine(&pressure,REAL(d.first.x),REAL(d.first.y)-10,REAL(d.second.x),REAL(d.second.y));g.DrawLine(&pressure,REAL(d.second.x)-7,REAL(d.second.y),REAL(d.second.x)+7,REAL(d.second.y));}}}
  segment(points,shadow);segment(points,glow);segment(points,line);segment(catchRing,glow);segment(catchRing,line);
  if(ff3Native::showCandidates)for(const auto& c:f.candidates)if(!c.selected&&c.screen.valid){float cx=float(c.screen.x),cy=float(c.screen.y);g.DrawEllipse(&muted,cx-6,cy-6,12.f,12.f);}
  // Moving time dots show direction without flashing the entire trajectory.

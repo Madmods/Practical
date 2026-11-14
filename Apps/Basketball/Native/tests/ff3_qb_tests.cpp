@@ -84,7 +84,7 @@ int main(){int count=0;
  auto adaptive=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,false,7,196.2);
  auto forced95=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,true,7,196.2);
  assert(adaptive.solution.valid&&forced95.solution.valid);
- assert(forced95.power<95&&forced95.solution.angle<=beamMaxAngle);
+ assert(forced95.power>=90&&forced95.solution.angle<=beamMaxAngle);
  assert(adaptive.power<95&&adaptive.margin>catchSafetyMargin);
  auto retained=planCoverageThrow({0,8,0},{150.1,8,0},{},28,.05,underneath,true,false,7,196.2,adaptive.offset,adaptive.power,adaptive.lob,adaptive.solution.angle);
  assert(retained.solution.valid&&std::abs(retained.solution.angle-adaptive.solution.angle)<1e-6);
@@ -127,19 +127,24 @@ int main(){int count=0;
  auto resetArc=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,7,196.2,{},50,true,60);
  for(int i=0;i<30;i++){double before=resetArc.solution.angle;resetArc=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,7,196.2,resetArc.offset,resetArc.power,resetArc.lob,resetArc.solution.angle);assert(resetArc.solution.valid&&std::abs(resetArc.solution.angle-before)<=3.01);}
  assert(resetArc.power>=90&&resetArc.solution.angle<20);
- // Flight histories survive the apex, then disappear on impact, catch or removal.
- FlightTracker flights;flights.update({{1,{0,10,0},{30,10,0},28,false},{2,{5,15,0},{20,-8,0},28,false}},1);
- assert(flights.visible().size()==2);
- flights.update({{1,{3,10.86,0},{30,7.2,0},28,false},{2,{7,14,0},{20,2,0},28,false}},1.1);
- assert(flights.visible().size()==1&&flights.visible()[0].trail.size()==2);
- flights.update({},1.2);assert(flights.visible().empty());
- flights.update({{3,{0,12,0},{0,1,0},28,false}},2);assert(flights.visible().empty());
- flights.update({{3,{0,12,0},{10,1,0},28,false}},2.1);
- flights.update({{3,{1,12,0},{10,-1.8,0},28,false}},2.2);assert(flights.visible().size()==1);
- flights.update({{3,{2,11,0},{0,0,0},28,true}},2.3);assert(flights.visible().empty());
- flights.update({{4,{0,1,0},{25,-2,0},28,false}},3);
- for(int i=1;i<=5;i++)flights.update({{4,{i*1.25,1,0},{25,0,0},28,false}},3+i*.05);
- assert(flights.visible().empty()); // Rolling after a soft landing also clears.
+ // Script-driven balls can retain their launch velocity and be anchored.
+ // Forecast must use changing positions, and a stationary stale-velocity ball stays hidden.
+ FlightTracker flights;
+ for(int i=0;i<=25;i++){double t=i*.05;flights.update({{1,{40*t,10+20*t-14*t*t,0},{40,20,0},28,true},{2,{0,3,0},{95,60,0},28,false}},1+t);}
+ auto observed=flights.visible();assert(observed.size()==1&&observed[0].id==1);
+ assert(std::abs(observed[0].velocity.x-40)<.01&&std::abs(observed[0].velocity.y-(20-28*1.25))<.01);
+ assert(observed[0].trail.size()>10); // Survives the apex with constant raw velocity.
+ auto landed=observed[0].position;
+ for(int i=1;i<=8;i++)flights.update({{1,landed,{40,20,0},28,true}},2.25+i*.05);
+ assert(flights.visible().empty());
+ flights.update({},3);assert(flights.flights.empty()); // Catch/removal clears history.
+ for(int i=0;i<8;i++)flights.update({{3,{i*1.25,1,0},{25,-20,0},28,false}},4+i*.05);
+ assert(flights.visible().empty()); // Level rolling motion is no longer airborne.
+ // Reproduce the observed 65->70->75 staircase with a receiver running away.
+ Plan chase;
+ for(int i=0;i<30;i++){double distance=100+i*2.;chase=planCoverageThrow({0,8,0},{distance,8,0},{20,0,0},28,.05,{{{distance-2,8,0},{20,0,0},23,8.37,12}},true,true,6.37,196.2,chase.offset,chase.power,chase.lob,chase.solution.angle);
+  assert(chase.solution.valid&&chase.power==95&&chase.offset.y>=3&&chase.solution.angle<=beamMaxAngle);
+ }
  for(bool visible:{false,true})for(bool right:{false,true})for(bool first:{false,true})assert(cursorModeAllowed(visible,right,first)==(visible&&!right&&!first));
  const float identity[]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};float tilted[]={1,0,0,0,0,.8f,.6f,0,0,0,1,0,0,0,0,1};
  assert(cameraStable(identity,identity));assert(!cameraStable(identity,tilted));tilted[4]=NAN;assert(!cameraStable(identity,tilted));

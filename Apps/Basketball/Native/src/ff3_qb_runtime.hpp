@@ -66,7 +66,7 @@ struct Reader {
   std::vector<ff3qb::BallObservation> observations;
   for(auto part:flightParts){auto parent=rd<addr>(h,part+Offsets::Instance::Parent);auto cls=defense::classOf(h,parent);if(!parent||cls=="Tool"||child(h,parent,"Humanoid"))continue;
    addr ancestor=parent;for(int depth=0;depth<4&&ancestor&&ancestor!=ws;depth++)ancestor=rd<addr>(h,ancestor+Offsets::Instance::Parent);if(ancestor!=ws)continue;
-   auto primitive=rd<addr>(h,part+Offsets::BasePart::Primitive);auto p=position(h,part),v=velocity(h,part);if(!primitive||!ff3qb::finite(p)||!ff3qb::finite(v))continue;
+   auto primitive=rd<addr>(h,part+Offsets::BasePart::Primitive);auto p=position(h,part),v=velocity(h,part);if(!primitive||!ff3qb::finite(p))continue;if(!ff3qb::finite(v))v={};
    double gravity=-rd<double>(h,path(h,part,{"Configuration","Gravity"})+Offsets::Misc::Value,NAN);if(!std::isfinite(gravity)||gravity<1||gravity>300)gravity=0;
    observations.push_back({part,p,v,gravity,(rd<unsigned char>(h,primitive+Offsets::Primitive::Flags)&Offsets::PrimitiveFlags::Anchored)!=0});
   }
@@ -176,6 +176,7 @@ struct Reader {
   }
   f.coverageKnown=coverageComplete;f.coverageCount=int(defenders.size());
   f.coverageDetail=!coverageComplete?"Some catcher data unavailable":defenders.empty()?"No other active catchers":std::to_string(defenders.size())+" catchers / jump + dive estimate";
+  if(!defenders.empty()){double nearest=1e9;for(const auto& d:defenders)nearest=std::min(nearest,ff3qb::length(d.position-targetPosition));f.coverageDetail+= " / nearest "+std::to_string(int(std::lround(nearest)))+" st";}
   f.targetPosition=targetPosition;f.targetVelocity=targetVelocity;f.defenders=defenders;f.guarded=smartFit;
   if(smartFit&&(!f.coverageKnown||defenders.size()>128)){f.fitBlocked=true;f.reason="Coverage incomplete: no assisted throw; normal click unchanged";return f;}
   if(!ff3qb::powerAvailable(f.held,autoPower,visiblePower)){f.reason=powerReason;return f;}
@@ -209,7 +210,7 @@ struct Reader {
   f.aim=ff3qb::project(origin+solution.velocity*(1000./f.power),f.matrix,width,height);
   if(!packetMode&&!f.aim.valid){f.reason="Turn the camera toward the throw arc";return f;}
   if(!descendant(h,f.tool,f.own)||rd<addr>(h,player+Offsets::Player::ModelInstance)!=f.own||rd<std::uint64_t>(h,root+Offsets::DataModel::GameId)!=gameModules::registry[1].universe){f.reason="Game state changed";return f;}
-  f.ready=true;f.reason=f.coverageKnown&&f.coverageCount>0&&f.margin<=ff3qb::catchSafetyMargin?"Contested: aiming assist active":f.fitOffset.y>=3?"Jump catch: "+f.name:"Ready: click to throw to "+f.name;return f;
+  f.ready=true;f.reason=force95&&f.fitOffset.y<3&&std::any_of(defenders.begin(),defenders.end(),[&](const auto& d){return ff3qb::length(d.position-targetPosition)<24;})?"Head-height fallback: elevated Beam catch unavailable":f.coverageKnown&&f.coverageCount>0&&f.margin<=ff3qb::catchSafetyMargin?"Contested: aiming assist active":f.fitOffset.y>=3?"Jump catch: "+f.name:"Ready: click to throw to "+f.name;return f;
  }
 };
 inline bool eligible(const Frame& f,double time){return enabled&&f.revision==revision&&f.ready&&time>=f.at&&time-f.at<.10&&admitted()&&focused(f.pid)&&(packetMode||freeCursor());}

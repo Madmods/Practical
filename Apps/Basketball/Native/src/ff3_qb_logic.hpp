@@ -206,11 +206,42 @@ inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double l
 inline double fitScore(const Plan& p,bool fit){
  return (fit&&p.coverageKnown?std::min(p.margin,.5)*20:0)-p.solution.time*.8-std::hypot(p.offset.x,p.offset.z)*.06-p.offset.y*.03-(95-p.power)*.035-std::pow(std::max(0.,p.solution.angle-30.),2)*.004;
 }
+// Beam chooses the highest power with estimated clearance, not a weighted
+// compromise that can get stuck climbing a 65/70/75 power staircase.
+inline Plan planBeamThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool search=true){
+ const double jump=std::min(8.,receiverJump*.85);bool covered=false;
+ for(const auto& d:defenders)if(length(d.position-target)<24)covered=true;
+ auto valid=[&](const Solution& s,Vec offset){if(!s.valid||s.angle<-30||s.angle>beamMaxAngle||offset.y<0||offset.y>jump+.001||!receiverCanReach(offset,movement,s.time,jump))return false;
+  if(offset.y>0){double ascent=(std::sqrt(2*worldGravity*receiverJump)-std::sqrt(2*worldGravity*(receiverJump-offset.y)))/worldGravity;if(s.time<.15+ascent)return false;}return true;};
+ if(!search&&previousPower>0){auto s=solve(origin,target+previousOffset,movement,std::min(95.,previousPower),gravity,latency,false,5);if(valid(s,previousOffset))return {s,previousOffset,std::min(95.,previousPower),defenders.empty()?10:coverageMargin(s,gravity,defenders,latency),!defenders.empty(),false};}
+ const auto offsets=fitOffsets(origin,target,movement,defenders);Plan strongest,raised;
+ for(double power:{95.,90.,85.,80.,75.,70.,65.,60.,55.,50.,45.,40.,35.,30.,25.,20.,15.}){
+  Plan tier,clearTier,jumpTier;auto choose=[&](Plan& selected,const Plan& candidate){
+   if(!selected.solution.valid){selected=candidate;return;}
+   // Once margins are comparable, prefer the elevated catch and keep placement
+   // near the preceding fit; never retain a lower power just for continuity.
+   double candidateScore=std::min(candidate.margin,.5)*12+candidate.offset.y*.6-length(candidate.offset-previousOffset)*.25;
+   double selectedScore=std::min(selected.margin,.5)*12+selected.offset.y*.6-length(selected.offset-previousOffset)*.25;
+   if(candidateScore>selectedScore)selected=candidate;
+  };
+  for(double height:{0.,jump*.65,jump})for(size_t i=0;i<(fit&&!defenders.empty()?offsets.size():1);i++){
+   if(height>0&&(!fit||!covered))continue;Vec offset=offsets[i]+Vec{0,height,0};auto s=solve(origin,target+offset,movement,power,gravity,latency,false,5);if(!valid(s,offset))continue;
+   Plan p{s,offset,power,defenders.empty()?10:coverageMargin(s,gravity,defenders,latency),!defenders.empty(),false};choose(tier,p);
+   if(p.margin>catchSafetyMargin||!fit||defenders.empty())choose(clearTier,p);
+   if(offset.y>=std::min(3.,jump)&&offset.y>0)choose(jumpTier,p);
+  }
+  if(clearTier.solution.valid)return clearTier;
+  if(!strongest.solution.valid&&tier.solution.valid)strongest=tier;
+  if(!raised.solution.valid&&jumpTier.solution.valid)raised=jumpTier;
+ }
+ return fit&&covered&&raised.solution.valid?raised:strongest;
+}
 // Compare power, arc and reachable catch heights, including contested passes.
 inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool force95,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN,bool search=true){
  Plan best,heldPlan;double bestScore=-1e9;
  if(!std::isfinite(receiverJump)||receiverJump<0||receiverJump>40||!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)return best;
  const bool stationary=length(movement)<.5;if(stationary)movement={};
+ if(force95)return planBeamThrow(origin,target,movement,gravity,latency,defenders,fit,receiverJump,worldGravity,previousOffset,previousPower,search);
  const double jump=std::min(8.,receiverJump*.85);
  double closeCoverage=0;for(const auto& d:defenders)if(length(target-origin)<55&&length(d.position-target)<18)closeCoverage=1;
  auto scorePlan=[&](const Plan& p){return fitScore(p,fit)+(fit&&closeCoverage&&jump>0?20*p.offset.y/jump:0);};
