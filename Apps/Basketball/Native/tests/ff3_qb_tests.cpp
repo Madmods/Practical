@@ -129,7 +129,17 @@ int main(){int count=0;
  assert(closeRegular.solution.valid&&closeRegular.margin<=catchSafetyMargin&&!estimatedClear(closeRegular,true));
  auto resetArc=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,7,196.2,{},50,true,60);
  for(int i=0;i<30;i++){double before=resetArc.solution.angle;resetArc=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,7,196.2,resetArc.offset,resetArc.power,resetArc.lob,resetArc.solution.angle);assert(resetArc.solution.valid&&std::abs(resetArc.solution.angle-before)<=4.01);}
+ if(!(resetArc.power>=90&&resetArc.solution.angle<20))std::cerr<<"Reset arc: "<<resetArc.power<<" / "<<resetArc.solution.angle<<'\n';
  assert(resetArc.power>=90&&resetArc.solution.angle<20);
+ // A coverage ranking change must not bypass the actual throw-angle limiter.
+ auto switching=solveAngle({0,8,0},{150,8,0},{},35,28,.05,5);
+ Plan smoothSwitch{switching,{},length(switching.velocity),0,true,false};
+ for(int i=0;i<24;i++){
+  const double before=smoothSwitch.solution.angle;
+  smoothSwitch=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,{{{45,8,i%2?12.:30.},{},22,9,12}},true,true,7,196.2,smoothSwitch.offset,smoothSwitch.power,smoothSwitch.lob,before,true,.05);
+  assert(smoothSwitch.solution.valid&&std::abs(smoothSwitch.solution.angle-before)<=1.201);
+  assert(length(point(smoothSwitch.solution,28,smoothSwitch.solution.time)-smoothSwitch.solution.catchPoint)<1e-6);
+ }
  // Script-driven balls can retain their launch velocity and be anchored.
  // Forecast must use changing positions, and a stationary stale-velocity ball stays hidden.
  FlightTracker flights;
@@ -164,6 +174,16 @@ int main(){int count=0;
   }
  }
  assert(forecastCount>50);
+ // Delivery times can accelerate/decelerate independently of actual motion.
+ // Geometry must recover the true landing despite those changing delays.
+ std::vector<FlightSample> delayed;
+ for(int i=0;i<=12;i++){double t=i*.04,arrival=20+t+.035*std::sin(i*.55);delayed.push_back({arrival,{70*t,20+45*t-14*t*t,12*t}});}
+ auto spatial=fitFlight(delayed,28);assert(spatial.valid);
+ BallFlight delayedBall;delayedBall.model=spatial;delayedBall.gravity=28;delayedBall.at=delayed.back().at;delayedBall.fieldY=0;
+ auto actual=forecast(delayedBall,0);double landingTime=(45+std::sqrt(45*45+56*19.4))/28;
+ assert(actual.valid&&length(actual.landing-Vec{70*landingTime,.6,12*landingTime})<.01);
+ auto originalPath=actual.path;delayedBall.at+=.2;auto advanced=forecast(delayedBall,0);
+ for(size_t i=0;i<originalPath.size();i++)assert(length(originalPath[i]-advanced.path[i])<1e-7);
  FlightTracker shortFlight;shortFlight.update({{78,{0,10,0},{},28,true}},0,0);shortFlight.update({{78,{5,12,0},{},28,true}},.05,0);
  assert(!forecast(shortFlight.visible().front(),0).valid); // No two-sample long-range projection.
  auto prior=jitter.visible().front();jitter.update({{77,prior.position+Vec{50,0,0},{},28,true}},12.05,0);assert(jitter.visible().empty()||!forecast(jitter.visible().front(),0).valid);

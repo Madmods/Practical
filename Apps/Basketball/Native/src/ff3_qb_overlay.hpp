@@ -20,11 +20,11 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  const auto color=accent(f);const double ground=f.groundY+.08;
  auto project=[&](ff3qb::Vec p){p.y=ground;return ff3qb::project(p,f.matrix,w,h);};
  auto line=[&](ff3qb::Screen a,ff3qb::Screen b,Color c,float width,bool dashed=false){if(!a.valid||!b.valid)return;Pen p(c,width);p.SetStartCap(LineCapRound);p.SetEndCap(LineCapRound);if(dashed)p.SetDashStyle(DashStyleDash);g.DrawLine(&p,REAL(a.x),REAL(a.y),REAL(b.x),REAL(b.y));};
- auto ring=[&](ff3qb::Vec center,double radius,Color c,float width,bool dashed=false){ff3qb::Screen last;for(int i=0;i<=64;i++){double a=i*6.283185307179586/64;auto q=project(center+ff3qb::Vec{std::cos(a)*radius,0,std::sin(a)*radius});if(i)line(last,q,c,width,dashed);last=q;}};
+ auto ring=[&](ff3qb::Vec center,double radius,Color c,float width,bool dashed=false){GraphicsPath path;ff3qb::Screen last;for(int i=0;i<=48;i++){double a=i*6.283185307179586/48;auto q=project(center+ff3qb::Vec{std::cos(a)*radius,0,std::sin(a)*radius});if(i&&last.valid&&q.valid)path.AddLine(REAL(last.x),REAL(last.y),REAL(q.x),REAL(q.y));else path.StartFigure();last=q;}Pen pen(c,width);pen.SetLineJoin(LineJoinRound);if(dashed)pen.SetDashStyle(DashStyleDash);g.DrawPath(&pen,&path);};
  if(f.ready){
   GraphicsPath beam;ff3qb::Screen previous;
   for(int i=0;i<=64;i++){auto p=curve&&curve->points.size()==65?curve->points[i]:ff3qb::point(f.solution,f.gravity,f.solution.time*i/64.);auto q=ff3qb::project(p,f.matrix,w,h);if(i&&previous.valid&&q.valid)beam.AddLine(REAL(previous.x),REAL(previous.y),REAL(q.x),REAL(q.y));else beam.StartFigure();previous=q;}
-  Pen glow(Color(42,color.GetR(),color.GetG(),color.GetB()),8),edge(Color(130,10,15,25),4.5f),core(color,2.5f);core.SetLineJoin(LineJoinRound);g.DrawPath(&glow,&beam);g.DrawPath(&edge,&beam);g.DrawPath(&core,&beam);
+  Pen glow(Color(35,172,163,255),10),edge(Color(120,16,18,32),4.8f),core(Color(245,210,204,255),2.4f);core.SetLineJoin(LineJoinRound);core.SetStartCap(LineCapRound);core.SetEndCap(LineCapRound);g.DrawPath(&glow,&beam);g.DrawPath(&edge,&beam);g.DrawPath(&core,&beam);
  }
  if(f.ready&&std::isfinite(ground)){
   auto landing=curve&&curve->points.size()==65?curve->points.back():f.solution.catchPoint;auto unfitted=landing-f.fitOffset;
@@ -44,8 +44,8 @@ inline void renderBalls(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);g.SetClip(Rect(0,0,w,h));
  auto project=[&](ff3qb::Vec p){return ff3qb::project(p,f.matrix,w,h);};
  auto draw=[&](const std::vector<ff3qb::Vec>& path,Color color,float width){Pen shadow(Color(100,8,12,25),width+2),pen(color,width);pen.SetLineJoin(LineJoinRound);pen.SetStartCap(LineCapRound);pen.SetEndCap(LineCapRound);GraphicsPath shape;for(size_t i=1;i<path.size();i++){auto a=project(path[i-1]),b=project(path[i]);if(!a.valid||!b.valid){shape.StartFigure();continue;}shape.AddLine(REAL(a.x),REAL(a.y),REAL(b.x),REAL(b.y));}g.DrawPath(&shadow,&shape);g.DrawPath(&pen,&shape);};
- for(const auto& ball:f.balls){auto prediction=ff3qb::forecast(ball,f.groundY);draw(ball.trail,Color(120,172,181,255),1.5f);if(!prediction.valid)continue;
-  draw(prediction.path,Color(35,190,195,255),7);draw(prediction.path,Color(240,190,195,255),2.4f);
+ for(const auto& ball:f.balls){auto prediction=ff3qb::forecast(ball,f.groundY);if(!prediction.valid)continue;
+  draw(prediction.path,Color(28,144,219,245),8);draw(prediction.path,Color(225,165,229,248),2.4f);
   std::vector<ff3qb::Vec> ring;for(int i=0;i<=64;i++){double a=i*6.283185307179586/64;ring.push_back({prediction.landing.x+std::cos(a)*2.5,prediction.landing.y-.52,prediction.landing.z+std::sin(a)*2.5});}draw(ring,Color(235,208,212,255),2);
  }
  if(present)surface.present(f.origin);

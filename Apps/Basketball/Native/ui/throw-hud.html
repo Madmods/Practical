@@ -169,6 +169,7 @@
       else doneExpired = false;
       cur = t; curAt = now;
     } else if (cur && cur.phase !== 'done') cur = null;   // a finished play keeps its result up for a moment
+    render(now);
   }
 
   function render(now) {
@@ -211,7 +212,6 @@
       if (mc.style.width !== w) mc.style.width = w;
     } else lastShown = '';
     reportShape();
-    requestAnimationFrame(render);
   }
 
   // The host clips its window to the capsule and blurs the game behind it; everything else is see-through.
@@ -219,7 +219,7 @@
   function reportShape() {
     if (!HOST) return;
     const rects = [];
-    if (+getComputedStyle(mc).opacity > .04) {
+    if (cur || +getComputedStyle(mc).opacity > .04) {
       const b = mc.getBoundingClientRect();
       rects.push([b.left, b.top, b.width, b.height, b.height / 2].map(v => Math.round(v * 2) / 2));
     }
@@ -261,6 +261,9 @@
     const wait = ms => new Promise(r => setTimeout(r, ms));
     (async()=>{
       const checks=[];const check=(ok,name)=>checks.push({ok:!!ok,name});
+      send('hudFixture');await wait(600);
+      check(document.querySelector('[data-k=target]').textContent==='Native message'&&document.querySelector('[data-k=angle]').textContent==='28°','Native data renders while host is hidden');
+      send('hudReveal');await wait(200);
       onThrow({phase:'windup',target:{role:'Practice WR'},mode:'Beam',power:1,angle:24,air:1.42,distance:120,open:8,intable:false});
       await wait(1200);
       check(document.querySelector('[data-k=power]').textContent==='95','FF3 power');
@@ -277,7 +280,8 @@
       send('hudTestResult',{ok:checks.every(c=>c.ok),checks});
     })();
   }
-  requestAnimationFrame(render);
+  function animate(now) { render(now); requestAnimationFrame(animate); }
+  requestAnimationFrame(animate);
 })();
 </script>
 </body>

@@ -190,6 +190,13 @@ class Tests(unittest.TestCase):
             p=plan();p[key]=value;e=editor();self.assertEqual(e.process_plain(payload(),p,1010),payload())
     def test_manual_power_is_preserved(self):
         p=plan();p['autoPower']=False;e=editor();after=e.process_plain(payload(),p,1010);self.assertEqual(arguments(after)[3],60)
+    def test_missed_assist_records_the_actual_gate(self):
+        for change,reason in [(dict(active=False,selectionReason='Equip a football'),'No active'),(dict(clickAt=0),'physical click expired')]:
+            p=plan();p.update(change);e=editor()
+            self.assertEqual(e.process_plain(payload(),p,1010),payload())
+            self.assertIn(reason,e.last_decline['reason'])
+            self.assertEqual(e.last_decline['clickAt'],p['clickAt'])
+            self.assertEqual(e.stats['declinedRecords'],1)
     def test_fragmented_edit_range_is_not_partially_changed(self):
         data=bytes.fromhex('06010400000001')+record();cut=len(data)-16;e=editor()
         first=stream(data[:cut]);second=stream(data[cut:],cut)

@@ -135,9 +135,9 @@ def catch_path_margin(origin,launch,flight,power,gravity,latency,catchers):
 def replacement(body,call,plan,tick):
     fields=throw_fields(body,call)
     if not fields:return None
-    if plan.get('active') is not True or plan.get('mode')!='ff3-qb':return None
+    if plan.get('active') is not True or plan.get('mode')!='ff3-qb':raise DecodeError('No active assisted plan at throw')
     issued,expires,clicked=plan.get('issued',0),plan.get('expires',0),plan.get('clickAt',0)
-    if not 0<=tick-issued<=150 or not issued<=tick<=expires<=issued+200 or not 0<=tick-clicked<=350 or clicked<=0:return None
+    if not 0<=tick-issued<=150 or not issued<=tick<=expires<=issued+200 or not 0<=tick-clicked<=350 or clicked<=0:raise DecodeError('Throw plan or physical click expired')
     origin,aim_offset,power_offset,old_power=fields
     if length(tuple(a-b for a,b in zip(vector(origin),vector(plan['head']))))>12:raise DecodeError('Throw origin disagrees with held character')
     power=plan.get('plannedPower',95.0) if plan.get('autoPower') is True else old_power
@@ -218,7 +218,7 @@ class RecordTracker:
 
 class Editor:
     def __init__(self,schema):
-        self.schema=schema;self.wire=Wire(schema,MAPS['3']);self.tracker=RecordTracker(schema);self.ledger=[];self.claimed=set();self.stats=collections.Counter();self.last=None;self.covered=set()
+        self.schema=schema;self.wire=Wire(schema,MAPS['3']);self.tracker=RecordTracker(schema);self.ledger=[];self.claimed=set();self.stats=collections.Counter();self.last=None;self.last_decline=None;self.covered=set()
     def process_plain(self,plain,plan,tick,allow=True):
         spans=frames(plain);candidate=bytearray(plain);records=[]
         for frame in spans:
@@ -243,7 +243,9 @@ class Editor:
                             planned.append((stream,absolute,value,detail['clickAt']))
                         else:
                             self.ledger.extend(planned);self.claimed.add(detail['clickAt']);self.last=detail;self.stats['modifiedThrows']+=1
-                except (DecodeError,UnicodeError,KeyError,TypeError,ValueError):self.stats['declinedRecords']+=1
+                except (DecodeError,UnicodeError,KeyError,TypeError,ValueError) as error:
+                    self.stats['declinedRecords']+=1
+                    self.last_decline=dict(reason=str(error)[:160],at=tick,clickAt=plan.get('clickAt'),planActive=plan.get('active'),selectionReason=plan.get('selectionReason'),sampleAgeMs=plan.get('sampleAgeMs'))
         touched=False;coverage=collections.defaultdict(list);self.covered=set()
         for stream,start,value,clicked in self.ledger:
             present=set()

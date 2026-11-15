@@ -38,6 +38,8 @@ public:
 inline int test(HINSTANCE instance,const std::filesystem::path& folder){
  vanta::UiHost view;vanta::AppInfo info;info.title=L"Vanta HUD test";info.page=L"throw-hud.html";info.resource=107;info.overlay=true;info.testMode=true;info.dataName=L"VantaQbHudTest";info.glass=vanta::Glass::None;int result=1,captures=0;
  vanta::UiCallbacks cb;cb.custom=[&](const std::wstring& type,const json::Value& value){
+  if(type==L"hudFixture"){view.PlaceOverlay(nullptr);view.Post(L"{\"type\":\"ff3Hud\",\"throw\":{\"phase\":\"windup\",\"mode\":\"Beam\",\"power\":1,\"angle\":28,\"target\":{\"role\":\"Native message\"}}}");}
+  if(type==L"hudReveal"){RECT area{-3000,-1080,-1920,0};view.PlaceOverlay(&area,1000,110,0);}
   if(type==L"hudCapture"){auto phase=value[L"phase"].str();if(phase==L"aim"||phase==L"flight")view.Capture((folder/(L"qb-html-"+phase+L".png")).wstring(),[&](bool ok){if(ok)++captures;});}
   if(type==L"hudTestResult"){std::ofstream file(folder/L"qb-html-test.json");file<<winrt::to_string(json::dump(value));result=value[L"ok"].boolean()&&captures==2?0:1;PostQuitMessage(0);}
   if(type==L"testTimeout")PostQuitMessage(0);

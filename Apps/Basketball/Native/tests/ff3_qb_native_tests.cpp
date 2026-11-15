@@ -28,6 +28,18 @@ int main(){
  Frame f;f.pid=5;f.model=100;f.own=200;f.tool=300;f.target=400;f.revision=revision;f.ready=true;f.power=95;f.gravity=28;f.aim={500,300,true};f.client={0,0,1920,1080};
  f.gameMouse={500,300,0};f.matrix[0]=f.matrix[5]=f.matrix[10]=f.matrix[15]=1;
  check(!eligible(f,now())); // No admitted session or game focus: always closed.
+ {
+  Frame ready=f;ready.at=10;Frame released=ready;released.at=10.08;released.ready=false;released.tool=0;released.held=false;
+  check(clickPlanValid(ready,released,10.02,10.08,1000,1060,ready.revision));
+  check(!clickPlanValid(ready,released,10.12,10.15,1000,1030,ready.revision));
+  check(!clickPlanValid(ready,released,10.02,10.38,1000,1360,ready.revision));
+  check(!clickPlanValid(ready,released,10.02,10.08,1000,1060,ready.revision+1));
+  ++released.own;check(!clickPlanValid(ready,released,10.02,10.08,1000,1060,ready.revision));
+  --released.own;ready.textFocus=true;check(!clickPlanValid(ready,released,10.02,10.08,1000,1060,ready.revision));
+  ready.textFocus=false;ready.at=now()-.02;requested=ready;requestedAt=now()-.01;physicalClickAt=GetTickCount64()-10;
+  auto dispatch=packetFrame(released);check(dispatch.retained&&dispatch.frame.tool==ready.tool&&dispatch.clicked==physicalClickAt.load());
+  physicalClickAt=0;dispatch=packetFrame(released);check(!dispatch.retained&&!dispatch.frame.tool&&dispatch.clicked==0);requested={};requestedAt=0;
+ }
  {float live[16]{},sample[16]{};live[0]=1;
   check(ff3Visual::ViewReader::matrix(GetCurrentProcess(),reinterpret_cast<addr>(live),sample)&&sample[0]==1);
   live[0]=2;check(ff3Visual::ViewReader::matrix(GetCurrentProcess(),reinterpret_cast<addr>(live),sample)&&sample[0]==2);

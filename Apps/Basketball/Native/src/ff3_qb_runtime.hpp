@@ -34,7 +34,7 @@ struct Frame {
  struct Candidate{ff3qb::Screen screen;std::string name;bool selected=false;};std::vector<Candidate> candidates;
  std::string name,reason="Enable QB aim to begin";bool held=false,ready=false,textFocus=false;
 };
-inline std::mutex mutex;inline Frame current,requested;inline ff3qb::ClickGate clicks;
+inline std::mutex mutex;inline Frame current,requested;inline double requestedAt=0;inline ff3qb::ClickGate clicks;
 inline std::function<void(const Frame&)> frameSink;
 inline std::function<void()> packetStop;
 inline std::function<std::pair<bool,std::wstring>()> packetStatus;
@@ -47,6 +47,13 @@ inline Frame snapshot(){std::lock_guard<std::mutex> lock(mutex);return current;}
 inline void publish(Frame f){{std::lock_guard<std::mutex> lock(mutex);current=f;}if(frameSink)frameSink(f);}
 inline bool admitted(){return basketballConnection::entered&&basketballConnection::releaseCurrent&&gameModules::router.active(now(),true)==gameModules::Id::FootballFusion3;}
 inline bool focused(DWORD pid){DWORD currentPid=0;GetWindowThreadProcessId(GetForegroundWindow(),&currentPid);return pid&&pid==currentPid;}
+// Retain the plan owned by a physical click through the game's unequip/release.
+// It must have been fresh when clicked, and cannot survive a session or setting change.
+inline bool clickPlanValid(const Frame& request,const Frame& live,double captured,double time,ULONGLONG clicked,ULONGLONG tick,unsigned version){
+ return clicked&&tick>=clicked&&tick-clicked<=350&&request.ready&&!request.textFocus&&request.revision==version&&request.pid&&request.pid==live.pid&&request.model==live.model&&request.own&&request.own==live.own&&captured>=request.at&&captured-request.at<.1&&time>=captured&&time-captured<=.35;
+}
+struct DispatchFrame {Frame frame;ULONGLONG clicked=0;bool retained=false;};
+inline DispatchFrame packetFrame(const Frame& live){std::lock_guard<std::mutex> lock(mutex);const auto clicked=physicalClickAt.load();const bool retained=clickPlanValid(requested,live,requestedAt,now(),clicked,GetTickCount64(),revision.load());return {retained?requested:live,clicked,retained};}
 inline bool freeCursor(){CURSORINFO info{sizeof info};return GetCursorInfo(&info)&&ff3qb::cursorModeAllowed((info.flags&CURSOR_SHOWING)!=0,(GetAsyncKeyState(VK_RBUTTON)&0x8000)!=0,false);}
 inline Vec vector(shooting::Vec v){return {v.x,v.y,v.z};}
 inline Vec position(HANDLE h,addr part){auto primitive=rd<addr>(h,part+Offsets::BasePart::Primitive);return vector(rd<shooting::Vec>(h,primitive+Offsets::Primitive::Position,{NAN,NAN,NAN}));}
@@ -85,7 +92,7 @@ struct Reader {
  }
 
  HANDLE handle=nullptr;DWORD pid=0;addr model=0,moduleBase=0,retained=0;double scanAt=-10;
- addr routeTarget=0,routeTool=0;ff3qb::SelectionLatch selection;ff3qb::RouteHistory routeHistory;ff3qb::AngleTracker angleHistory;Vec previousFit{};double previousPower=0;bool previousLob=false;double previousAngle=NAN;unsigned plannerRevision=0;double nextPlanSearch=0,lastSearch=0;
+ addr routeTarget=0,routeTool=0;ff3qb::SelectionLatch selection;ff3qb::RouteHistory routeHistory;ff3qb::AngleTracker angleHistory;Vec previousFit{};double previousPower=0;bool previousLob=false;double previousAngle=NAN;unsigned plannerRevision=0;double nextPlanSearch=0,lastSearch=0,lastPlanAt=0;
  struct Actor{addr rig=0,player=0,team=0;bool npc=false;ff3qb::CatchGeometry shape;};std::vector<Actor> actors;
  ~Reader(){if(handle)CloseHandle(handle);}
  Frame read(addr forced=0){
@@ -234,7 +241,8 @@ struct Reader {
    double walk=rd<float>(h,receiverHum+Offsets::Humanoid::Walkspeed,NAN);if(std::isfinite(walk)&&walk>=0&&walk<=45)receiver.speed=std::max(walk,std::hypot(targetVelocity.x,targetVelocity.z));
    for(const auto& actor:actors)if(actor.rig==f.target&&actor.shape.measured){receiver.radius=actor.shape.radius;receiver.above=actor.shape.above;receiver.below=actor.shape.below;receiver.worldGravity=world;measuredReceiver=true;break;}
    f.receiverReach=receiver;f.receiverReachKnown=measuredReceiver;
-   planned=ff3qb::planCoverageThrow(origin,aimTarget,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,force95,jump,world,previousFit,previousPower,previousLob,previousAngle,f.at>=nextPlanSearch,f.at-lastSearch,measuredReceiver?&receiver:nullptr);
+   const bool searching=f.at>=nextPlanSearch;const double step=searching?f.at-lastSearch:(lastPlanAt?f.at-lastPlanAt:.1);
+   planned=ff3qb::planCoverageThrow(origin,aimTarget,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,force95,jump,world,previousFit,previousPower,previousLob,previousAngle,searching,step,measuredReceiver?&receiver:nullptr);lastPlanAt=f.at;
    if(f.at>=nextPlanSearch){lastSearch=f.at;nextPlanSearch=f.at+.10;}
   }
   f.planningMs=(now()-planningStart)*1000;
@@ -260,7 +268,7 @@ inline bool dispatchConsistent(const Frame& request,const Frame& aimed,const Fra
 }
 inline LRESULT CALLBACK mouseProc(int n,WPARAM w,LPARAM l){
  if(packetMode){
-  if(n==HC_ACTION&&enabled&&w==WM_LBUTTONDOWN){auto* event=(MSLLHOOKSTRUCT*)l;if(!(event->flags&LLMHF_INJECTED)){std::lock_guard<std::mutex> lock(mutex);if(current.pid&&focused(current.pid)&&admitted()){requested=current;physicalClickAt=GetTickCount64();}}}
+  if(n==HC_ACTION&&enabled&&w==WM_LBUTTONDOWN){auto* event=(MSLLHOOKSTRUCT*)l;if(!(event->flags&LLMHF_INJECTED)){Frame click;bool captured=false;{std::lock_guard<std::mutex> lock(mutex);if(current.pid&&focused(current.pid)&&admitted()){requested=current;requestedAt=now();physicalClickAt=GetTickCount64();click=requested;captured=true;}}if(captured&&frameSink)frameSink(click);}}
   return CallNextHookEx(mouse,n,w,l);
  }
  if(n==HC_ACTION){auto* event=(MSLLHOOKSTRUCT*)l;if(!(event->flags&LLMHF_INJECTED)){
@@ -304,8 +312,8 @@ inline void worker(){
   auto f=reader.read();
   if(!enabled){publish(f);Sleep(16);continue;}
   if(packetMode){
-   const auto clicked=physicalClickAt.load();
-   if(clicked&&GetTickCount64()-clicked<350){Frame locked;{std::lock_guard<std::mutex> lock(mutex);locked=requested;}if(locked.ready){auto fresh=reader.read(locked.target);if(sameIdentity(locked,fresh))f=fresh;else{f.ready=false;f.reason="Throw target changed";}}else{f.ready=false;f.reason="No ready receiver at click";}}
+   // Dispatch retains its own click snapshot. Re-reading an already released
+   // tool here used to erase assistance before the outgoing call arrived.
    publish(f);Sleep(8);continue;
   }
   publish(f);

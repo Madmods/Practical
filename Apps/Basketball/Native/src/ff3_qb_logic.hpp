@@ -286,10 +286,35 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
   p.margin=defenders.empty()?10:coverageMargin(solution,gravity,defenders,latency);return p;
  };
  auto replan=[&](double power,Vec offset,bool lob,const Plan* incumbent=nullptr){if(!placementAllowed(offset,movement,8))return Plan{};auto p=candidate(solve(origin,target+offset,movement,power,gravity,latency,lob,5),offset,lob,incumbent);if(p.solution.valid)p.power=power;return p;};
+ // Apply one time-based continuity constraint to every exit, including retained
+ // roots and transitions from contested to clear. Coverage is recomputed for
+ // the intermediate arc; it is never labelled clear merely because the goal is.
+ auto stable=[&](Plan desired){
+  if(!desired.solution.valid||!std::isfinite(previousAngle)||previousPower<1)return desired;
+  const double dt=std::clamp(elapsed,.001,.1),step=24*dt;
+  auto delta=desired.offset-previousOffset;
+  const Vec offset=previousOffset+delta*std::min(1.,12*dt/std::max(.001,length(delta)));
+  const double angle=previousAngle+std::clamp(desired.solution.angle-previousAngle,-step,step);
+  if(std::abs(angle-desired.solution.angle)<1e-6&&length(offset-desired.offset)<1e-6)return desired;
+  if(angle>=5&&angle<=beamMaxAngle){
+   auto solved=solveAngle(origin,target+offset,movement,angle,gravity,latency,5);
+   if(solved.valid){
+    const double power=length(solved.velocity);
+    auto low=solve(origin,target+offset,movement,power,gravity,latency,false,5);
+    auto high=solve(origin,target+offset,movement,power,gravity,latency,true,5);
+    bool lob=high.valid&&(!low.valid||std::abs(high.time-solved.time)<std::abs(low.time-solved.time));
+    auto intermediate=candidate(solved,offset,lob);
+    if(intermediate.solution.valid)return intermediate;
+   }
+  }
+  // A receiver can move beyond the reach of the old elevation. Never invent
+  // a smoothed arc with power >95 or a different endpoint in that situation.
+  return desired;
+ };
  Plan held;
  if(previousPower>=1&&previousPower<=95)held=replan(previousPower,previousOffset,previousLob);
- if(!search&&held.solution.valid)return held;
- if(held.solution.valid&&held.power>=94.999&&estimatedClear(held,fit)&&held.margin>catchSafetyMargin+.25)return held;
+ if(!search&&held.solution.valid)return stable(held);
+ if(held.solution.valid&&held.power>=94.999&&estimatedClear(held,fit)&&held.margin>catchSafetyMargin+.25)return stable(held);
  Plan best;const auto offsets=fitOffsets(origin,target,movement,defenders);
  auto atPower=[&](double power){Plan tier;
   for(double height:{0.,jump*.65,jump}){
@@ -310,30 +335,13 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
    break;
   }
  }
- if(!best.solution.valid)return held;
+ if(!best.solution.valid)return stable(held);
  if(held.solution.valid){
   const bool hc=estimatedClear(held,fit),bc=estimatedClear(best,fit);
-  // Keep a genuinely clear path through minor ranking noise. A newly unsafe
-  // retained path cannot hide an available clear replacement.
-  if(hc&&bc&&(!beam||held.power>=best.power-.5)&&fitScore(held,fit)>=fitScore(best,fit)-1.0)return held;
-  if(!hc&&!bc&&best.margin-held.margin<.5)return held;
-  // Rate limits are time based. Every intermediate arc is solved and evaluated
-  // again, so interpolated aim never silently changes the intended landing.
-  const double dt=std::clamp(elapsed,.005,.15);
-  auto delta=best.offset-held.offset;
-  Vec offset=held.offset+delta*std::min(1.,12*dt/std::max(.001,length(delta)));
-  const double angle=held.solution.angle+std::clamp(best.solution.angle-held.solution.angle,-40*dt,40*dt);
-  if(angle>=5&&angle<=85){
-   auto solved=solveAngle(origin,target+offset,movement,angle,gravity,latency,5);
-   const double power=std::min(95.,length(solved.velocity));
-   auto low=solve(origin,target+offset,movement,power,gravity,latency,false,5);
-   auto high=solve(origin,target+offset,movement,power,gravity,latency,true,5);
-   const bool highRoot=high.valid&&(!low.valid||std::abs(high.time-solved.time)<std::abs(low.time-solved.time));
-   auto smooth=candidate(highRoot?high:low,offset,highRoot);if(smooth.solution.valid)smooth.power=power;
-   if(smooth.solution.valid&&(!bc||estimatedClear(smooth,fit))&&(!fit||smooth.margin>=held.margin-.25))return smooth;
-  }
+  if(hc&&bc&&held.power>=best.power-(beam?.5:2.)&&fitScore(held,fit)>=fitScore(best,fit)-1.0)return stable(held);
+  if(!hc&&!bc&&best.margin-held.margin<.5)return stable(held);
  }
- return best;
+ return stable(best);
 }
 // Cursor selection must persist before replacing a still-visible receiver.
 struct SelectionLatch {

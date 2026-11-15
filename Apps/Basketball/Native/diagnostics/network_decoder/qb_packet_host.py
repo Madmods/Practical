@@ -4,7 +4,7 @@ The normal game generates the throw. No event is synthesized or replayed.
 Original datagrams are forwarded on every processing error. Already accepted
 stream edits remain pinned during disable/drain so retransmissions stay stable.
 """
-import os,sys,ctypes,json,pathlib,struct,socket,threading,time,collections
+import ctypes,json,pathlib,struct,socket,threading,time,collections
 from network_transport_lab import DecodeError,frames,unprotect,recover_nonce
 from live_network_decoder import LiveDecoder
 from qb_packet_editor import Editor,authenticated_plain,encrypt_changed
@@ -12,7 +12,7 @@ from validate_live_transport import candidates
 import network_schema_cache
 
 GAME_FILTER='ip and udp and !loopback and (udp.Payload32[0] == 0x01000017 or udp.Payload32[0] == 0x0100001f) and udp.Payload16[4b] == 0x0111 and udp.Payload[6] == 2'
-DEPENDENCY=os.environ.get('VANTA_WINDIVERT_DLL') or str((pathlib.Path(sys.executable).parent if getattr(sys,'frozen',False) else pathlib.Path(__file__).resolve().parents[2]/'third_party'/'windivert'/'bin')/'WinDivert.dll')
+DEPENDENCY=r'C:\Users\k\Downloads\Practical Basketball\Tools\LatencyTest\bin\WinDivert.dll'
 
 class Driver:
     def __init__(self):
@@ -111,7 +111,7 @@ def run(folder,pid,parent,seconds=None):
     driver=None;handles=[];ending=threading.Event();scan_done=threading.Event();scan_result={};editor=None;mode='Preparing';error='';seen=0;started=time.monotonic();draining=None;last_edit=0;pending={};acked=set();last_publish=0;last_plan=0;plan={};flow=None;out_context=None;in_context=None
     scan_rounds=0;scan_groups=set();last_scan=0;last_receive=0;last_port_check=0;scan_cancel=threading.Event();saved_flow=None
     def status(message,ready=False):
-        publish(state_path,dict(capture=mode,decoder=message,status=message,calls=[],ready=ready,error=error,stats={**dict(live.counts),**(dict(editor.stats) if editor else {}),'observedPackets':seen,'scanRounds':scan_rounds},last=editor.last if editor else None,heartbeat=int(kernel.GetTickCount64()),localPort=flow[0][1] if flow else None,keysWritten=False))
+        publish(state_path,dict(capture=mode,decoder=message,status=message,calls=[],ready=ready,error=error,stats={**dict(live.counts),**(dict(editor.stats) if editor else {}),'observedPackets':seen,'scanRounds':scan_rounds},last=editor.last if editor else None,lastDecline=editor.last_decline if editor else None,heartbeat=int(kernel.GetTickCount64()),localPort=flow[0][1] if flow else None,keysWritten=False))
     def wants_stop():return stop.exists() or (mode!='Preparing' and setup_only.exists()) or (parent_handle and kernel.WaitForSingleObject(parent_handle,0)==0) or (seconds is not None and time.monotonic()-started>=seconds)
     def scan():
         try:
@@ -212,11 +212,14 @@ def run(folder,pid,parent,seconds=None):
                 if r and r['connection']==flow:
                     if r['direction']=='outgoing':
                         u,nonce,plain=authenticated_plain(r['payload'],out_context)
-                        if time.monotonic()-last_plan>.015:
-                            try:
-                                if plan_path.stat().st_size<=65536:plan=json.loads(plan_path.read_text(encoding='utf-8'))
-                            except (OSError,ValueError):plan={}
-                            last_plan=time.monotonic()
+                        # A click publishes immediately before game input continues.
+                        # Do not reuse a pre-click plan for the first throw packet.
+                        try:
+                            meta=plan_path.stat()
+                            if meta.st_size>65536:plan={}
+                            elif meta.st_mtime_ns!=last_plan:
+                                plan=json.loads(plan_path.read_text(encoding='utf-8'));last_plan=meta.st_mtime_ns
+                        except (OSError,ValueError):plan={};last_plan=0
                         if plan.get('pid')!=pid:plan={}
                         before=editor.stats['modifiedThrows'];updated=editor.process_plain(plain,plan,int(kernel.GetTickCount64()),draining is None)
                         if updated!=plain:

@@ -5,7 +5,7 @@
 namespace ff3Packets {
 class Service {
  ff3qb::ResumeIntent resume_;
- std::mutex mutex_;HANDLE host_=nullptr;std::filesystem::path helper_,session_;ULONGLONG lastWrite_=0,lastRead_=0;unsigned applied_=0;bool ready_=false,preserving_=false;DWORD pid_=0;std::wstring message_=L"Enable QB aim to begin";
+ std::mutex mutex_;HANDLE host_=nullptr;std::filesystem::path helper_,session_;ULONGLONG lastWrite_=0,lastRead_=0,lastClick_=0;unsigned applied_=0;bool ready_=false,preserving_=false;DWORD pid_=0;std::wstring message_=L"Enable QB aim to begin";
  static void marker(const std::filesystem::path& path){try{std::ofstream(path).put('1');}catch(...){}}
  static json::Value vector(ff3qb::Vec value){auto out=basketballUi::array();for(auto v:{value.x,value.y,value.z})out.a.push_back(basketballUi::number(v));return out;}
  static json::Value reach(const ff3qb::Defender& d){auto item=basketballUi::object();item.o[L"position"]=vector(d.position);item.o[L"velocity"]=vector(d.velocity);item.o[L"speed"]=basketballUi::number(d.speed);item.o[L"jump"]=basketballUi::number(d.jumpHeight);item.o[L"dive"]=basketballUi::number(d.diveReach);item.o[L"radius"]=basketballUi::number(d.radius);item.o[L"above"]=basketballUi::number(d.above);item.o[L"below"]=basketballUi::number(d.below);item.o[L"worldGravity"]=basketballUi::number(d.worldGravity);return item;}
@@ -34,13 +34,14 @@ public:
  }
  void stop(){std::lock_guard<std::mutex> lock(mutex_);resume_.cancel();preserving_=false;ready_=false;if(host_)marker(session_/L"stop");}
  std::pair<bool,std::wstring> status(){std::lock_guard<std::mutex> lock(mutex_);return{ready_,message_};}
- void update(const ff3Native::Frame& f){
+ void update(const ff3Native::Frame& input){
   bool recorded=false;
-  {std::lock_guard<std::mutex> lock(mutex_);if(!host_)return;const auto tick=GetTickCount64();
-   if(tick-lastWrite_>=25){
-    auto plan=basketballUi::object();const bool active=ff3Native::enabled&&f.ready&&f.revision==ff3Native::revision&&now()>=f.at&&now()-f.at<.1&&ff3Native::admitted()&&ff3Native::focused(f.pid)&&!f.textFocus;
+  {std::lock_guard<std::mutex> lock(mutex_);if(!host_)return;
+   const auto dispatch=ff3Native::packetFrame(input);const auto tick=GetTickCount64(),clicked=dispatch.clicked;const auto& f=dispatch.frame;const bool clickOwned=dispatch.retained;
+   if(tick-lastWrite_>=25||clicked!=lastClick_){
+    auto plan=basketballUi::object();const bool active=ff3Native::enabled&&f.ready&&f.revision==ff3Native::revision&&(clickOwned||(now()>=f.at&&now()-f.at<.1))&&ff3Native::admitted()&&ff3Native::focused(f.pid)&&!f.textFocus;
     plan.o[L"selectionReason"]=basketballUi::string(basketballUi::widen(f.reason));plan.o[L"targetName"]=basketballUi::string(basketballUi::widen(f.name));plan.o[L"held"]=basketballUi::boolean(f.held);plan.o[L"wheel"]=basketballUi::boolean(f.wheelVisible);plan.o[L"sampleAgeMs"]=basketballUi::number(std::max(0.,now()-f.at)*1000);
-    const bool powerFirst=ff3Native::automaticAngle&&ff3Native::autoPower&&f.mode==0;plan.o[L"mode"]=basketballUi::string(L"ff3-qb");plan.o[L"active"]=basketballUi::boolean(active);plan.o[L"pid"]=basketballUi::number(f.pid);plan.o[L"issued"]=basketballUi::number(double(tick));plan.o[L"expires"]=basketballUi::number(double(tick+150));plan.o[L"clickAt"]=basketballUi::number(double(ff3Native::physicalClickAt.load()));plan.o[L"head"]=vector(f.head);plan.o[L"targetPosition"]=vector(f.targetPosition);plan.o[L"targetVelocity"]=vector(f.targetVelocity);plan.o[L"gravity"]=basketballUi::number(f.gravity);plan.o[L"latency"]=basketballUi::number(std::clamp(f.ping*.0005+.05,0.,.25));plan.o[L"lob"]=basketballUi::boolean(powerFirst?f.selectedLob:(ff3Native::arc==1||f.mode==2));plan.o[L"plannedPower"]=basketballUi::number(f.power);plan.o[L"angle"]=basketballUi::number(f.solution.angle);plan.o[L"anglePower"]=basketballUi::boolean(ff3Native::autoPower&&(!powerFirst||!ff3Native::force95));plan.o[L"autoPower"]=basketballUi::boolean(ff3Native::autoPower);
+    const bool powerFirst=ff3Native::automaticAngle&&ff3Native::autoPower&&f.mode==0;plan.o[L"mode"]=basketballUi::string(L"ff3-qb");plan.o[L"active"]=basketballUi::boolean(active);plan.o[L"pid"]=basketballUi::number(f.pid);plan.o[L"issued"]=basketballUi::number(double(tick));plan.o[L"expires"]=basketballUi::number(double(tick+150));plan.o[L"clickAt"]=basketballUi::number(double(clicked));plan.o[L"head"]=vector(f.head);plan.o[L"targetPosition"]=vector(f.targetPosition);plan.o[L"targetVelocity"]=vector(f.targetVelocity);plan.o[L"gravity"]=basketballUi::number(f.gravity);plan.o[L"latency"]=basketballUi::number(std::clamp(f.ping*.0005+.05,0.,.25));plan.o[L"lob"]=basketballUi::boolean(powerFirst?f.selectedLob:(ff3Native::arc==1||f.mode==2));plan.o[L"plannedPower"]=basketballUi::number(f.power);plan.o[L"angle"]=basketballUi::number(f.solution.angle);plan.o[L"anglePower"]=basketballUi::boolean(ff3Native::autoPower&&(!powerFirst||!ff3Native::force95));plan.o[L"autoPower"]=basketballUi::boolean(ff3Native::autoPower);
     plan.o[L"beam95"]=basketballUi::boolean(powerFirst&&ff3Native::force95);plan.o[L"smartFit"]=basketballUi::boolean(f.guarded);plan.o[L"coverageKnown"]=basketballUi::boolean(f.coverageKnown);
     plan.o[L"coverageDetail"]=basketballUi::string(basketballUi::widen(f.coverageDetail));plan.o[L"catchHeight"]=basketballUi::number(f.fitOffset.y);plan.o[L"fitOffset"]=vector(f.fitOffset);plan.o[L"flightTime"]=basketballUi::number(f.solution.time);plan.o[L"landing"]=vector(f.solution.catchPoint);
     plan.o[L"coverageModel"]=basketballUi::number(2);plan.o[L"clearanceStuds"]=basketballUi::number(f.margin);plan.o[L"limitingCatcher"]=basketballUi::number(f.coverageTrace.catcher);plan.o[L"limitingTime"]=basketballUi::number(f.coverageTrace.time);plan.o[L"limitingPoint"]=vector(f.coverageTrace.point);
@@ -48,7 +49,7 @@ public:
     auto flights=basketballUi::array();for(const auto& ball:f.balls){auto item=basketballUi::object();item.o[L"position"]=vector(ball.position);item.o[L"velocity"]=vector(ball.velocity);item.o[L"gravity"]=basketballUi::number(ball.gravity);item.o[L"samples"]=basketballUi::number(double(ball.trail.size()));flights.a.push_back(item);}plan.o[L"flights"]=flights;
     auto catchers=basketballUi::array();for(const auto& d:f.defenders)catchers.a.push_back(reach(d));plan.o[L"catchers"]=catchers;
     if(f.receiverReachKnown)plan.o[L"receiver"]=reach(f.receiverReach);
-    write(session_/L"plan.json",plan);lastWrite_=tick;
+    plan.o[L"clickPlanRetained"]=basketballUi::boolean(clickOwned);write(session_/L"plan.json",plan);lastWrite_=tick;lastClick_=clicked;
    }
    if(tick-lastRead_>=200){lastRead_=tick;try{
      auto path=session_/L"state.json";if(std::filesystem::exists(path)&&std::filesystem::file_size(path)<=65536){std::ifstream in(path,std::ios::binary);std::string bytes((std::istreambuf_iterator<char>(in)),{});auto root=json::parse(std::wstring(winrt::to_hstring(bytes)));const double heartbeat=root[L"heartbeat"].num();const bool fresh=heartbeat>0&&double(tick)>=heartbeat&&double(tick)-heartbeat<3000;ready_=root[L"ready"].boolean()&&fresh;message_=root[L"error"].str();if(message_.empty())message_=root[L"status"].str(L"Preparing QB throw control");if(root[L"ready"].boolean()&&!fresh)message_=L"QB traffic stalled; reconnecting is required";auto count=root[L"stats"][L"modifiedThrows"].num();if(count>applied_&&count<100000){applied_=unsigned(count);recorded=true;}}
@@ -56,7 +57,7 @@ public:
     if(WaitForSingleObject(host_,0)==WAIT_OBJECT_0){CloseHandle(host_);host_=nullptr;ready_=false;if(message_.empty())message_=L"QB throw control stopped; toggle QB aim to retry";}
    }
   }
-  if(recorded)ff3Native::record(f,"QB aim and power applied",true);
+  if(recorded)ff3Native::record(input,"QB aim and power applied",true);
  }
 };
 }

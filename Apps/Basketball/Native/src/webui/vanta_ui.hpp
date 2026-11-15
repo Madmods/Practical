@@ -195,7 +195,8 @@ public:
     HWND Window() const { return hwnd_; }
     void PlaceOverlay(const RECT* area, int cssW = 0, int cssH = 0, double lift = 0) {
         if (!hwnd_) return;
-        if (!area) { if (IsWindowVisible(hwnd_)) ShowWindow(hwnd_, SW_HIDE); return; }
+        if (!area) { if(controller_)controller_->put_IsVisible(FALSE); if (IsWindowVisible(hwnd_)) ShowWindow(hwnd_, SW_HIDE); return; }
+        if(controller_)controller_->put_IsVisible(TRUE);
         const int areaW = area->right - area->left, areaH = area->bottom - area->top;
         const double px = std::clamp(areaH / 1080.0, .6, 2.0);   // device pixels per CSS pixel
         const double zoom = px * 96.0 / GetDpiForWindow(hwnd_);   // WebView2 applies the monitor's DPI itself
@@ -205,6 +206,7 @@ public:
         RECT now{}; GetWindowRect(hwnd_, &now);
         if (IsWindowVisible(hwnd_) && now.left == want.left && now.top == want.top && now.right - now.left == w && now.bottom - now.top == h) return;
         SetWindowPos(hwnd_, HWND_TOPMOST, want.left, want.top, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        if(controller_)controller_->NotifyParentWindowPositionChanged();
     }
 
     void Close(){closeApproved_=true;if(hwnd_)PostMessageW(hwnd_,WM_CLOSE,0,0);}
