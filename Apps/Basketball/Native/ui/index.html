@@ -1593,6 +1593,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         {type:'switch',id:'power',label:'Calculate power for the angle',description:'Recomputes continuously, up to 95. R/F automatically enable it.',value:true},
         {type:'switch',id:'force95',label:'Beam mode · adaptive power',description:'Searches both low and high arcs for the highest power with estimated clearance, up to 95. Can lower power and raise the arc to get over coverage.',value:false},
         {type:'switch',id:'fit',label:'Smart fit',description:'Uses measured catch-part dimensions when available and timed jump/dive reach. Adjusts landing around the observed route: up to 3 studs when stationary or 6 while moving, in addition to normal route lead. Prefers clear placements and keeps the best available assisted throw ready when coverage is contested. Amber means the defense may still reach it; no guaranteed catch.',value:true},
+        {type:'slider',id:'height',label:'Catch height adjustment',description:'Raise or lower the preferred catch point in regular and Beam mode. Smart fit can raise it further within the receiver’s estimated reach.',value:0,min:-3,max:8,step:1,unit:' studs'},
         {type:'slider',id:'lead',label:'Lead distance adjustment',description:'Negative pulls the catch point back; positive places it farther ahead. Added to automatic movement lead. Stationary targets use the direction from QB to receiver.',value:0,min:-12,max:12,step:1,unit:' studs'},
         {type:'slider',id:'radius',label:'Mouse selection radius',value:260,min:40,max:700,step:10,unit:' px'},
         {type:'slider',id:'dive',label:'Estimated dive reach',description:'Extra reach allowed to other catchers. Conservative estimate, not a measured game limit.',value:12,min:0,max:24,step:1,unit:' studs',advanced:true},
@@ -3635,6 +3636,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       hostSend('setting',{key:'ff3_qb.force95',value:true});check((await native()).ff3.ff3_qb.rows.force95,'Beam option reaches native state');
       hostSend('setting',{key:'ff3_qb.force95',value:false});check(!(await native()).ff3.ff3_qb.rows.force95,'Adaptive power can be restored');
       $('[data-pass-next]').click();await until(()=>find('ff3_qb.preset').r.value===1);$('[data-pass-next]').click();check((await native()).ff3.ff3_qb.rows.preset===2,'Lob preset card reaches native state');
+      hostSend('setting',{key:'ff3_qb.height',value:4});check((await native()).ff3.ff3_qb.rows.height===4,'Catch height reaches native state');hostSend('setting',{key:'ff3_qb.height',value:0});
       hostSend('setting',{key:'ff3_qb.lead',value:-4});check((await native()).ff3.ff3_qb.rows.lead===-4,'Signed lead slider reaches native state');hostSend('setting',{key:'ff3_qb.lead',value:0});
       {
         const el=$('.slider[data-key="ff3_qb.lead"]'),r=find('ff3_qb.lead').r,old=r.value;

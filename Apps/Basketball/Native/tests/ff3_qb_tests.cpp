@@ -4,6 +4,24 @@
 #include <iostream>
 using namespace ff3qb;
 int main(){int count=0;
+ auto divingReceiver=solve({0,8,0},{60,8,0},{0,0,43.5},95,28,.05,false,5);
+ assert(divingReceiver.valid&&length(point(divingReceiver,28,divingReceiver.time)-divingReceiver.catchPoint)<1e-6);
+ assert(!solve({0,8,0},{60,8,0},{0,0,46},95,28,.05,false,5).valid);
+ // Pruning distant catchers must preserve the full sampled-path minimum.
+ for(double distance:{15.,60.,150.})for(double speed:{45.,70.,95.})for(bool high:{false,true}){
+  auto s=solve({0,8,0},{distance,10,0},{3,0,1},speed,28,.06,high,5);if(!s.valid)continue;
+  std::vector<Defender> ds={{{-200,8,80},{},20,6.37,12},{{distance*.5,8,4},{5,0,0},20,6.37,12},{{distance+40,12,0},{},20,6.37,12}};
+  double exhaustive=1000;int steps=std::clamp(int(std::ceil(s.time/.02)),32,400);
+  for(const auto& d:ds)for(int i=0;i<=steps;++i)exhaustive=std::min(exhaustive,reachGap(d,point(s,28,s.time*i/steps),s.time*i/steps+.06));
+  assert(std::abs(exhaustive-coverageMargin(s,28,ds,.06))<1e-9);
+ }
+ for(bool beam:{false,true})for(double height:{-3.,0.,4.,8.}){
+  Defender wr{{100,8,0},{},20,6.37,12,5.88,3.88,4.88};
+  auto p=planCoverageThrow({0,8,0},{100,8+height,0},{},28,.05,{},true,beam,6.37,196.2,{},0,false,NAN,true,.1,&wr,height);
+  assert(p.solution.valid&&std::abs(p.solution.catchPoint.y-(8+height))<1e-6);
+  assert(reachGap(wr,p.solution.catchPoint,p.solution.time+.05)<=-.25);
+  if(beam)assert(p.power==95);
+ }
  ResumeIntent resume;resume.suspend(true,10);resume.suspend(false,10);assert(resume.take(10));assert(!resume.take(10));resume.suspend(true,10);resume.cancel();assert(!resume.take(10));resume.suspend(true,10);assert(!resume.take(11));
  for(double angle:{12.,25.,35.,55.,75.})for(double distance:{15.,50.,90.,150.})for(double drift:{-10.,0.,10.}){
   Vec origin{0,8,0},target{distance,7,0},movement{drift,0,4};auto s=solveAngle(origin,target,movement,angle,28,.06);
@@ -156,6 +174,10 @@ int main(){int count=0;
   db.opponent=false;flightMetrics(metrics,lowBall,0,{wr,db},4,true);assert(!metrics.intable&&std::isnan(metrics.nearD));
   db.sideKnown=false;flightMetrics(metrics,lowBall,0,{wr,db},4,true);assert(metrics.coverageKnown&&metrics.intable); // Teamless practice players remain potential catchers.
   db.sideKnown=db.opponent=true;
+  {auto late=ownBall;late.position={0,40,0};late.model.origin=late.position;late.model.velocity={30,0,0};auto farWr=wr;farWr.reach={{200,8,0},{},0,0,0};auto lateDb=db;lateDb.reach={{45,5,0},{},0,0,0};
+   flightMetrics(metrics,late,0,{farWr,lateDb},4,true,35);
+   assert(metrics.intable&&metrics.eta>1.5); // A missed intended height cannot hide a DB later in the actual path.
+  }
   ThrowIntent intent{10,1,2,3,4,5,10,95,35,2,100,12,"WR","Beam"};
   ThrowTracker shot;shot.begin(intent,{}, {wr,db});
   auto foreign=ownBall;foreign.id=99;foreign.thrower=900;

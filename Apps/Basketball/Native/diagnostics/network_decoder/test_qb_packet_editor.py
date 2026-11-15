@@ -21,6 +21,22 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def test_observed_dive_speed_remains_targetable(self):
+        p=plan();p.update(beam95=True,plannedPower=95,targetVelocity=[0,0,43.5])
+        self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
+        p['targetVelocity']=[0,0,46];self.assertEqual(editor().process_plain(payload(),p,1010),payload())
+    def test_moving_target_advances_by_sample_and_dispatch_delay(self):
+        p=plan();p.update(beam95=True,plannedPower=95,targetVelocity=[0,0,20],routePosition=[70,5,0],sampleAgeMs=80)
+        before=list(p['targetPosition']);e=editor()
+        self.assertNotEqual(e.process_plain(payload(),p,1020),payload())
+        self.assertAlmostEqual(e.last['target'][2],2.0)
+        self.assertEqual(e.last['routeOffset'],(0.,0.,0.))
+        self.assertEqual(p['targetPosition'],before)
+        for age in (-1,101,float('nan')):
+            p['sampleAgeMs']=age;self.assertEqual(editor().process_plain(payload(),p,1020),payload())
+        p.update(clickPlanRetained=True,sampleAgeMs=250);e=editor()
+        self.assertNotEqual(e.process_plain(payload(),p,1020),payload())
+        self.assertAlmostEqual(e.last['target'][2],5.4)
     def test_timed_jump_and_nonduplicated_dive(self):
         jump=2500/(2*196.2)
         self.assertLess(jump_rise(jump,196.2,.01),.51)

@@ -79,7 +79,9 @@ inline void worker(){
  using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;if(GdiplusStartup(&token,&startup,nullptr)!=Ok)return;PumpSurface overlay;ff3qb::CurveTracker curve;ViewReader view;FramePacer pacer;double epoch=now();unsigned frames=0;
  while(running){
   const double started=now();MSG message{};while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
-  auto f=ff3Native::snapshot();bool live=(ff3Native::enabled||ff3Native::ballTrails)&&ff3Native::admitted()&&ff3Native::focused(f.pid)&&now()>=f.at&&now()-f.at<.15;
+  // Presentation may bridge a slow planner update; click eligibility retains
+  // its separate 100 ms limit. Reproject the retained geometry with live camera.
+  auto f=ff3Native::snapshot();bool live=(ff3Native::enabled||ff3Native::ballTrails)&&ff3Native::admitted()&&ff3Native::focused(f.pid)&&now()>=f.at&&now()-f.at<.30;
   if(!live){overlay.hide();curve.reset();ff3Native::renderHz=0;epoch=now();frames=0;Sleep(30);continue;}
   if(f.client.right>8000||f.client.bottom>5000||!view.refresh(f)){overlay.hide();Sleep(16);continue;}
   for(auto& ball:f.balls)if(ball.model.valid)ball.at=now();curve.update(f.solution,f.gravity,f.target,now());

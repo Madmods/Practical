@@ -18,7 +18,7 @@ def length(value):return math.sqrt(sum(x*x for x in value))
 
 def velocity(origin,target,movement,power,gravity,latency,lob=False,spawn=0):
     origin,target,movement=map(vector,(origin,target,movement))
-    if not 1<=power<=95 or not 1<=gravity<=300 or not 0<=latency<=.25 or length(movement)>40:raise DecodeError('Ballistic input bounds')
+    if not 1<=power<=95 or not 1<=gravity<=300 or not 0<=latency<=.25 or length(movement)>45:raise DecodeError('Ballistic input bounds')
     distance=length(tuple(b-a for a,b in zip(origin,target)))
     if not 3<=distance<=600:raise DecodeError('Receiver distance bounds')
     if not math.isfinite(spawn) or not 0<=spawn<=5:raise DecodeError('Spawn offset bounds')
@@ -56,7 +56,7 @@ def velocity(origin,target,movement,power,gravity,latency,lob=False,spawn=0):
 
 def angle_velocity(origin,target,movement,angle,gravity,latency,spawn=0):
     origin,target,movement=map(vector,(origin,target,movement))
-    if not all(math.isfinite(x) for x in (angle,gravity,latency)) or not 5<=angle<=85 or not 1<=gravity<=300 or not 0<=latency<=.25 or length(movement)>40:raise DecodeError('Angle plan bounds')
+    if not all(math.isfinite(x) for x in (angle,gravity,latency)) or not 5<=angle<=85 or not 1<=gravity<=300 or not 0<=latency<=.25 or length(movement)>45:raise DecodeError('Angle plan bounds')
     if not 3<=length(tuple(b-a for a,b in zip(origin,target)))<=600:raise DecodeError('Receiver distance bounds')
     tangent=math.tan(math.radians(angle))
     if not math.isfinite(spawn) or not 0<=spawn<=5:raise DecodeError('Spawn offset bounds')
@@ -138,6 +138,19 @@ def replacement(body,call,plan,tick):
     if plan.get('active') is not True or plan.get('mode')!='ff3-qb':raise DecodeError('No active assisted plan at throw')
     issued,expires,clicked=plan.get('issued',0),plan.get('expires',0),plan.get('clickAt',0)
     if not 0<=tick-issued<=150 or not issued<=tick<=expires<=issued+200 or not 0<=tick-clicked<=350 or clicked<=0:raise DecodeError('Throw plan or physical click expired')
+    # The target was sampled before planning, not when this packet arrived.
+    # Advance only its measured route; retain old catcher positions and extend
+    # their reach horizon by the same delay for conservative revalidation.
+    sample_delay=0.0
+    if 'sampleAgeMs' in plan:
+        age=plan['sampleAgeMs']
+        max_age=450 if plan.get('clickPlanRetained') is True else 100
+        if isinstance(age,bool) or not isinstance(age,(int,float)) or not math.isfinite(age) or not 0<=age<=max_age:raise DecodeError('Target sample age bounds')
+        sample_delay=(age+tick-issued)*.001
+        movement=vector(plan['targetVelocity'])
+        plan=dict(plan)
+        for key in ('targetPosition','routePosition'):
+            if key in plan:plan[key]=[p+v*sample_delay for p,v in zip(vector(plan[key]),movement)]
     origin,aim_offset,power_offset,old_power=fields
     if length(tuple(a-b for a,b in zip(vector(origin),vector(plan['head']))))>12:raise DecodeError('Throw origin disagrees with held character')
     power=plan.get('plannedPower',95.0) if plan.get('autoPower') is True else old_power
@@ -168,12 +181,12 @@ def replacement(body,call,plan,tick):
         if plan.get('coverageKnown') is not True:raise DecodeError('Incomplete catcher coverage')
         # Recompute coverage at the actual origin. The app explicitly permits
         # contested fits; retain their measured risk instead of vetoing them.
-        margin=catch_path_margin(origin,launch,flight,power,float(plan['gravity']),float(plan['latency']),plan.get('catchers'))
+        margin=catch_path_margin(origin,launch,flight,power,float(plan['gravity']),float(plan['latency'])+sample_delay,plan.get('catchers'))
         if margin<=1.0 and (plan.get('allowContested') is not True or plan.get('strictFit') is True):raise DecodeError('No clear window at actual throw origin')
         if 'receiver' in plan:
             validate_reach(plan['receiver'])
             landing=[origin[i]+launch[i]*(5/power+flight)-(.5*float(plan['gravity'])*flight*flight if i==1 else 0) for i in range(3)]
-            if reach_gap(plan['receiver'],landing,flight+float(plan['latency']))>-.25:raise DecodeError('Receiver cannot reach updated throw')
+            if reach_gap(plan['receiver'],landing,flight+float(plan['latency'])+sample_delay)>-.25:raise DecodeError('Receiver cannot reach updated throw')
     aim=tuple(origin[i]+launch[i]*(10000/power) for i in range(3))
     return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],routeOffset=offset,instance=call['instance'],clickAt=clicked,coverageMargin=margin,contested=margin is not None and margin<=1.0,coverageUnits='studs')
 

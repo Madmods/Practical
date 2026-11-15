@@ -45,7 +45,7 @@ struct Solution {bool valid=false;Vec origin,velocity,catchPoint;double time=0,a
 // Both ballistic roots are solved numerically; unreachable throws fail closed.
 inline Solution solve(Vec origin,Vec target,Vec movement,double speed,double gravity,double latency,bool lob=false,double spawn=0,Solution* paired=nullptr){
  if(paired)*paired={};
- if(!finite(origin)||!finite(target)||!finite(movement)||!std::isfinite(speed)||speed<1||speed>150||!std::isfinite(gravity)||gravity<1||gravity>300||!std::isfinite(latency)||latency<0||latency>.3||length(movement)>40||length(target-origin)<3||length(target-origin)>600)return {};
+ if(!finite(origin)||!finite(target)||!finite(movement)||!std::isfinite(speed)||speed<1||speed>150||!std::isfinite(gravity)||gravity<1||gravity>300||!std::isfinite(latency)||latency<0||latency>.3||length(movement)>45||length(target-origin)<3||length(target-origin)>600)return {};
  if(!std::isfinite(spawn)||spawn<0||spawn>5)return {};
  // Beyond this time even a vertical launch at full speed cannot reach the
  // target's height. Bound the root scan, especially for low-power Beam tiers.
@@ -54,29 +54,35 @@ inline Solution solve(Vec origin,Vec target,Vec movement,double speed,double gra
  if(verticalDiscriminant<0)return {};
  const double latest=std::min(8.03,(verticalBudget+std::sqrt(verticalDiscriminant))/gravity);
  if(latest<.03)return {};
- const int intervals=std::min(800,int(std::ceil((latest-.03)/.01))+1);
  auto displacement=[&](double t){return target+movement*(t+latency)-origin+Vec{0,.5*gravity*t*t,0};};
  auto velocity=[&](double t){return displacement(t)*(speed/(speed*t+spawn));};
  auto error=[&](double t){auto d=displacement(t);return dot(d,d)-(speed*t+spawn)*(speed*t+spawn);};
  auto slope=[&](double t){return 2*dot(displacement(t),movement+Vec{0,gravity*t,0})-2*speed*(speed*t+spawn);};
- std::vector<double> roots;double previous=.03,prior=error(previous),priorSlope=slope(previous);
+ std::vector<double> roots;
  auto bracket=[&](double low,double high,double a,double b){
   if(!((a>0&&b<=0)||(a<0&&b>=0)))return;
   const bool positive=a>0;
-  for(int j=0;j<32;j++){double mid=(low+high)*.5;if((error(mid)>0)==positive)low=mid;else high=mid;}
+  for(int j=0;j<44;j++){double mid=(low+high)*.5;if((error(mid)>0)==positive)low=mid;else high=mid;}
   double root=(low+high)*.5;if(roots.empty()||root-roots.back()>1e-6)roots.push_back(root);
  };
- for(int i=1;i<=intervals;i++){
-  double next=.03+i*.01,current=error(next),nextSlope=slope(next);
-  // Near maximum range both roots may sit inside one 10 ms interval.
-  // Split at the local extremum instead of missing the negative minimum.
-  if(priorSlope*nextSlope<0){double lo=previous,hi=next;bool positive=priorSlope>0;
-   for(int j=0;j<36;j++){double mid=(lo+hi)*.5;if((slope(mid)>0)==positive)lo=mid;else hi=mid;}
-   double mid=(lo+hi)*.5,value=error(mid);bracket(previous,mid,prior,value);
-   if(std::abs(value)<1e-7&&(roots.empty()||mid-roots.back()>1e-6))roots.push_back(mid);
-   bracket(mid,next,value,current);
-  }else bracket(previous,next,prior,current);
-  previous=next;prior=current;priorSlope=nextSlope;
+ // The flight equation is quartic. Split its cubic derivative at the roots
+ // of its quadratic derivative, then bracket every extremum exactly. This
+ // retains tangent/closely spaced roots without an 800-step time sweep.
+ std::vector<double> slopeKnots{.03,latest},knots{.03,latest};
+ const double a=3*gravity*gravity,b=6*gravity*movement.y;
+ const double c=2*(dot(movement,movement)+gravity*(target.y-origin.y+movement.y*latency)-speed*speed);
+ const double disc=b*b-4*a*c;
+ if(disc>=0)for(double t:{(-b-std::sqrt(disc))/(2*a),(-b+std::sqrt(disc))/(2*a)})if(t>.03&&t<latest)slopeKnots.push_back(t);
+ std::sort(slopeKnots.begin(),slopeKnots.end());
+ for(size_t i=1;i<slopeKnots.size();++i){double lo=slopeKnots[i-1],hi=slopeKnots[i],left=slope(lo),right=slope(hi);
+  if(std::abs(left)<1e-9)knots.push_back(lo);
+  if(std::abs(right)<1e-9)knots.push_back(hi);
+  if(left*right<0){bool positive=left>0;for(int j=0;j<44;++j){double mid=(lo+hi)*.5;if((slope(mid)>0)==positive)lo=mid;else hi=mid;}knots.push_back((lo+hi)*.5);}
+ }
+ std::sort(knots.begin(),knots.end());
+ for(size_t i=0;i<knots.size();++i){double t=knots[i],value=error(t);
+  if(i)bracket(knots[i-1],t,error(knots[i-1]),value);
+  if(std::abs(value)<1e-7&&(roots.empty()||t-roots.back()>1e-6))roots.push_back(t);
  }
  if(roots.empty())return {};
  auto make=[&](double t)->Solution{auto v=velocity(t);if(t<.06||t>8||std::abs(length(v)-speed)>.01)return {};return {true,origin+v*(spawn/speed),v,target+movement*(t+latency),t,std::atan2(v.y,std::hypot(v.x,v.z))*180/3.141592653589793};};
@@ -87,7 +93,7 @@ inline Vec point(const Solution& s,double gravity,double t){return s.origin+s.ve
 // Solve flight time at a requested elevation, then derive required power.
 // No clamping of an unreachable power: that would change the landing point.
 inline Solution solveAngle(Vec origin,Vec target,Vec movement,double angle,double gravity,double latency,double spawn=0){
- if(!finite(origin)||!finite(target)||!finite(movement)||!std::isfinite(angle)||angle<5||angle>85||!std::isfinite(gravity)||gravity<1||gravity>300||!std::isfinite(latency)||latency<0||latency>.3||length(movement)>40||length(target-origin)<3||length(target-origin)>600)return {};
+ if(!finite(origin)||!finite(target)||!finite(movement)||!std::isfinite(angle)||angle<5||angle>85||!std::isfinite(gravity)||gravity<1||gravity>300||!std::isfinite(latency)||latency<0||latency>.3||length(movement)>45||length(target-origin)<3||length(target-origin)>600)return {};
  const double tangent=std::tan(angle*3.141592653589793/180.);
  if(!std::isfinite(spawn)||spawn<0||spawn>5)return {};
  auto error=[&](double t){auto d=target+movement*(t+latency)-origin;return std::hypot(d.x,d.z)*tangent-d.y-.5*gravity*t*t;};
@@ -124,7 +130,7 @@ struct RouteHistory {
  void update(double time,Vec origin,Vec position,Vec velocity){
   if(samples.empty()){axis=position-origin;axis.y=0;axis=axis*(1/std::max(1.,length(axis)));movement=velocity;}
   if(!samples.empty()&&time-samples.back().time<.04)return;
-  if(!samples.empty()){double dt=time-samples.back().time;if(dt>.5){reset();update(time,origin,position,velocity);return;}auto measured=(position-samples.back().position)*(1/dt);measured.y=0;const bool stopped=length(velocity)<.5&&length(measured)<.5;if(length(measured)<=40)velocity=velocity*.5+measured*.5;double blend=length(velocity-movement)>8?.7:.4;movement=stopped?Vec{}:movement*(1-blend)+velocity*blend;}
+  if(!samples.empty()){double dt=time-samples.back().time;if(dt>.5){reset();update(time,origin,position,velocity);return;}auto measured=(position-samples.back().position)*(1/dt);measured.y=0;const bool stopped=length(velocity)<.5&&length(measured)<.5;if(length(measured)<=45)velocity=velocity*.5+measured*.5;double blend=length(velocity-movement)>8?.7:.4;movement=stopped?Vec{}:movement*(1-blend)+velocity*blend;}
   samples.push_back({time,position});while(samples.size()>2&&time-samples.front().time>1.2)samples.erase(samples.begin());
   if(samples.size()<4)return;
   double speed=std::hypot(movement.x,movement.z),forward=dot(movement,axis),side=std::abs(movement.x*axis.z-movement.z*axis.x),distance=length(position-origin);
@@ -192,11 +198,21 @@ struct CoverageTrace {int catcher=-1;double time=0,gap=1000;Vec point;};
 // means outside. Sample the whole flight, including the actual launch position.
 inline double coverageMargin(const Solution& s,double gravity,const std::vector<Defender>& defenders,double latency,CoverageTrace* trace=nullptr,double stopBelow=-INFINITY){
  double margin=1000;const int steps=std::clamp(int(std::ceil(s.time/.02)),32,400);
- for(size_t n=0;n<defenders.size();n++)for(int i=0;i<=steps;i++){
+ auto sample=[&](size_t n,double t){auto p=point(s,gravity,t);double gap=reachGap(defenders[n],p,t+latency);if(gap<margin){margin=gap;if(trace)*trace={int(n),t,gap,p};}};
+ for(size_t n=0;n<defenders.size();++n){sample(n,0);sample(n,s.time);if(margin<=stopBelow)return margin;}
+ const auto end=point(s,gravity,s.time);Vec horizontal{end.x-s.origin.x,0,end.z-s.origin.z};double length2=dot(horizontal,horizontal);
+ for(size_t n=0;n<defenders.size();n++){
+  const auto& d=defenders[n];Vec delta{d.position.x-s.origin.x,0,d.position.z-s.origin.z};double u=length2>1e-9?std::clamp(dot(delta,horizontal)/length2,0.,1.):0;
+  // Horizontal distance to the entire segment gives a conservative lower
+  // bound on the 3D gap. Distant actors cannot improve the current minimum.
+  double speed=std::clamp(std::max(d.speed,std::hypot(d.velocity.x,d.velocity.z)),0.,45.);
+  double bound=length(delta-horizontal*u)-d.radius-speed*(s.time+latency)-d.diveReach;
+  if(bound>=margin)continue;
+  for(int i=1;i<steps;i++){
   double t=s.time*i/steps;auto p=point(s,gravity,t);double gap=reachGap(defenders[n],p,t+latency);
   if(gap<margin){margin=gap;if(trace)*trace={int(n),t,gap,p};}
   if(margin<=stopBelow)return margin;
- }return margin;
+ }}return margin;
 }
 inline std::vector<Vec> fitOffsets(Vec origin,Vec target,Vec movement,const std::vector<Defender>& defenders){
  std::vector<Vec> offsets{{}};for(int i=0;i<8;i++){double a=i*6.283185307179586/8;for(double r:{1.5,3.,6.})offsets.push_back({r*std::cos(a),0,r*std::sin(a)});}
@@ -261,15 +277,15 @@ inline bool estimatedClear(const Plan& p,bool fit){return p.solution.valid&&(!fi
 // Solve a selected arrival time directly, including the forward launch offset.
 // This samples receiver-reachable placements without thousands of root searches.
 inline Solution solveTimed(Vec origin,Vec target,Vec movement,double time,double gravity,double latency){
- if(!finite(origin)||!finite(target)||!finite(movement)||!std::isfinite(time)||time<.06||time>8||!std::isfinite(gravity)||gravity<1||gravity>300||!std::isfinite(latency)||latency<0||latency>.3||length(movement)>40||length(target-origin)<3||length(target-origin)>600)return {};
+ if(!finite(origin)||!finite(target)||!finite(movement)||!std::isfinite(time)||time<.06||time>8||!std::isfinite(gravity)||gravity<1||gravity>300||!std::isfinite(latency)||latency<0||latency>.3||length(movement)>45||length(target-origin)<3||length(target-origin)>600)return {};
  auto end=target+movement*(time+latency),d=end-origin+Vec{0,.5*gravity*time*time,0};double distance=length(d),power=(distance-5)/time;
  if(power<1||power>95+1e-8)return {};power=std::min(95.,power);auto direction=d*(1/distance),velocity=direction*power;
  return {true,origin+direction*5,velocity,end,time,std::atan2(velocity.y,std::hypot(velocity.x,velocity.z))*180/3.141592653589793};
 }
-inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool beam,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN,bool search=true,double elapsed=.1,const Defender* receiver=nullptr){
+inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool beam,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN,bool search=true,double elapsed=.1,const Defender* receiver=nullptr,double heightAdjustment=0){
  if(!std::isfinite(receiverJump)||receiverJump<0||receiverJump>40||!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)return {};
  if(length(movement)<.5)movement={};
- const double jump=receiver?std::max(0.,receiver->jumpHeight+receiver->above-.35):std::min(8.,receiverJump*.85);
+ const double jump=std::max(0.,(receiver?std::max(0.,receiver->jumpHeight+receiver->above-.75):std::min(8.,receiverJump*.85))-heightAdjustment);
  auto better=[&](const Plan& a,const Plan& b){
   if(!a.solution.valid)return false;if(!b.solution.valid)return true;
   bool ac=estimatedClear(a,fit),bc=estimatedClear(b,fit);if(ac!=bc)return ac;
@@ -329,7 +345,7 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  if(held.solution.valid&&held.power>=94.999&&estimatedClear(held,fit)&&held.margin>catchSafetyMargin+.25)return stable(held);
  Plan best;const auto offsets=fitOffsets(origin,target,movement,defenders);
  auto atPower=[&](double power){Plan tier;
-  for(double height:{0.,jump*.65,jump}){
+  for(double height:{0.,jump*.45,jump*.65,jump*.8,jump*.9,jump}){
    if(height>0&&(!fit||defenders.empty()))continue;
    for(size_t i=0;i<(fit&&!defenders.empty()?offsets.size():1);++i){
     const Vec offset=offsets[i]+Vec{0,height,0};if(!placementAllowed(offset,movement,8))continue;

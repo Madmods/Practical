@@ -23,14 +23,11 @@ inline void flightMetrics(ThrowView& view,const BallFlight& ball,double ground,c
  const ThrowActor* wr=nullptr;std::vector<Defender> opponents;
  for(const auto& actor:actors){if(actor.id==target&&actor.valid)wr=&actor;if(!actor.valid)complete=false;else if(actor.id!=target&&(actor.opponent||!actor.sideKnown))opponents.push_back(actor.reach);}
  double end=prediction.remaining;
- if(std::isfinite(catchHeight)&&catchHeight>=ground+.6){
-  double discriminant=v.y*v.y+2*ball.gravity*(start.y-catchHeight);
-  if(discriminant>=0){double crossing=(v.y+std::sqrt(discriminant))/ball.gravity;if(crossing>=0&&crossing<=end)end=crossing;}
- }else if(wr){
+ if(wr){
   // Evaluate the actual remaining arc in 3D, stopping at the first predicted
   // receiver catch opportunity. Nearby/contested WR status is not the risk flag.
   const int steps=std::clamp(int(std::ceil(end/.02)),32,400);
-  for(int i=0;i<=steps;i++){double t=end*i/steps;Vec point=start+v*t+Vec{0,-.5*ball.gravity*t*t,0};if(reachGap(wr->reach,point,t)<=0){end=t;break;}}
+  for(int i=0;i<=steps;i++){double t=end*i/steps;Vec point=start+v*t+Vec{0,-.5*ball.gravity*t*t,0};if(reachGap(wr->reach,point,t)<=-.25){end=t;break;}}
  }
  view.eta=end;view.spot=start+v*end+Vec{0,-.5*ball.gravity*end*end,0};
  if(wr)view.toSpot=length(wr->reach.position-view.spot);

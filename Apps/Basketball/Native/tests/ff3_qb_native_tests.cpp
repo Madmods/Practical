@@ -15,11 +15,14 @@ int main(){
  check(!set(L"ff3_qb.preset",basketballUi::number(6)));check(!set(L"ff3_qb.angle",basketballUi::number(4)));check(!set(L"ff3_qb.angle",basketballUi::number(76)));check(!set(L"ff3_qb.radius",basketballUi::number(INFINITY)));
  check(set(L"ff3_qb.angle",basketballUi::number(42)));check(set(L"ff3_qb.autoangle",basketballUi::boolean(false)));check(set(L"ff3_qb.fit",basketballUi::boolean(true)));
  check(set(L"ff3_qb.lead",basketballUi::number(-5))&&leadDistance==-5);
+ check(set(L"ff3_qb.height",basketballUi::number(4))&&catchHeightAdjustment==4);
+ check(!set(L"ff3_qb.height",basketballUi::number(9)));check(!set(L"ff3_qb.height",basketballUi::number(-4)));
  check(!set(L"ff3_qb.lead",basketballUi::number(13)));check(!set(L"ff3_qb.lead",basketballUi::number(-13)));check(!set(L"ff3_qb.lead",basketballUi::number(.5)));
  const auto savedRevision=revision.load();stop();check(!enabled&&revision>savedRevision);
  auto file=std::filesystem::temp_directory_path()/(L"vanta-ff3-test-"+std::to_wstring(GetCurrentProcessId())+L".json");
  check(save(file));set(L"ff3_qb.arc",basketballUi::number(0));set(L"ff3_qb",basketballUi::boolean(true));load(file);
  check(arc==1&&autoPower&&!enabled);check(passMode==4&&manualAngle==42&&!automaticAngle&&smartFit);
+ check(catchHeightAdjustment==4&&modules()[L"ff3_qb"][L"rows"][L"height"].num()==4);check(set(L"ff3_qb.height",basketballUi::number(0)));
  check(leadDistance==-5&&modules()[L"ff3_qb"][L"rows"][L"lead"].num()==-5);check(set(L"ff3_qb.lead",basketballUi::number(0)));
  check(set(L"ff3_qb.power",basketballUi::boolean(false)));check(save(file));autoPower=true;load(file);check(!autoPower);
  check(!set(L"ff3_qb.force95",basketballUi::number(1)));check(set(L"ff3_qb.force95",basketballUi::boolean(true)));check(force95&&passMode==0&&automaticAngle&&autoPower);
