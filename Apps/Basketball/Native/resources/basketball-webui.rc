@@ -4,3 +4,5 @@
 104 RCDATA "..\\ui\\fonts\\Inter-600.ttf"
 105 RCDATA "..\\ui\\fonts\\Inter-700.ttf"
 106 RCDATA "..\\ui\\fonts\\OFL.txt"
+
+107 RCDATA "..\\ui\\throw-hud.html"

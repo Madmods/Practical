@@ -153,6 +153,20 @@ int main(){int count=0;
  flights.update({},3);assert(flights.flights.empty()); // Catch/removal clears history.
  for(int i=0;i<8;i++)flights.update({{3,{i*1.25,1,0},{25,-20,0},28,false}},4+i*.05);
  assert(flights.visible().empty()); // Level rolling motion is no longer airborne.
+ // Replication jitter must not rotate the full predicted landing each frame.
+ FlightTracker jitter;Vec fixedLanding{};bool lockedForecast=false;int forecastCount=0;
+ for(int i=0;i<=100;i++){
+  double t=i*.02,stamp=std::floor(t/.05)*.05;Vec p{70*stamp,20+45*stamp-14*stamp*stamp,12*stamp};
+  jitter.update({{77,p,{70,45,12},28,true}},10+t,0);
+  for(const auto& ball:jitter.visible()){
+   auto prediction=forecast(ball,std::sin(t*7)*.6);
+   if(prediction.valid){if(!lockedForecast){fixedLanding=prediction.landing;lockedForecast=true;}else assert(length(prediction.landing-fixedLanding)<1e-5);++forecastCount;}
+  }
+ }
+ assert(forecastCount>50);
+ FlightTracker shortFlight;shortFlight.update({{78,{0,10,0},{},28,true}},0,0);shortFlight.update({{78,{5,12,0},{},28,true}},.05,0);
+ assert(!forecast(shortFlight.visible().front(),0).valid); // No two-sample long-range projection.
+ auto prior=jitter.visible().front();jitter.update({{77,prior.position+Vec{50,0,0},{},28,true}},12.05,0);assert(jitter.visible().empty()||!forecast(jitter.visible().front(),0).valid);
  // Reproduce the observed 65->70->75 staircase with a receiver running away.
  Plan chase;
  for(int i=0;i<30;i++){double distance=100+i*2.;chase=planCoverageThrow({0,8,0},{distance,8,0},{20,0,0},28,.05,{{{distance-2,8,0},{20,0,0},23,8.37,12}},true,true,6.37,196.2,chase.offset,chase.power,chase.lob,chase.solution.angle);

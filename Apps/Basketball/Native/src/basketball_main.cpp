@@ -7,17 +7,19 @@
 #include "webui/vanta_ui.hpp"
 #include "network_inspector.hpp"
 #include "ff3_packet_bridge.hpp"
+#include "ff3_throw_hud.hpp"
 #include <shellapi.h>
 
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
  SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
  CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
  const std::wstring args=GetCommandLineW();const bool test=args.find(L"--ui-test")!=std::wstring::npos;
- HANDLE single=CreateMutexW(nullptr,FALSE,test?L"Local\\VantaBasketballUITest":L"Local\\VantaNativeTiming");
+ HANDLE single=CreateMutexW(nullptr,FALSE,(test||args.find(L"--hud-test")!=std::wstring::npos)?L"Local\\VantaBasketballUITest":L"Local\\VantaNativeTiming");
  if(GetLastError()==ERROR_ALREADY_EXISTS){if(single)CloseHandle(single);CoUninitialize();return 0;}
  wchar_t exe[MAX_PATH]{};GetModuleFileNameW(nullptr,exe,MAX_PATH);
  std::filesystem::path folder=std::filesystem::path(exe).parent_path();
  if(!std::filesystem::exists(folder/L"bat-timing-settings.json")&&std::filesystem::exists(folder/L".."/L".."/L"bat-timing-settings.json"))folder=std::filesystem::weakly_canonical(folder/L".."/L"..");
+ if(args.find(L"--hud-test")!=std::wstring::npos){int result=ff3Hud::test(instance,std::filesystem::path(exe).parent_path());CloseHandle(single);CoUninitialize();return result;}
  const auto config=folder/L"bat-timing-settings.json";
  const auto ff3Config=folder/L"ff3-qb-settings.json";
  const auto testFolder=std::filesystem::path(exe).parent_path();
@@ -169,6 +171,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
   else if(action==L"clear"){defense::pick=false;defense::selected=0;}
  };
  if(!ui.Create(instance,info,cb)){ui.Shutdown();CloseHandle(single);CoUninitialize();return 1;}
+ ff3Hud::Overlay throwHud;if(!test)throwHud.start(instance,info);
  running=true;
  std::thread reader,geometry,visuals,defender,feedback,qb,qbVisual;
  if(!test)feedbackNative::logPath=folder/L"timing-review.csv";
@@ -200,7 +203,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
   ui.Post(L"{\"type\":\"basketballLive\",\"reason\":"+json::quote(reason)+L",\"meter\":"+std::to_wstring(fillPct.load())+L",\"releases\":"+std::to_wstring(releaseCount.load())+L",\"shot\":"+json::dump(basketballUi::shotReport(lastTimingRelease()))+L",\"window\":"+json::dump(basketballUi::windowReport())+L",\"review\":"+json::dump(basketballUi::reviewReport())+L"}");
   for(int i=0;i<10&&running;i++)Sleep(25);
  }});
- const int result=ui.Run();inspector.stop();
+ const int result=ui.Run();throwHud.stop();inspector.stop();
  sessionUnlocked=false;ff3Native::stop();ff3Native::uninstall();running=false;
  if(qb.joinable())qb.join();if(qbVisual.joinable())qbVisual.join();
  if(reader.joinable())reader.join();if(geometry.joinable())geometry.join();if(defender.joinable())defender.join();if(visuals.joinable())visuals.join();if(feedback.joinable())feedback.join();

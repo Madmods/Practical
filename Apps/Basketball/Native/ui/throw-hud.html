@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vanta Football · Throw HUD</title>
+<style>@font-face{font-family:Inter;font-style:normal;font-weight:400;src:url(fonts/Inter-400.ttf)}@font-face{font-family:Inter;font-style:normal;font-weight:500;src:url(fonts/Inter-500.ttf)}@font-face{font-family:Inter;font-style:normal;font-weight:600;src:url(fonts/Inter-600.ttf)}@font-face{font-family:Inter;font-style:normal;font-weight:700;src:url(fonts/Inter-700.ttf)}</style>
+<style>
+  /* Throw HUD: the morphing capsule, shown by VantaFootball.exe in a see-through, click-through-sized
+     overlay at the bottom of the game window. The host blurs the game behind the capsule.
+
+     DATA: the HUD reads state.throw from each bridge snapshot ({type:"fb", res:{result:{state:{throw}}}}).
+     Send {} (or leave it out) when the human isn't throwing and the capsule hides. Distances are metres
+     (shown as yards), times seconds, angle degrees, power/load 0..1.
+       phase     "aim" | "windup" | "flight" | "done"           (required)
+       target    { role: "WR" }                                  name shown + avatar initials
+       intable   bool                                            Clean / Intable chip
+       open      m, nearest defender to the target              aim, windup
+       distance  m                                               aim, windup, done
+       load      0..1, pull-back before the throw                aim
+       mode      "Bullet" | "Lob" (any short text)               windup on
+       angle     degrees    power 0..1    air  s flight time     windup on
+       eta       s until it lands                                flight
+       to_spot   m, receiver to the landing spot                 flight
+       near_d    m, nearest defender to the landing spot        flight
+       result    "Caught" | "Picked off" | "Incomplete"          done (green only for "Caught")
+     Browser preview: open this file directly for a sample loop, or ?state=aim|windup|flight|done to hold one. */
+  :root {
+    --accent: #8e97ff; --accent-hi: #c3c8ff; --accent-lo: #6870e0; --accent-rgb: 142, 151, 255;
+    --good: #3ecf8e; --good-rgb: 62, 207, 142; --bad: #ff6b7d; --bad-rgb: 255, 107, 125; --warn: #e8b25a;
+    --tint: rgba(12, 14, 20, .46);
+    --spring: cubic-bezier(.32, 1.28, .52, 1); --ease: cubic-bezier(.22, .8, .24, 1); --out: cubic-bezier(.16, 1, .3, 1);
+    font-family: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    font-optical-sizing: auto; font-feature-settings: "cv11", "ss01", "ss03", "tnum";
+    color-scheme: dark;
+  }
+  html.noglass { --tint: rgba(12, 14, 20, .88); }   /* Windows transparency effects off: nothing to blur with */
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: transparent; overflow: hidden; color: #fff; -webkit-font-smoothing: antialiased; }
+  html.preview body { background: radial-gradient(70% 90% at 50% 100%, #1d3a28, #0c1a13); }
+  svg { display: block; flex: none; }
+  .stage { position: fixed; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding: 0 16px 16px; }
+
+  /* liquid glass */
+  .lg {
+    position: relative; isolation: isolate;
+    background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.03) 55%, rgba(255,255,255,.07)), var(--tint);
+    box-shadow: inset 0 1px .5px rgba(255,255,255,.55), inset 0 -1px .5px rgba(255,255,255,.14), inset 0 0 22px rgba(255,255,255,.05);
+  }
+  html.preview .lg { -webkit-backdrop-filter: blur(16px) saturate(190%); backdrop-filter: blur(16px) saturate(190%); }
+  .lg::before { content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1; pointer-events: none;
+    background: radial-gradient(110% 80% at 18% -20%, rgba(255,255,255,.2), transparent 55%), radial-gradient(60% 60% at 100% 120%, rgba(var(--accent-rgb), .12), transparent 70%); }
+  .lg::after { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
+    background: linear-gradient(155deg, rgba(255,255,255,.55), rgba(255,255,255,.12) 24%, rgba(255,255,255,.02) 50%, rgba(255,255,255,.07) 76%, rgba(255,255,255,.32));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+  .sweep { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: -1; }
+  .sweep::before { content: ""; position: absolute; inset: -20% auto -20% 0; width: 45%; translate: -120% 0; background: linear-gradient(100deg, transparent, rgba(255,255,255,.16) 50%, transparent); }
+  .lg.release .sweep::before { animation: sweep 1s var(--out); }
+  @keyframes sweep { to { translate: 320% 0; } }
+
+  .k { font-size: 10.5px; font-weight: 600; letter-spacing: .02em; color: rgba(255,255,255,.5); }
+  .mode { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 99px; font-size: 11.5px; font-weight: 650; color: var(--accent-hi); flex: none;
+    background: linear-gradient(180deg, rgba(var(--accent-rgb), .3), rgba(var(--accent-rgb), .12)); box-shadow: inset 0 1px .5px rgba(255,255,255,.4), inset 0 0 0 1px rgba(var(--accent-rgb), .3); }
+  .av { width: 24px; height: 24px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff;
+    background: linear-gradient(160deg, #5b6488, #2c3148); box-shadow: inset 0 1px .5px rgba(255,255,255,.45), 0 0 0 1.5px rgba(255,255,255,.12); }
+  .cap { --c: var(--good-rgb); display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px 0 9px; border-radius: 99px; font-size: 11.5px; font-weight: 650; flex: none;
+    color: rgb(var(--c)); background: linear-gradient(180deg, rgba(var(--c), .22), rgba(var(--c), .08)); box-shadow: inset 0 1px .5px rgba(255,255,255,.35), inset 0 0 0 1px rgba(var(--c), .3);
+    transition: color .35s, background .35s, box-shadow .35s; }
+  .cap.pick { --c: var(--bad-rgb); }
+  .cap i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+  .cap .sl { height: 24px; overflow: hidden; }
+  .cap .sl b { display: block; height: 24px; line-height: 24px; font-weight: 650; transition: transform .45s var(--spring); }
+  .cap.pick .sl b { transform: translateY(-24px); }
+  .who { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; font-weight: 600; }
+  .who2 { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .who2 b { font-weight: 600; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who2 span { font-size: 10.5px; font-weight: 600; color: rgba(255,255,255,.5); transition: color .3s; }
+  .tone-good { color: var(--good) !important; } .tone-warn { color: var(--warn) !important; } .tone-bad { color: var(--bad) !important; }
+
+  /* the capsule: one layer per phase, the capsule springs to the width of the one showing */
+  .mc { height: 60px; border-radius: 30px; overflow: hidden; width: 300px; max-width: 100%;
+    transition: width .6s var(--spring), opacity .3s var(--ease), scale .5s var(--spring), filter .35s var(--ease); }
+  .mc.gone { opacity: 0; scale: .9; filter: blur(6px); }
+  .mc-fill { position: absolute; inset: 0 auto 0 0; z-index: -1; opacity: 0; transition: opacity .3s;
+    background: linear-gradient(90deg, rgba(var(--accent-rgb), .05), rgba(var(--accent-rgb), .28)); box-shadow: inset -2px 0 0 rgba(195,200,255,.8), 6px 0 18px -4px rgba(var(--accent-rgb), .5); }
+  .mc[data-ph=flight] .mc-fill { opacity: 1; }
+  .mc-l { position: absolute; top: 0; left: 50%; translate: -50% 0; height: 60px; display: flex; align-items: center; gap: 14px; padding: 0 20px 0 12px; white-space: nowrap;
+    opacity: 0; filter: blur(8px); scale: .92; pointer-events: none; transition: opacity .25s var(--ease), filter .35s var(--ease), scale .55s var(--spring); }
+  .mc-l.on { opacity: 1; filter: none; scale: 1; transition-delay: .12s; }
+  .mc-n { display: flex; flex-direction: column; gap: 1px; }
+  .mc-n[hidden] { display: none; }
+  .mc-n b { font-size: 21px; font-weight: 700; letter-spacing: -.02em; line-height: 1.05; }
+  .mc-n b small { font-size: 12px; color: rgba(255,255,255,.5); font-weight: 600; margin-left: 1px; }
+  .mc-sep { width: 1px; height: 30px; background: linear-gradient(180deg, transparent, rgba(255,255,255,.2), transparent); flex: none; }
+  .mc-pw { width: 46px; height: 5px; border-radius: 99px; background: rgba(0,0,0,.4); overflow: hidden; margin-top: 4px; }
+  .mc-pw i { display: block; height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, var(--accent-lo), var(--accent-hi)); transition: width .12s linear; }
+  .res { --c: var(--good-rgb); width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: rgb(var(--c));
+    background: radial-gradient(circle at 35% 30%, rgba(var(--c), .45), rgba(var(--c), .15)); box-shadow: inset 0 1px .5px rgba(255,255,255,.5), 0 0 18px rgba(var(--c), .4); }
+  .res.pick { --c: var(--bad-rgb); }
+  .res .x, .res.pick .ok { display: none; } .res.pick .x { display: block; }
+  .mc-res b { font-size: 17px; font-weight: 700; display: block; }
+  .mc-res span { font-size: 12px; color: rgba(255,255,255,.55); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="lg mc gone" id="mc" data-ph="aim"><span class="sweep"></span><span class="mc-fill" id="mcFill"></span>
+    <div class="mc-l" data-l="aim">
+      <span class="mode" data-k="mode"></span>
+      <div class="mc-n" data-only="windup"><span class="k">Angle</span><b data-k="angle"></b></div>
+      <span class="mc-sep" data-only="windup"></span>
+      <div class="mc-n"><span class="k" data-k="powerK"></span><b data-k="power"></b></div>
+      <div class="mc-pw"><i id="mcPw"></i></div>
+      <span class="mc-sep"></span>
+      <div class="mc-n" data-only="windup"><span class="k">Air time</span><b><span data-k="air"></span><small>s</small></b></div>
+      <div class="mc-n"><span class="k">Distance</span><b><span data-k="dist"></span><small>st</small></b></div>
+      <span class="mc-sep"></span>
+      <span class="who"><span class="av" data-k="ini"></span><span class="who2"><b data-k="target"></b><span data-k="open" data-tone="open"></span></span></span>
+      <span class="cap" data-int><i></i><span class="sl"><b>Clean</b><b>Intable</b></span></span>
+    </div>
+    <div class="mc-l" data-l="flight">
+      <div class="mc-n" style="padding-left:8px"><span class="k">Lands in</span><b><span data-k="eta"></span><small>s</small></b></div>
+      <span class="mc-sep"></span>
+      <div class="mc-n"><span class="k">WR to spot</span><b><span data-k="toSpot"></span><small>st</small></b></div>
+      <div class="mc-n"><span class="k">Nearest D</span><b data-tone="near"><span data-k="nearD"></span><small>st</small></b></div>
+      <span class="mc-sep"></span>
+      <span class="who"><span class="av" data-k="ini"></span><span class="who2"><b data-k="target"></b><span data-k="flightSub"></span></span></span>
+      <span class="cap" data-int><i></i><span class="sl"><b>Clean</b><b>Intable</b></span></span>
+    </div>
+    <div class="mc-l" data-l="done">
+      <span class="res" id="res">
+        <svg class="ok" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+        <svg class="x" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </span>
+      <div class="mc-res"><b data-k="result"></b><span data-k="resultSub"></span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const HOST = window.chrome?.webview || null;
+  const HINFO = window.__VANTA_HOST__ || null;
+  const send = (type, data = {}) => HOST?.postMessage({ type, ...data });
+  if (HINFO && !HINFO.glass) document.documentElement.classList.add('noglass');
+  if (!HOST) document.documentElement.classList.add('preview');
+
+  const YD = 1;   // FF3 adapter displays studs without conversion
+  const FIXED = !HOST && new URLSearchParams(location.search).get('state');   // browser preview: ?state=aim|windup|flight|done holds one state
+  const HOLD_DONE = FIXED ? Infinity : 2600;   // ms the result stays up after the play
+  const $ = id => document.getElementById(id);
+  const mc = $('mc'), layers = [...document.querySelectorAll('.mc-l')];
+
+  let cur = null;          // latest throw object from the game
+  let curAt = 0;           // when it arrived (for a smooth countdown between snapshots)
+  let doneAt = 0, doneExpired = false, lastShown = '';
+
+  const set = (k, v) => document.querySelectorAll(`[data-k="${k}"]`).forEach(el => { if (el.textContent !== v) el.textContent = v; });
+  const yd = m => Number.isFinite(m) ? (m * YD).toFixed(1) : '—';
+  const tone = y => y >= 4 ? 'tone-good' : y >= 2 ? 'tone-warn' : 'tone-bad';
+  const ini = s => (s || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '?';
+
+  // The game keeps reporting "done" until the next snap; the result shows once, for HOLD_DONE.
+  function onThrow(t) {
+    const now = performance.now();
+    if (t && t.phase) {
+      if (t.phase === 'done') { if (doneExpired) return; if (cur?.phase !== 'done') doneAt = now; }
+      else doneExpired = false;
+      cur = t; curAt = now;
+    } else if (cur && cur.phase !== 'done') cur = null;   // a finished play keeps its result up for a moment
+  }
+
+  function render(now) {
+    if (cur?.phase === 'done' && now - doneAt > HOLD_DONE) { cur = null; doneExpired = true; }
+    const t = cur;
+    mc.classList.toggle('gone', !t);
+    if (t) {
+      const layer = t.phase === 'flight' ? 'flight' : t.phase === 'done' ? 'done' : 'aim';
+      if (t.phase === 'flight' && lastShown !== 'flight') { mc.classList.remove('release'); void mc.offsetWidth; mc.classList.add('release'); }
+      lastShown = t.phase;
+      mc.dataset.ph = layer;
+      const role = t.target?.role || 'Receiver', open = (t.open ?? 99) * YD, near = (t.near_d ?? 99) * YD;
+      const windup = t.phase !== 'aim';
+      set('mode', windup ? (t.mode || 'Pass') : 'Aim');
+      set('target', role); set('ini', ini(role));
+      set('angle', Math.round(t.angle ?? 0) + '°');
+      set('powerK', windup ? 'Power' : 'Load');
+      set('power', String(Math.round((windup ? t.power * 95 : t.load * 100) || 0)));
+      $('mcPw').style.width = Math.round((windup ? t.power * 95 : t.load * 100) || 0) + '%';
+      set('air', (t.air ?? 0).toFixed(2));
+      set('dist', String(Math.round((t.distance ?? 0) * YD)));
+      set('open', open >= 98 ? 'Nobody near' : yd(t.open) + ' st open');
+      const eta = Math.max(0, (t.eta ?? 0) - (now - curAt) / 1000);
+      set('eta', eta.toFixed(2));
+      set('toSpot', yd(t.to_spot)); set('nearD', near >= 98 ? '—' : yd(t.near_d));
+      set('flightSub', t.flightSub || ((t.to_spot ?? 9) * YD < 1 ? 'At the spot' : 'Running to the spot'));
+      set('result', t.result || '');
+      set('resultSub', `${role} · ${Math.round((t.distance ?? 0) * YD)} st · ${(t.air ?? 0).toFixed(2)}s in the air`);
+      if (t.phase === 'flight' && t.air) $('mcFill').style.width = Math.min(100, (1 - eta / t.air) * 100) + '%';
+      document.querySelectorAll('[data-only]').forEach(el => { el.hidden = !windup; });
+      document.querySelectorAll('[data-int]').forEach(el => {el.hidden=!!t.unknownCoverage;el.style.display=t.unknownCoverage?'none':'';el.classList.toggle('pick', !!t.intable);});
+      $('res').classList.toggle('pick', t.result !== 'Caught');
+      document.querySelectorAll('[data-tone]').forEach(el => {
+        const c = tone(el.dataset.tone === 'near' ? near : open);
+        if (!el.classList.contains(c)) { el.classList.remove('tone-good', 'tone-warn', 'tone-bad'); el.classList.add(c); }
+      });
+      layers.forEach(l => l.classList.toggle('on', l.dataset.l === layer));
+      const on = layers.find(l => l.dataset.l === layer);
+      const w = Math.min(on.offsetWidth, mc.parentElement.clientWidth - 32) + 'px';
+      if (mc.style.width !== w) mc.style.width = w;
+    } else lastShown = '';
+    reportShape();
+    requestAnimationFrame(render);
+  }
+
+  // The host clips its window to the capsule and blurs the game behind it; everything else is see-through.
+  let lastShape = '';
+  function reportShape() {
+    if (!HOST) return;
+    const rects = [];
+    if (+getComputedStyle(mc).opacity > .04) {
+      const b = mc.getBoundingClientRect();
+      rects.push([b.left, b.top, b.width, b.height, b.height / 2].map(v => Math.round(v * 2) / 2));
+    }
+    const key = JSON.stringify(rects) + '@' + devicePixelRatio;
+    if (key !== lastShape) { lastShape = key; send('shape', { rects, dpr: devicePixelRatio, frost: 1 }); }
+  }
+
+  // Game → HUD: the same {type:"fb"} snapshot messages the panel gets.
+  HOST?.addEventListener('message', e => {
+    const m = e.data || {};
+    if (m.type === 'ff3Hud') onThrow(m.throw || null);
+    if (m.type === 'fb') onThrow(m.connected ? m.res?.result?.state?.throw : null);
+  });
+
+  // In a browser (no host): a sample throw on a loop so the HUD can be looked at.
+  if (!HOST) {
+    const plays = [
+      { role: 'WR', dist: 31, open: 4.2, lane: 3, mode: 'Bullet', power: .78, angle: 14, air: 1.05, intable: false, result: 'Caught' },
+      { role: 'Slot', dist: 24, open: 1.4, lane: .8, mode: 'Lob', power: .3, angle: 41, air: 1.9, intable: true, result: 'Picked off' },
+    ];
+    let i = 0;
+    const run = async () => {
+      const p = plays[i++ % plays.length], base = { target: { role: p.role }, open: p.open, intable: p.intable };
+      for (let k = 0; k <= 20; k++) { onThrow({ ...base, phase: 'aim', load: k / 20, distance: p.dist, lane: p.lane }); await wait(90); }
+      onThrow({ ...base, phase: 'windup', mode: p.mode, power: p.power, angle: p.angle, air: p.air, distance: p.dist + 3, to_spot: 4, near_d: p.intable ? 1 : 5 });
+      await wait(900);
+      for (let e = p.air; e > 0; e -= .05) { onThrow({ ...base, phase: 'flight', mode: p.mode, power: p.power, angle: p.angle, air: p.air, distance: p.dist + 3, eta: e, to_spot: 4 * e / p.air, near_d: p.intable ? .9 : 5 }); await wait(50); }
+      onThrow({ ...base, phase: 'done', mode: p.mode, power: p.power, angle: p.angle, air: p.air, distance: p.dist + 3, result: p.result });
+      await wait(3400); run();
+    };
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const p = plays[0], thrown = { target: { role: p.role }, open: p.open, intable: false, mode: p.mode, power: p.power, angle: p.angle, air: p.air, distance: p.dist + 3, to_spot: 2.1, near_d: 5.2 };
+    const hold = { aim: { ...thrown, phase: 'aim', load: .6, distance: p.dist, lane: p.lane }, windup: { ...thrown, phase: 'windup' },
+                   flight: { ...thrown, phase: 'flight', eta: .46 }, done: { ...thrown, phase: 'done', result: p.result } }[FIXED];
+    if (hold) onThrow(hold); else run();
+  }
+
+  if (HINFO?.testMode) {
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    (async()=>{
+      const checks=[];const check=(ok,name)=>checks.push({ok:!!ok,name});
+      onThrow({phase:'windup',target:{role:'Practice WR'},mode:'Beam',power:1,angle:24,air:1.42,distance:120,open:8,intable:false});
+      await wait(1200);
+      check(document.querySelector('[data-k=power]').textContent==='95','FF3 power');
+      check(document.querySelector('[data-k=target]').textContent==='Practice WR','Receiver binding');
+      check(document.querySelector('[data-k=angle]').textContent==='24°','Angle binding');
+      const bounds=mc.getBoundingClientRect();check(bounds.width>500&&bounds.width<1000&&bounds.height===60,'Original capsule layout');
+      send('hudCapture',{phase:'aim'});
+      await wait(400);
+      onThrow({phase:'flight',target:{role:'Ball flight'},eta:1.5,air:2.4,to_spot:null,near_d:null,flightSub:'Predicted field landing',intable:false});
+      await wait(900);check(document.querySelector('[data-l=flight]').classList.contains('on'),'Flight transition');
+      check(document.querySelector('[data-k=toSpot]').textContent==='—','Unknown receiver distance');
+      send('hudCapture',{phase:'flight'});await wait(300);
+      onThrow(null);await wait(500);check(mc.classList.contains('gone'),'Hidden without live state');
+      send('hudTestResult',{ok:checks.every(c=>c.ok),checks});
+    })();
+  }
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>

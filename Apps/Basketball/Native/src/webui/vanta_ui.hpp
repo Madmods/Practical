@@ -82,6 +82,9 @@ struct AppInfo {
     std::wstring user;                      // shown as the signed-in name when skipAuth is set
     std::wstring gameVersion;               // shown in Home › Versions for products with a game
     std::wstring dataName = L"VantaUI";     // %LOCALAPPDATA%\<dataName> holds the page's storage
+    std::wstring page = L"index.html";
+    int resource = VANTA_UI_RESOURCE;
+    bool overlay = false;
     bool skipAuth = false;                  // no account step: loader goes straight to the connection checks
     bool debug = false;                     // enables DevTools + right-click menu
     std::wstring initialState = L"{}";
@@ -134,12 +137,12 @@ public:
         RegisterClassExW(&wc);
 
         // created tiny, then sized and centred for whichever monitor it lands on (see FitToMonitor)
-        hwnd_ = CreateWindowExW(WS_EX_APPWINDOW, wc.lpszClassName, info_.title.c_str(),
-                                WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU, 0, 0, 1, 1, nullptr, nullptr, inst, this);
+        hwnd_ = CreateWindowExW(info_.overlay ? WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE|WS_EX_TRANSPARENT : WS_EX_APPWINDOW, wc.lpszClassName, info_.title.c_str(),
+                                info_.overlay ? WS_POPUP : WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU, 0, 0, 1, 1, nullptr, nullptr, inst, this);
         if (!hwnd_) return false;
-        alwaysOnTop_ = info_.product == L"basketball";
+        alwaysOnTop_ = info_.overlay || info_.product == L"basketball";
         SetWindowPos(hwnd_,alwaysOnTop_?HWND_TOPMOST:HWND_NOTOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
-        FitToMonitor(true);
+        if(!info_.overlay)FitToMonitor(true);
 
         // Whole client area becomes DWM "glass": anything the page leaves transparent shows the desktop/game.
         MARGINS glass{ -1, -1, -1, -1 };
@@ -150,10 +153,10 @@ public:
         // Nothing is visible until the page reports its glass shapes (see "shape"); if it never does,
         // the fallback timer shows the whole window so the app can't end up invisible.
         SetWindowRgn(hwnd_, CreateRectRgn(0, 0, 0, 0), FALSE);
-        SetTimer(hwnd_, kShapeFallbackTimer, 5000, nullptr);
+        if(!info_.overlay)SetTimer(hwnd_, kShapeFallbackTimer, 5000, nullptr);
         if (info_.testMode) SetTimer(hwnd_, 73, 55000, nullptr);
-        else if(info_.product == L"basketball") SetTimer(hwnd_, 74, 50, nullptr);
-        ShowWindow(hwnd_, SW_SHOW);
+        else if(!info_.overlay&&info_.product == L"basketball") SetTimer(hwnd_, 74, 50, nullptr);
+        if(!info_.overlay)ShowWindow(hwnd_, SW_SHOW);
         UpdateWindow(hwnd_);
 
         const std::wstring dataDir = LocalAppData() + L"\\" + info_.dataName + L"\\WebView2";  // own folder; your main app uses %LOCALAPPDATA%\Vanta
@@ -190,6 +193,20 @@ public:
         if (!hwnd_ || !PostMessageW(hwnd_, WM_APP_POST, 0, reinterpret_cast<LPARAM>(payload))) delete payload;
     }
     HWND Window() const { return hwnd_; }
+    void PlaceOverlay(const RECT* area, int cssW = 0, int cssH = 0, double lift = 0) {
+        if (!hwnd_) return;
+        if (!area) { if (IsWindowVisible(hwnd_)) ShowWindow(hwnd_, SW_HIDE); return; }
+        const int areaW = area->right - area->left, areaH = area->bottom - area->top;
+        const double px = std::clamp(areaH / 1080.0, .6, 2.0);   // device pixels per CSS pixel
+        const double zoom = px * 96.0 / GetDpiForWindow(hwnd_);   // WebView2 applies the monitor's DPI itself
+        if (std::abs(zoom - scale_) > .001) { scale_ = zoom; if (controller_) controller_->put_ZoomFactor(zoom); }
+        const int w = (std::min)(static_cast<int>(cssW * px + .5), areaW), h = static_cast<int>(cssH * px + .5);
+        const RECT want{ area->left + (areaW - w) / 2, area->bottom - h - static_cast<int>(areaH * lift), 0, 0 };
+        RECT now{}; GetWindowRect(hwnd_, &now);
+        if (IsWindowVisible(hwnd_) && now.left == want.left && now.top == want.top && now.right - now.left == w && now.bottom - now.top == h) return;
+        SetWindowPos(hwnd_, HWND_TOPMOST, want.left, want.top, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+
     void Close(){closeApproved_=true;if(hwnd_)PostMessageW(hwnd_,WM_CLOSE,0,0);}
     void Capture(const std::wstring& path, std::function<void(bool)> done) {
         if(!info_.testMode || !webview_) { done(false); return; }
@@ -324,10 +341,10 @@ private:
     bool PrepareUiFolder() {
         wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH);
         std::wstring dir = exe; dir = dir.substr(0, dir.find_last_of(L"\\/"));
-        if (info_.debug && GetFileAttributesW((dir + L"\\ui\\index.html").c_str()) != INVALID_FILE_ATTRIBUTES) { uiDir_ = dir + L"\\ui"; return true; }
+        if (info_.debug && GetFileAttributesW((dir + L"\\ui\\"+info_.page).c_str()) != INVALID_FILE_ATTRIBUTES) { uiDir_ = dir + L"\\ui"; return true; }
 
         HMODULE mod = GetModuleHandleW(nullptr);
-        HRSRC res = FindResourceW(mod, MAKEINTRESOURCEW(VANTA_UI_RESOURCE), RT_RCDATA);
+        HRSRC res = FindResourceW(mod, MAKEINTRESOURCEW(info_.resource), RT_RCDATA);
         if (!res) return Fail(L"The embedded UI is missing from this build."), false;
         HGLOBAL data = LoadResource(mod, res);
         const void* bytes = LockResource(data);
@@ -335,7 +352,7 @@ private:
 
         uiDir_ = LocalAppData() + L"\\" + info_.dataName + L"\\ui";
         SHCreateDirectoryExW(nullptr, uiDir_.c_str(), nullptr);
-        HANDLE f = CreateFileW((uiDir_ + L"\\index.html").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        HANDLE f = CreateFileW((uiDir_ + L"\\"+info_.page).c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (f == INVALID_HANDLE_VALUE) return Fail(L"Could not write the UI to %LOCALAPPDATA%\\VantaUI."), false;
         DWORD written = 0; WriteFile(f, bytes, size, &written, nullptr); CloseHandle(f);
         if(written != size)return false;
@@ -382,16 +399,16 @@ private:
                 LPWSTR raw = nullptr;
                 LPWSTR source = nullptr;
                 args->get_Source(&source);
-                const bool local = source && std::wstring(source) == L"https://vanta.app/index.html";
+                const bool local = source && std::wstring(source) == L"https://vanta.app/"+info_.page;
                 CoTaskMemFree(source);
                 if (!local) return S_OK;
                 if (SUCCEEDED(args->get_WebMessageAsJson(&raw)) && raw) { OnMessage(json::parse(raw)); CoTaskMemFree(raw); }
                 return S_OK;
             }).Get(), &token);
         webview_->add_NavigationStarting(Callback<ICoreWebView2NavigationStartingEventHandler>(
-            [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+            [this](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
                 LPWSTR uri = nullptr; args->get_Uri(&uri);
-                if (!uri || std::wstring(uri) != L"https://vanta.app/index.html") args->put_Cancel(TRUE);
+                if (!uri || std::wstring(uri) != L"https://vanta.app/"+info_.page) args->put_Cancel(TRUE);
                 CoTaskMemFree(uri); return S_OK;
             }).Get(), &token);
         webview_->add_NewWindowRequested(Callback<ICoreWebView2NewWindowRequestedEventHandler>(
@@ -403,8 +420,8 @@ private:
 
         controller_->put_ZoomFactor(scale_);
         Resize();
-        webview_->Navigate(L"https://vanta.app/index.html");
-        controller_->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+        webview_->Navigate((L"https://vanta.app/"+info_.page).c_str());
+        if(!info_.overlay)controller_->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
         return S_OK;
     }
 
@@ -670,7 +687,10 @@ private:
                     return 0;
                 }
                 break;
+            case WM_MOUSEACTIVATE: if(info_.overlay)return MA_NOACTIVATE;break;
+            case WM_NCHITTEST: if(info_.overlay)return HTTRANSPARENT;break;
             case WM_DPICHANGED: {
+                if(info_.overlay)return 0;
                 const double physical=scale_*dpi_/96.0;dpi_=HIWORD(wp);scale_=physical*96.0/dpi_;
                 if(controller_)controller_->put_ZoomFactor(scale_);
                 if(!applyingScale_){POINT cursor{};GetCursorPos(&cursor);if(dragging_)TrackMonitor(cursor);else FitToMonitor(false);}
@@ -688,13 +708,13 @@ private:
             case WM_EXITSIZEMOVE:      // dropped on another monitor (same DPI, different size)
                 {RECT r{};GetWindowRect(hwnd_,&r);scaleCenterX_=(r.left+r.right)*.5;scaleCenterY_=(r.top+r.bottom)*.5;dragging_=false;FitToMonitor(false);}break;
             case WM_DISPLAYCHANGE:     // resolution or monitor layout changed
-                FitToMonitor(false);
+                if(!info_.overlay)FitToMonitor(false);
                 break;
             case WM_CLOSE:
                 if(!closeApproved_&&webview_){Post(L"{\"type\":\"closeRequested\"}");return 0;}
                 DestroyWindow(hwnd_);return 0;
             case WM_ACTIVATE:
-                if (LOWORD(wp) != WA_INACTIVE && controller_) controller_->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+                if (LOWORD(wp) != WA_INACTIVE && controller_ && !info_.overlay) controller_->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
                 return 0;
             case WM_DESTROY:
                 UnregisterHotKey(hwnd_, 91); UnregisterHotKey(hwnd_, 92);
@@ -708,7 +728,7 @@ private:
                 if (controller_) controller_->Close();
                 controller_.Reset();
                 webview_.Reset();
-                PostQuitMessage(0);
+                if(!info_.overlay)PostQuitMessage(0);
                 return 0;
         }
         return DefWindowProcW(hwnd_, msg, wp, lp);
