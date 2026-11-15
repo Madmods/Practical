@@ -43,9 +43,18 @@ inline bool finite(Vec a){return std::isfinite(a.x)&&std::isfinite(a.y)&&std::is
 struct Solution {bool valid=false;Vec origin,velocity,catchPoint;double time=0,angle=0;};
 // Constant-velocity interception with measured gravity and the visible power.
 // Both ballistic roots are solved numerically; unreachable throws fail closed.
-inline Solution solve(Vec origin,Vec target,Vec movement,double speed,double gravity,double latency,bool lob=false,double spawn=0){
+inline Solution solve(Vec origin,Vec target,Vec movement,double speed,double gravity,double latency,bool lob=false,double spawn=0,Solution* paired=nullptr){
+ if(paired)*paired={};
  if(!finite(origin)||!finite(target)||!finite(movement)||!std::isfinite(speed)||speed<1||speed>150||!std::isfinite(gravity)||gravity<1||gravity>300||!std::isfinite(latency)||latency<0||latency>.3||length(movement)>40||length(target-origin)<3||length(target-origin)>600)return {};
  if(!std::isfinite(spawn)||spawn<0||spawn>5)return {};
+ // Beyond this time even a vertical launch at full speed cannot reach the
+ // target's height. Bound the root scan, especially for low-power Beam tiers.
+ const double verticalBudget=speed-movement.y;
+ const double verticalDiscriminant=verticalBudget*verticalBudget-2*gravity*(target.y-origin.y+movement.y*latency-spawn);
+ if(verticalDiscriminant<0)return {};
+ const double latest=std::min(8.03,(verticalBudget+std::sqrt(verticalDiscriminant))/gravity);
+ if(latest<.03)return {};
+ const int intervals=std::min(800,int(std::ceil((latest-.03)/.01))+1);
  auto displacement=[&](double t){return target+movement*(t+latency)-origin+Vec{0,.5*gravity*t*t,0};};
  auto velocity=[&](double t){return displacement(t)*(speed/(speed*t+spawn));};
  auto error=[&](double t){auto d=displacement(t);return dot(d,d)-(speed*t+spawn)*(speed*t+spawn);};
@@ -57,7 +66,7 @@ inline Solution solve(Vec origin,Vec target,Vec movement,double speed,double gra
   for(int j=0;j<32;j++){double mid=(low+high)*.5;if((error(mid)>0)==positive)low=mid;else high=mid;}
   double root=(low+high)*.5;if(roots.empty()||root-roots.back()>1e-6)roots.push_back(root);
  };
- for(int i=1;i<=800;i++){
+ for(int i=1;i<=intervals;i++){
   double next=.03+i*.01,current=error(next),nextSlope=slope(next);
   // Near maximum range both roots may sit inside one 10 ms interval.
   // Split at the local extremum instead of missing the negative minimum.
@@ -70,9 +79,9 @@ inline Solution solve(Vec origin,Vec target,Vec movement,double speed,double gra
   previous=next;prior=current;priorSlope=nextSlope;
  }
  if(roots.empty())return {};
- double t=lob?roots.back():roots.front();auto v=velocity(t);
- if(t<.06||t>8||std::abs(length(v)-speed)>.01)return {};
- return {true,origin+v*(spawn/speed),v,target+movement*(t+latency),t,std::atan2(v.y,std::hypot(v.x,v.z))*180/3.141592653589793};
+ auto make=[&](double t)->Solution{auto v=velocity(t);if(t<.06||t>8||std::abs(length(v)-speed)>.01)return {};return {true,origin+v*(spawn/speed),v,target+movement*(t+latency),t,std::atan2(v.y,std::hypot(v.x,v.z))*180/3.141592653589793};};
+ if(paired)*paired=make(lob?roots.front():roots.back());
+ return make(lob?roots.back():roots.front());
 }
 inline Vec point(const Solution& s,double gravity,double t){return s.origin+s.velocity*t+Vec{0,-.5*gravity*t*t,0};}
 // Solve flight time at a requested elevation, then derive required power.
@@ -290,6 +299,9 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  // roots and transitions from contested to clear. Coverage is recomputed for
  // the intermediate arc; it is never labelled clear merely because the goal is.
  auto stable=[&](Plan desired){
+  // Beam's power ordering is a gameplay constraint. Ease its displayed curve,
+  // not the transmitted solution into a weaker angle-derived throw.
+  if(beam)return desired;
   if(!desired.solution.valid||!std::isfinite(previousAngle)||previousPower<1)return desired;
   const double dt=std::clamp(elapsed,.001,.1),step=24*dt;
   auto delta=desired.offset-previousOffset;
@@ -319,21 +331,21 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  auto atPower=[&](double power){Plan tier;
   for(double height:{0.,jump*.65,jump}){
    if(height>0&&(!fit||defenders.empty()))continue;
-   for(size_t i=0;i<(fit&&!defenders.empty()?offsets.size():1);++i)for(bool lob:{false,true}){
-    auto p=replan(power,offsets[i]+Vec{0,height,0},lob,&tier);if(better(p,tier))tier=p;
+   for(size_t i=0;i<(fit&&!defenders.empty()?offsets.size():1);++i){
+    const Vec offset=offsets[i]+Vec{0,height,0};if(!placementAllowed(offset,movement,8))continue;
+    Solution high;auto low=solve(origin,target+offset,movement,power,gravity,latency,false,5,&high);
+    for(bool lob:{false,true}){auto p=candidate(lob?high:low,offset,lob,&tier);if(p.solution.valid)p.power=power;if(better(p,tier))tier=p;}
    }
   }
   return tier;
  };
- for(double power:{95.,90.,85.,80.,75.,70.,65.,60.,55.,50.,45.,40.,35.,30.,25.,20.,15.}){
+ // Beam checks every integer power from the top. A five-point sweep can skip
+ // a narrow clear window above its first coarse success.
+ for(double power=95;power>=(beam?1:15);power-=beam?1:5){
   auto tier=atPower(power);if(better(tier,best))best=tier;
   // A clear maximum-power low arc needs no slower/lower-power sweep.
   if(power==95&&estimatedClear(best,fit)&&best.solution.angle<=35)break;
-  // Refine the first clear five-point interval at one-point resolution.
-  if(beam&&estimatedClear(best,fit)){
-   for(double fine=std::min(95.,power+4);fine>power;fine--){auto p=atPower(fine);if(estimatedClear(p,fit)){best=p;break;}}
-   break;
-  }
+  if(beam&&estimatedClear(best,fit))break;
  }
  if(!best.solution.valid)return stable(held);
  if(held.solution.valid){

@@ -4,16 +4,21 @@
 namespace ff3Hud {
 inline json::Value message(const ff3Native::Frame& f){
  using namespace basketballUi;auto out=object();out.o[L"type"]=string(L"ff3Hud");auto state=object();
- if(f.ready&&f.held){
+ const auto& shot=f.throwView;
+ if(shot.phase==ff3qb::ThrowView::Flight||shot.phase==ff3qb::ThrowView::Done){
+  state.o[L"phase"]=string(shot.phase==ff3qb::ThrowView::Done?L"done":L"flight");
+  if(std::isfinite(shot.eta))state.o[L"eta"]=number(shot.eta);if(std::isfinite(shot.toSpot))state.o[L"to_spot"]=number(shot.toSpot);if(std::isfinite(shot.nearD))state.o[L"near_d"]=number(shot.nearD);
+  state.o[L"air"]=number(shot.air);state.o[L"distance"]=number(shot.distance);state.o[L"flightSub"]=string(widen(shot.detail));state.o[L"result"]=string(widen(shot.result));state.o[L"resultBy"]=string(widen(shot.resultBy));
+  state.o[L"unknownCoverage"]=basketballUi::boolean(!shot.coverageKnown);state.o[L"intable"]=basketballUi::boolean(shot.intable);
+  auto target=object();target.o[L"role"]=string(widen(shot.name.empty()?"Receiver":shot.name));state.o[L"target"]=target;
+ }else if(f.ready&&f.held){
   state.o[L"phase"]=string(L"windup");state.o[L"mode"]=string(ff3Native::force95?L"Beam":widen(ff3qb::presetName(f.mode)));
   state.o[L"power"]=number(f.power/95);state.o[L"angle"]=number(f.solution.angle);state.o[L"air"]=number(f.solution.time);state.o[L"distance"]=number(f.distance);
   auto target=object();target.o[L"role"]=string(widen(f.name));state.o[L"target"]=target;
-  double nearest=1000;for(const auto& d:f.defenders)nearest=std::min(nearest,ff3qb::length(d.position-(f.targetPosition-f.fitOffset-f.leadOffset)));
-  state.o[L"open"]=number(nearest);state.o[L"intable"]=basketballUi::boolean(f.coverageKnown&&f.margin<=ff3qb::catchSafetyMargin);
- }else if(!f.held){
-  const ff3qb::BallFlight* ball=nullptr;ff3qb::FlightForecast prediction;
-  for(const auto& b:f.balls){auto p=ff3qb::forecast(b,f.groundY);if(p.valid&&(!ball||b.born>ball->born)){ball=&b;prediction=p;}}
-  if(ball){state.o[L"phase"]=string(L"flight");state.o[L"eta"]=number(prediction.remaining);state.o[L"air"]=number(prediction.remaining+f.at-ball->born);state.o[L"flightSub"]=string(L"Predicted field landing");auto target=object();target.o[L"role"]=string(L"Ball flight");state.o[L"target"]=target;state.o[L"unknownCoverage"]=basketballUi::boolean(true);}
+  double nearest=1000;for(const auto& d:f.hudDefenders)nearest=std::min(nearest,ff3qb::length(d.position-f.solution.catchPoint));
+  state.o[L"open"]=number(nearest);state.o[L"unknownCoverage"]=basketballUi::boolean(!f.hudCoverageKnown);
+  const double margin=f.hudCoverageKnown?ff3qb::coverageMargin(f.solution,f.gravity,f.hudDefenders,std::clamp(f.ping*.0005+.05,0.,.25)):0;
+  state.o[L"intable"]=basketballUi::boolean(f.hudCoverageKnown&&margin<=ff3qb::catchSafetyMargin);
  }
  out.o[L"throw"]=state;return out;
 }
@@ -36,9 +41,13 @@ public:
  ~Overlay(){stop();}
 };
 inline int test(HINSTANCE instance,const std::filesystem::path& folder){
+ ff3Native::Frame unrelated;unrelated.balls.push_back({});if(!message(unrelated)[L"throw"][L"phase"].str().empty())return 1;
+ ff3Native::Frame owned;owned.throwView.phase=ff3qb::ThrowView::Flight;owned.throwView.name="Selected WR";owned.throwView.toSpot=4.25;owned.throwView.nearD=8.5;owned.throwView.coverageKnown=owned.throwView.intable=true;
+ auto mapped=message(owned)[L"throw"];if(mapped[L"to_spot"].num()!=4.25||mapped[L"near_d"].num()!=8.5||!mapped[L"intable"].boolean()||mapped[L"unknownCoverage"].boolean())return 1;
+ owned.throwView.phase=ff3qb::ThrowView::Done;owned.throwView.result="Intercepted";if(message(owned)[L"throw"][L"result"].str()!=L"Intercepted")return 1;
  vanta::UiHost view;vanta::AppInfo info;info.title=L"Vanta HUD test";info.page=L"throw-hud.html";info.resource=107;info.overlay=true;info.testMode=true;info.dataName=L"VantaQbHudTest";info.glass=vanta::Glass::None;int result=1,captures=0;
  vanta::UiCallbacks cb;cb.custom=[&](const std::wstring& type,const json::Value& value){
-  if(type==L"hudFixture"){view.PlaceOverlay(nullptr);view.Post(L"{\"type\":\"ff3Hud\",\"throw\":{\"phase\":\"windup\",\"mode\":\"Beam\",\"power\":1,\"angle\":28,\"target\":{\"role\":\"Native message\"}}}");}
+  if(type==L"hudFixture"){view.PlaceOverlay(nullptr);ff3Native::Frame fixture;fixture.ready=fixture.held=true;fixture.name="Native message";fixture.power=95;fixture.solution.angle=28;view.Post(json::dump(message(fixture)));}
   if(type==L"hudReveal"){RECT area{-3000,-1080,-1920,0};view.PlaceOverlay(&area,1000,110,0);}
   if(type==L"hudCapture"){auto phase=value[L"phase"].str();if(phase==L"aim"||phase==L"flight")view.Capture((folder/(L"qb-html-"+phase+L".png")).wstring(),[&](bool ok){if(ok)++captures;});}
   if(type==L"hudTestResult"){std::ofstream file(folder/L"qb-html-test.json");file<<winrt::to_string(json::dump(value));result=value[L"ok"].boolean()&&captures==2?0:1;PostQuitMessage(0);}

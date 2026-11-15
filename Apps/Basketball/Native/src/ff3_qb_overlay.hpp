@@ -39,9 +39,9 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  if(present)surface.present(f.origin);
 }
 // Full measured flight and forward prediction to the retained field plane.
-inline void renderBalls(PumpSurface& surface,const ff3Native::Frame& f,bool present=true){
+inline void renderBalls(PumpSurface& surface,const ff3Native::Frame& f,bool present=true,bool clear=true){
  using namespace Gdiplus;int w=f.client.right,h=f.client.bottom;if(!surface.prepare(w,h)){surface.hide();return;}
- Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);g.SetClip(Rect(0,0,w,h));
+ Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);if(clear)g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);g.SetClip(Rect(0,0,w,h));
  auto project=[&](ff3qb::Vec p){return ff3qb::project(p,f.matrix,w,h);};
  auto draw=[&](const std::vector<ff3qb::Vec>& path,Color color,float width){Pen shadow(Color(100,8,12,25),width+2),pen(color,width);pen.SetLineJoin(LineJoinRound);pen.SetStartCap(LineCapRound);pen.SetEndCap(LineCapRound);GraphicsPath shape;for(size_t i=1;i<path.size();i++){auto a=project(path[i-1]),b=project(path[i]);if(!a.valid||!b.valid){shape.StartFigure();continue;}shape.AddLine(REAL(a.x),REAL(a.y),REAL(b.x),REAL(b.y));}g.DrawPath(&shadow,&shape);g.DrawPath(&pen,&shape);};
  for(const auto& ball:f.balls){auto prediction=ff3qb::forecast(ball,f.groundY);if(!prediction.valid)continue;
@@ -68,20 +68,30 @@ struct ViewReader {
   f.client=client;f.origin=origin;return true;
  }
 };
-// The renderer owns the transparent surfaces, independent of input and UI.
+// One upload for both QB and ball geometry, with work-aware 144 Hz pacing.
+// High-resolution waitable timers avoid a fixed Sleep(16) after each raster.
+struct FramePacer {
+ HANDLE timer=CreateWaitableTimerExW(nullptr,nullptr,0x00000002,TIMER_ALL_ACCESS);
+ ~FramePacer(){if(timer)CloseHandle(timer);}
+ void wait(double started){double remaining=1./144-(now()-started);if(remaining<=0){SwitchToThread();return;}LARGE_INTEGER due;due.QuadPart=-std::max<LONGLONG>(1,LONGLONG(remaining*10000000));if(timer&&SetWaitableTimer(timer,&due,0,nullptr,nullptr,FALSE))WaitForSingleObject(timer,20);else Sleep(DWORD(std::max(1.,remaining*1000)));}
+};
 inline void worker(){
- using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;if(GdiplusStartup(&token,&startup,nullptr)!=Ok)return;PumpSurface field,balls;ff3qb::CurveTracker curve;ViewReader view;
+ using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;if(GdiplusStartup(&token,&startup,nullptr)!=Ok)return;PumpSurface overlay;ff3qb::CurveTracker curve;ViewReader view;FramePacer pacer;double epoch=now();unsigned frames=0;
  while(running){
-  MSG message{};while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
+  const double started=now();MSG message{};while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
   auto f=ff3Native::snapshot();bool live=(ff3Native::enabled||ff3Native::ballTrails)&&ff3Native::admitted()&&ff3Native::focused(f.pid)&&now()>=f.at&&now()-f.at<.15;
-  if(!live){field.hide();balls.hide();curve.reset();Sleep(30);continue;}
-  if(!f.client.right){f.window=GetForegroundWindow();GetClientRect(f.window,&f.client);ClientToScreen(f.window,&f.origin);}
-  if(f.client.right>8000||f.client.bottom>5000){field.hide();balls.hide();Sleep(30);continue;}
-  if(!view.refresh(f)){field.hide();balls.hide();Sleep(16);continue;}
-  for(auto& ball:f.balls)if(ball.model.valid)ball.at=now();
-  curve.update(f.solution,f.gravity,f.target,now());
-  if(ff3Native::enabled&&ff3Native::visuals&&f.target&&!f.textFocus&&f.revision==ff3Native::revision)renderField(field,f,true,&curve);else field.hide();if(ff3Native::ballTrails&&!f.balls.empty())renderBalls(balls,f);else balls.hide();Sleep(16);
+  if(!live){overlay.hide();curve.reset();ff3Native::renderHz=0;epoch=now();frames=0;Sleep(30);continue;}
+  if(f.client.right>8000||f.client.bottom>5000||!view.refresh(f)){overlay.hide();Sleep(16);continue;}
+  for(auto& ball:f.balls)if(ball.model.valid)ball.at=now();curve.update(f.solution,f.gravity,f.target,now());
+  const bool field=ff3Native::enabled&&ff3Native::visuals&&f.ready&&f.target&&!f.textFocus&&f.revision==ff3Native::revision;
+  const bool balls=ff3Native::ballTrails&&std::isfinite(f.groundY)&&std::any_of(f.balls.begin(),f.balls.end(),[](const auto& ball){return ball.model.valid;});
+  if(!field&&!balls){overlay.hide();ff3Native::renderHz=0;epoch=now();frames=0;Sleep(16);continue;}
+  if(field)renderField(overlay,f,false,&curve);
+  if(balls)renderBalls(overlay,f,false,!field);
+  if(field||balls)overlay.present(f.origin);else overlay.hide();
+  ff3Native::renderMs=(now()-started)*1000;++frames;if(now()-epoch>=.5){ff3Native::renderHz=frames/(now()-epoch);frames=0;epoch=now();}
+  pacer.wait(started);
  }
- field.close();balls.close();GdiplusShutdown(token);
+ overlay.close();GdiplusShutdown(token);
 }
 }

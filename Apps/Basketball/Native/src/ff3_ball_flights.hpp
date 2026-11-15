@@ -1,7 +1,7 @@
 #pragma once
 #include "ff3_qb_logic.hpp"
 namespace ff3qb {
-struct BallObservation {std::uint64_t id=0;Vec position,velocity;double gravity=28;bool anchored=false;};
+struct BallObservation {std::uint64_t id=0;Vec position,velocity;double gravity=28;bool anchored=false;std::uint64_t thrower=0;};
 struct FlightSample {double at=0;Vec position;};
 struct FlightModel {
  bool valid=false;double at=0,gravity=0,error=0;Vec origin,velocity;double startAt=0;
@@ -25,7 +25,7 @@ inline FlightModel fitFlight(const std::vector<FlightSample>& samples,double gra
  double squared=0;for(const auto& s:samples){auto delta=s.position-m.pointAt(m.observedTime(s.position));squared+=dot(delta,delta);}
  m.error=std::sqrt(squared/samples.size());m.valid=finite(m.origin)&&finite(m.velocity)&&length(m.velocity)<180&&m.error<.35;return m;
 }
-struct BallFlight {std::uint64_t id=0;Vec position,velocity;double gravity=28,at=0,born=0,quietAt=0,levelAt=0;bool ended=false;std::vector<Vec> trail;Vec measuredPosition{};double measuredAt=0,lastMotion=0;bool measured=false,airborne=false;std::vector<FlightSample> samples;FlightModel model;double mismatchAt=0,fieldY=NAN;};
+struct BallFlight {std::uint64_t id=0;Vec position,velocity;double gravity=28,at=0,born=0,quietAt=0,levelAt=0;bool ended=false;std::vector<Vec> trail;Vec measuredPosition{};double measuredAt=0,lastMotion=0;bool measured=false,airborne=false;std::vector<FlightSample> samples;FlightModel model;double mismatchAt=0,fieldY=NAN;std::uint64_t thrower=0;bool landed=false;};
 struct FlightForecast {bool valid=false;double remaining=0;Vec landing;std::vector<Vec> path;};
 inline FlightForecast forecast(const BallFlight& f,double groundY){
  FlightForecast out;if(!f.model.valid||!std::isfinite(groundY)||!std::isfinite(f.gravity)||std::abs(f.gravity-f.model.gravity)>.01)return out;
@@ -51,8 +51,8 @@ struct FlightTracker {
    if(!o.id||!finite(o.position)||!std::isfinite(o.gravity)||o.gravity<0||o.gravity>300)continue;
    auto it=std::find_if(flights.begin(),flights.end(),[&](const BallFlight& f){return f.id==o.id;});
    if(it==flights.end()){if(flights.size()>=64)continue;BallFlight f;f.id=o.id;f.position=f.measuredPosition=o.position;f.gravity=o.gravity;f.at=f.measuredAt=f.lastMotion=time;f.trail.push_back(o.position);f.samples.push_back({time,o.position});flights.push_back(f);continue;}
-   auto& f=*it;f.position=o.position;f.gravity=o.gravity;f.at=time;if(f.ended)continue;
-   if(f.airborne&&f.measured&&f.velocity.y<0&&std::isfinite(groundY)&&o.position.y<=groundY+.7){f.ended=true;f.trail.clear();continue;}
+   auto& f=*it;f.position=o.position;f.gravity=o.gravity;f.thrower=o.thrower;f.at=time;if(f.ended)continue;
+   if(f.airborne&&f.measured&&f.velocity.y<0&&std::isfinite(groundY)&&o.position.y<=groundY+.7){f.ended=f.landed=true;f.trail.clear();continue;}
    double dt=time-f.measuredAt;auto delta=o.position-f.measuredPosition;
    if(dt>=.035&&length(delta)>.005){
     if(dt>.3&&!f.airborne){f.measuredPosition=o.position;f.measuredAt=f.lastMotion=time;f.trail={o.position};f.samples={{time,o.position}};continue;}

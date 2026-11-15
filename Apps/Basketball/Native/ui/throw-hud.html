@@ -120,7 +120,7 @@
       <span class="cap" data-int><i></i><span class="sl"><b>Clean</b><b>Intable</b></span></span>
     </div>
     <div class="mc-l" data-l="flight">
-      <div class="mc-n" style="padding-left:8px"><span class="k">Lands in</span><b><span data-k="eta"></span><small>s</small></b></div>
+      <div class="mc-n" style="padding-left:8px"><span class="k">Arrives in</span><b><span data-k="eta"></span><small>s</small></b></div>
       <span class="mc-sep"></span>
       <div class="mc-n"><span class="k">WR to spot</span><b><span data-k="toSpot"></span><small>st</small></b></div>
       <div class="mc-n"><span class="k">Nearest D</span><b data-tone="near"><span data-k="nearD"></span><small>st</small></b></div>
@@ -193,15 +193,16 @@
       set('dist', String(Math.round((t.distance ?? 0) * YD)));
       set('open', open >= 98 ? 'Nobody near' : yd(t.open) + ' st open');
       const eta = Math.max(0, (t.eta ?? 0) - (now - curAt) / 1000);
-      set('eta', eta.toFixed(2));
-      set('toSpot', yd(t.to_spot)); set('nearD', near >= 98 ? '—' : yd(t.near_d));
+      set('eta', Number.isFinite(t.eta)?eta.toFixed(2):'—');
+      set('toSpot', yd(t.to_spot)); set('nearD', yd(t.near_d));
       set('flightSub', t.flightSub || ((t.to_spot ?? 9) * YD < 1 ? 'At the spot' : 'Running to the spot'));
       set('result', t.result || '');
-      set('resultSub', `${role} · ${Math.round((t.distance ?? 0) * YD)} st · ${(t.air ?? 0).toFixed(2)}s in the air`);
+      set('resultSub', `${t.resultBy || role} · ${Math.round((t.distance ?? 0) * YD)} st · ${(t.air ?? 0).toFixed(2)}s in the air`);
       if (t.phase === 'flight' && t.air) $('mcFill').style.width = Math.min(100, (1 - eta / t.air) * 100) + '%';
       document.querySelectorAll('[data-only]').forEach(el => { el.hidden = !windup; });
       document.querySelectorAll('[data-int]').forEach(el => {el.hidden=!!t.unknownCoverage;el.style.display=t.unknownCoverage?'none':'';el.classList.toggle('pick', !!t.intable);});
       $('res').classList.toggle('pick', t.result !== 'Caught');
+      $('res').style.opacity = t.result==='Result unavailable' ? '.45' : '';
       document.querySelectorAll('[data-tone]').forEach(el => {
         const c = tone(el.dataset.tone === 'near' ? near : open);
         if (!el.classList.contains(c)) { el.classList.remove('tone-good', 'tone-warn', 'tone-bad'); el.classList.add(c); }
@@ -275,7 +276,12 @@
       onThrow({phase:'flight',target:{role:'Ball flight'},eta:1.5,air:2.4,to_spot:null,near_d:null,flightSub:'Predicted field landing',intable:false});
       await wait(900);check(document.querySelector('[data-l=flight]').classList.contains('on'),'Flight transition');
       check(document.querySelector('[data-k=toSpot]').textContent==='—','Unknown receiver distance');
+      onThrow({phase:'flight',target:{role:'Practice WR'},eta:1.5,air:2.4,to_spot:4.25,near_d:125.5,flightSub:'Your pass · projected catch spot',intable:false});
+      check(document.querySelector('[data-k=nearD]').textContent==='125.5','Distant defender distance is not hidden');
+      onThrow({phase:'flight',target:{role:'Practice WR'},eta:1.5,air:2.4,to_spot:4.25,near_d:8.5,flightSub:'Your pass · projected catch spot',intable:true});await wait(400);
       send('hudCapture',{phase:'flight'});await wait(300);
+      for(const result of ['Caught','Incomplete','Intercepted']){onThrow({phase:'done',target:{role:'Practice WR'},result,resultBy:'Observed player',distance:120,air:1.5});await wait(100);check(document.querySelector('[data-k=result]').textContent===result&&document.querySelector('[data-l=done]').classList.contains('on'),'Observed result: '+result);}
+      onThrow({phase:'flight',eta:.5,to_spot:4.25,near_d:8.5,intable:true});check(document.querySelector('[data-k=toSpot]').textContent==='4.3'&&document.querySelector('[data-k=nearD]').textContent==='8.5'&&document.querySelector('[data-l=flight] [data-int]').classList.contains('pick'),'Live flight metrics and risk binding');
       onThrow(null);await wait(500);check(mc.classList.contains('gone'),'Hidden without live state');
       send('hudTestResult',{ok:checks.every(c=>c.ok),checks});
     })();

@@ -1,5 +1,5 @@
 #include "ff3_qb_logic.hpp"
-#include "ff3_ball_flights.hpp"
+#include "ff3_throw_state.hpp"
 #include <cassert>
 #include <iostream>
 using namespace ff3qb;
@@ -136,9 +136,45 @@ int main(){int count=0;
  Plan smoothSwitch{switching,{},length(switching.velocity),0,true,false};
  for(int i=0;i<24;i++){
   const double before=smoothSwitch.solution.angle;
-  smoothSwitch=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,{{{45,8,i%2?12.:30.},{},22,9,12}},true,true,7,196.2,smoothSwitch.offset,smoothSwitch.power,smoothSwitch.lob,before,true,.05);
+  smoothSwitch=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,{{{45,8,i%2?12.:30.},{},22,9,12}},true,false,7,196.2,smoothSwitch.offset,smoothSwitch.power,smoothSwitch.lob,before,true,.05);
   assert(smoothSwitch.solution.valid&&std::abs(smoothSwitch.solution.angle-before)<=1.201);
   assert(length(point(smoothSwitch.solution,28,smoothSwitch.solution.time)-smoothSwitch.solution.catchPoint)<1e-6);
+ }
+ // Beam selects power before visual continuity, even from a previous weak lob.
+ auto powerBeam=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,true,7,196.2,{},50,true,60,true,.016);
+ assert(powerBeam.solution.valid&&powerBeam.power==95&&!powerBeam.lob);
+ auto elevatedBeam=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,true,7,196.2,{},40,false,35,true,.016);
+ assert(elevatedBeam.power==forced95.power&&estimatedClear(elevatedBeam,true));
+ {
+  ThrowActor wr;wr.id=4;wr.name="WR";wr.valid=wr.sideKnown=true;wr.reach={{100,8,0},{},20,15,12};
+  ThrowActor db=wr;db.id=6;db.name="DB";db.opponent=true;db.reach.jumpHeight=0;db.reach.speed=0;db.reach.diveReach=0;
+  BallFlight ownBall;ownBall.id=88;ownBall.thrower=3;ownBall.airborne=true;ownBall.born=10.1;ownBall.at=10.2;ownBall.position={0,60,0};ownBall.gravity=28;ownBall.model={true,10.2,28,0,ownBall.position,{50,10,0},10.2};ownBall.fieldY=0;
+  ThrowView metrics;flightMetrics(metrics,ownBall,0,{wr,db},4,true);
+  assert(metrics.coverageKnown&&!metrics.intable&&std::isfinite(metrics.toSpot)&&std::isfinite(metrics.nearD)); // Overlapping WR/DB positions alone do not mean interceptable.
+  auto lowBall=ownBall;lowBall.position={0,8,0};lowBall.model.origin=lowBall.position;lowBall.model.velocity={50,8,0};db.reach.position={50,8,0};
+  flightMetrics(metrics,lowBall,0,{wr,db},4,true);assert(metrics.intable&&metrics.margin<=catchSafetyMargin);
+  db.opponent=false;flightMetrics(metrics,lowBall,0,{wr,db},4,true);assert(!metrics.intable&&std::isnan(metrics.nearD));
+  db.sideKnown=false;flightMetrics(metrics,lowBall,0,{wr,db},4,true);assert(metrics.coverageKnown&&metrics.intable); // Teamless practice players remain potential catchers.
+  db.sideKnown=db.opponent=true;
+  ThrowIntent intent{10,1,2,3,4,5,10,95,35,2,100,12,"WR","Beam"};
+  ThrowTracker shot;shot.begin(intent,{}, {wr,db});
+  auto foreign=ownBall;foreign.id=99;foreign.thrower=900;
+  shot.update(10.2,1,2,{foreign},{wr,db},0,true);assert(shot.view.phase==ThrowView::Pending&&!shot.ball);
+  shot.update(10.25,1,2,{foreign,ownBall},{wr,db},0,true);assert(shot.view.phase==ThrowView::Flight&&shot.ball==88&&shot.view.name=="WR");
+  auto caught=wr;caught.ball=88;
+  shot.update(10.3,1,2,{}, {caught,db},0,true);assert(shot.view.phase==ThrowView::Done&&shot.view.result=="Caught");
+  shot.update(13,1,2,{}, {wr,db},0,true);assert(shot.view.phase==ThrowView::Hidden);
+  shot.begin(intent,{}, {wr,db});shot.update(10.2,1,2,{ownBall},{wr,db},0,true);db.ball=88;
+  shot.update(10.3,1,2,{}, {wr,db},0,true);assert(shot.view.result=="Intercepted");db.ball=0;
+  shot.begin(intent,{}, {wr,db});shot.update(10.2,1,2,{ownBall},{wr,db},0,true);
+  auto groundBall=ownBall;groundBall.landed=groundBall.ended=true;groundBall.position={100,.6,0};
+  shot.update(11,1,2,{groundBall},{wr,db},0,true);shot.update(11.2,1,2,{groundBall},{wr,db},0,true);assert(shot.view.result=="Incomplete");
+  shot.begin(intent,{}, {wr,db});shot.update(10.2,1,2,{ownBall},{wr,db},0,true);shot.update(11,1,2,{groundBall},{wr,db},0,true);
+  shot.update(11.3,1,2,{}, {caught,db},0,true);assert(shot.view.result=="Incomplete"); // Picking it up after ground contact is not a completed pass.
+  shot.begin(intent,{}, {wr,db});shot.update(10.2,1,2,{ownBall},{wr,db},0,true);shot.update(10.3,1,2,{}, {wr,db},0,true);shot.update(11,1,2,{}, {wr,db},0,true);assert(shot.view.result=="Result unavailable");
+  shot.begin(intent,{ownBall},{wr,db});shot.update(10.2,1,2,{ownBall},{wr,db},0,true);assert(!shot.ball); // Existing nearby own balls are not a new pass.
+  shot.begin(intent,{}, {wr,db});auto another=ownBall;another.id=89;shot.update(10.2,1,2,{ownBall,another},{wr,db},0,true);assert(!shot.ball); // Ambiguous ownership does not pick an arbitrary ball.
+  shot.update(10.3,7,2,{}, {wr,db},0,true);assert(shot.view.phase==ThrowView::Hidden);
  }
  // Script-driven balls can retain their launch velocity and be anchored.
  // Forecast must use changing positions, and a stationary stale-velocity ball stays hidden.
@@ -298,6 +334,14 @@ int main(){int count=0;
   if(s.valid){assert(length(point(s,gravity,s.time)-s.catchPoint)<1e-5);assert(length(s.catchPoint-(target+v*(s.time+.05)))<1e-5);assert(std::abs(length(s.velocity)-speed)<1e-5);++count;}
  }
  auto direct=solve({0,8,0},{60,7,0},{},95,28,.03),lob=solve({0,8,0},{60,7,0},{},95,28,.03,true);
+ for(double speed:{20.,50.,95.})for(double height:{-20.,0.,12.})for(double drift:{-10.,0.,10.}){
+  Solution paired;auto low=solve({0,8,0},{60,8+height,0},{drift,0,0},speed,28,.03,false,5,&paired);
+  auto separateLow=solve({0,8,0},{60,8+height,0},{drift,0,0},speed,28,.03,false,5);
+  auto separateHigh=solve({0,8,0},{60,8+height,0},{drift,0,0},speed,28,.03,true,5);
+  assert(low.valid==separateLow.valid&&paired.valid==separateHigh.valid);
+  if(low.valid)assert(std::abs(low.time-separateLow.time)<1e-9);
+  if(paired.valid)assert(std::abs(paired.time-separateHigh.time)<1e-9);
+ }
  assert(direct.valid&&lob.valid&&lob.angle>direct.angle&&lob.time>direct.time);
  assert(!solve({},{500,5,0},{},20,28,0).valid);
  assert(!solve({NAN,0,0},{20,5,0},{},95,28,0).valid);

@@ -74,10 +74,20 @@ int main(){
   {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-field-preview.png",&png,nullptr)==Ok);}
   sample.ready=false;sample.fitBlocked=true;sample.reason="Coverage incomplete: no assisted throw; normal click unchanged";
   ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
+  {
+   bool wasReady=sample.ready;sample.ready=true;ff3Visual::renderField(field,sample,false);
+   auto* data=static_cast<unsigned char*>(field.bits);size_t bytes=size_t(field.width)*field.height*4;
+   std::vector<unsigned char> before(data,data+bytes);check(std::any_of(before.begin(),before.end(),[](auto pixel){return pixel!=0;}));sample.balls.clear();ff3Visual::renderBalls(field,sample,false,false);
+   check(std::equal(before.begin(),before.end(),data)); // Compositing balls cannot erase QB geometry.
+   ff3Visual::FramePacer pacer;double began=now();for(int i=0;i<12;i++)pacer.wait(now());
+   double elapsed=now()-began;check(elapsed>.06&&elapsed<.5);std::cout<<"Overlay pacing sample: "<<12/elapsed<<" Hz (timer only)\n";
+   sample.ready=wasReady;ff3Visual::renderField(field,sample,false);
+  }
   {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-field-blocked-preview.png",&png,nullptr)==Ok);}
   field.close();PumpSurface balls;ff3qb::BallFlight flight;flight.position={60,22,0};flight.velocity={40,-8,0};flight.gravity=28;for(int i=30;i>=0;i--){double dt=i*.05;flight.trail.push_back(flight.position-flight.velocity*dt+ff3qb::Vec{0,-.5*28*dt*dt,0});}flight.model={true,0,28,0,flight.position,flight.velocity};sample.balls={flight};ff3Visual::renderBalls(balls,sample,false);check(balls.bits&&!balls.visible);
   {Bitmap image(balls.width,balls.height,balls.width*4,PixelFormat32bppPARGB,(BYTE*)balls.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-balls-preview.png",&png,nullptr)==Ok);}
   balls.close();GdiplusShutdown(token);
  }
  winrt::uninit_apartment();
+ std::cout<<checks<<" total native and compositor checks passed\n";
 }

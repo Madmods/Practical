@@ -1,6 +1,6 @@
 #pragma once
 #include "ff3_qb_logic.hpp"
-#include "ff3_ball_flights.hpp"
+#include "ff3_throw_state.hpp"
 #include "basketball_ui_bridge.hpp"
 #include <iomanip>
 #include <functional>
@@ -19,9 +19,11 @@ inline HHOOK mouse=nullptr;
 inline HHOOK keyboard=nullptr;
 inline constexpr bool packetMode=true;
 inline std::atomic<ULONGLONG> physicalClickAt{0};
+inline std::atomic<double> renderHz{0},renderMs{0};
 struct Frame {
  unsigned revision=0;
  double at=0,gravity=0,power=0,gamePower=0,ping=0,margin=0,distance=0,planningMs=0;DWORD pid=0;addr model=0,own=0,tool=0,target=0;
+ addr localPlayer=0,team=0,heldBall=0;ff3qb::ThrowView throwView;std::vector<ff3qb::Defender> hudDefenders;bool hudCoverageKnown=false;
  HWND window=nullptr;RECT client{};POINT origin{},cursor{};float matrix[16]{};
  std::vector<ff3qb::BallFlight> balls;
  ff3qb::Solution solution;ff3qb::Screen aim,receiver;
@@ -71,7 +73,7 @@ struct Reader {
  double groundY=NAN;addr groundWorkspace=0;
  ff3qb::FlightTracker flightTracker;std::vector<addr> flightParts;addr flightWorkspace=0;double flightScanAt=-10;
  void collectBalls(HANDLE h,addr ws,Frame& f){
-  if(!ballTrails){flightTracker.clear();flightParts.clear();return;}
+  if(!ballTrails&&!(enabled&&showHud)){flightTracker.clear();flightParts.clear();return;}
   if(flightWorkspace!=ws){flightTracker.clear();flightParts.clear();flightScanAt=-10;flightWorkspace=ws;}
   if(f.at-flightScanAt>.15){
    flightParts.clear();flightScanAt=f.at;std::vector<std::pair<addr,int>> queue{{ws,0}};size_t budget=0;
@@ -86,7 +88,8 @@ struct Reader {
    addr ancestor=parent;for(int depth=0;depth<4&&ancestor&&ancestor!=ws;depth++)ancestor=rd<addr>(h,ancestor+Offsets::Instance::Parent);if(ancestor!=ws)continue;
    auto primitive=rd<addr>(h,part+Offsets::BasePart::Primitive);auto p=position(h,part),v=velocity(h,part);if(!primitive||!ff3qb::finite(p))continue;if(!ff3qb::finite(v))v={};
    double gravity=-rd<double>(h,path(h,part,{"Configuration","Gravity"})+Offsets::Misc::Value,NAN);if(!std::isfinite(gravity)||gravity<1||gravity>300)gravity=0;
-   observations.push_back({part,p,v,gravity,(rd<unsigned char>(h,primitive+Offsets::Primitive::Flags)&Offsets::PrimitiveFlags::Anchored)!=0});
+   auto by=child(h,part,"ThrownBy");auto thrower=by&&defense::classOf(h,by)=="ObjectValue"?rd<addr>(h,by+Offsets::Misc::Value):0;
+   observations.push_back({part,p,v,gravity,(rd<unsigned char>(h,primitive+Offsets::Primitive::Flags)&Offsets::PrimitiveFlags::Anchored)!=0,thrower});
   }
   flightTracker.update(observations,f.at,f.groundY);f.balls=flightTracker.visible();
  }
@@ -94,14 +97,60 @@ struct Reader {
  HANDLE handle=nullptr;DWORD pid=0;addr model=0,moduleBase=0,retained=0;double scanAt=-10;
  addr routeTarget=0,routeTool=0;ff3qb::SelectionLatch selection;ff3qb::RouteHistory routeHistory;ff3qb::AngleTracker angleHistory;Vec previousFit{};double previousPower=0;bool previousLob=false;double previousAngle=NAN;unsigned plannerRevision=0;double nextPlanSearch=0,lastSearch=0,lastPlanAt=0;
  struct Actor{addr rig=0,player=0,team=0;bool npc=false;ff3qb::CatchGeometry shape;};std::vector<Actor> actors;
+
+ ff3qb::ThrowTracker throwTracker;ULONGLONG seenThrowClick=0;double shapeBallRadius=.6;
+ void refreshActors(HANDLE h,addr root,addr ws,addr players,bool practicePlace,double time){
+  if(model==root&&time-scanAt<=.25)return;
+  actors.clear();if(model!=root){retained=0;lockedTarget=0;routeTarget=0;}model=root;scanAt=time;
+  auto local=rd<addr>(h,players+Offsets::Player::LocalPlayer);
+  for(auto p:children(h,players)){auto rig=rd<addr>(h,p+Offsets::Player::ModelInstance);if(p!=local&&rig)actors.push_back({rig,p,rd<addr>(h,p+Offsets::Player::Team),false});}
+  if(practicePlace)for(auto group:children(h,child(h,ws,"npcwr")))for(auto rig:children(h,group))if(defense::classOf(h,rig)=="Model"&&child(h,rig,"WR"))actors.push_back({rig,0,0,true});
+  for(auto& actor:actors)actor.shape=readCatchGeometry(h,actor.rig,shapeBallRadius);
+ }
+ static addr possessedBall(HANDLE h,addr container){
+  if(!container)return 0;int budget=0;
+  for(auto item:children(h,container)){if(++budget>64)break;auto cls=defense::classOf(h,item);auto part=cls=="Tool"?child(h,item,"Handle"):nm(h,item)=="Football"&&defense::partClass(cls)?item:0;if(part&&path(h,part,{"Configuration","Gravity"}))return part;}return 0;
+ }
+ std::vector<ff3qb::ThrowActor> throwActors(HANDLE h,addr ws,const Frame& f){
+  std::vector<ff3qb::ThrowActor> out;double world=rd<float>(h,ws+Offsets::Workspace::ReadOnlyGravity,NAN);
+  for(const auto& a:actors){
+   if(a.npc){auto active=child(h,a.rig,"Enabled");if(active&&!rd<bool>(h,active+Offsets::Misc::Value))continue;}
+   auto hum=child(h,a.rig,"Humanoid"),root=child(h,a.rig,"HumanoidRootPart");double hp=rd<float>(h,hum+Offsets::Humanoid::Health,NAN);if(std::isfinite(hp)&&hp<=0)continue;
+   ff3qb::ThrowActor item;item.id=a.rig;item.name=nm(h,a.rig);item.reach.position=position(h,child(h,a.rig,"Head"));item.reach.velocity=velocity(h,root);
+   item.valid=std::isfinite(hp)&&ff3qb::finite(item.reach.position)&&ff3qb::finite(item.reach.velocity)&&ff3qb::length(item.reach.velocity)<100&&std::isfinite(world)&&world>=10&&world<=300;
+   item.sideKnown=a.npc||(f.team&&a.team);item.opponent=a.npc?!rd<bool>(h,child(h,a.rig,"WR")+Offsets::Misc::Value):f.team!=a.team;
+   if(a.rig==throwTracker.intent.target){item.sideKnown=true;item.opponent=false;}
+   auto& reach=item.reach;reach.worldGravity=std::isfinite(world)?world:196.2;double jump=rd<float>(h,hum+Offsets::Humanoid::JumpHeight,NAN);
+   if(rd<bool>(h,hum+Offsets::Humanoid::UseJumpPower)){double jp=rd<float>(h,hum+Offsets::Humanoid::JumpPower,NAN);jump=jp*jp/(2*reach.worldGravity);}
+   reach.jumpHeight=std::isfinite(jump)&&jump>=0&&jump<=40?jump:7;double walk=rd<float>(h,hum+Offsets::Humanoid::Walkspeed,NAN);reach.speed=std::isfinite(walk)&&walk>=0&&walk<=45?walk:22;reach.diveReach=diveReach;reach.radius=a.shape.radius;reach.above=a.shape.above;reach.below=a.shape.below;
+   item.ball=possessedBall(h,a.rig);if(!item.ball)item.ball=possessedBall(h,child(h,a.npc?a.rig:a.player,"Backpack"));
+   if(item.ball){auto by=child(h,item.ball,"ThrownBy");if(by&&defense::classOf(h,by)=="ObjectValue")item.thrower=rd<addr>(h,by+Offsets::Misc::Value);}
+   out.push_back(item);
+  }return out;
+ }
+ void updateThrow(HANDLE h,addr ws,Frame& f){
+  if(!enabled||!showHud){throwTracker.clear();return;}
+  Frame clicked;ULONGLONG click=0;double captured=0;
+  {std::lock_guard<std::mutex> lock(mutex);click=physicalClickAt;clicked=requested;captured=requestedAt;}
+  const double observedAt=now(); // A click can arrive after this reader frame began.
+  const bool newClick=click&&click!=seenThrowClick;
+  if(throwTracker.view.phase==ff3qb::ThrowView::Hidden&&!newClick)return;
+  auto people=throwActors(h,ws,f);
+  if(newClick){seenThrowClick=click;if(clicked.held&&clicked.own==f.own&&clicked.model==f.model&&captured>=clicked.at&&captured-clicked.at<.1&&observedAt>=captured&&observedAt-captured<.5){
+   ff3qb::ThrowIntent intent{click,f.model,f.own,f.localPlayer,clicked.target,clicked.heldBall,captured,clicked.power,clicked.solution.angle,clicked.solution.time,clicked.distance,clicked.ready?clicked.solution.catchPoint.y:NAN,clicked.name,force95?"Beam":ff3qb::presetName(clicked.mode)};
+   throwTracker.begin(intent,clicked.balls,people);
+  }}
+  const auto before=throwTracker.view.phase;throwTracker.update(observedAt,f.model,f.own,flightTracker.flights,people,f.groundY,actors.size()<=128);f.throwView=throwTracker.view;
+  if(before!=ff3qb::ThrowView::Done&&f.throwView.phase==ff3qb::ThrowView::Done){auto action="Throw result: "+f.throwView.result;record(f,action.c_str());}
+ }
  ~Reader(){if(handle)CloseHandle(handle);}
  Frame read(addr forced=0){
-  Frame f;f.at=now();f.revision=revision;f.mode=passMode;auto session=gameModules::router.get();f.pid=session.pid;f.model=session.model;
+  Frame f;f.at=now();f.revision=revision;f.mode=passMode;f.throwView=throwTracker.view;auto session=gameModules::router.get();f.pid=session.pid;f.model=session.model;
   if(!admitted()){f.reason="Connect to Football Fusion 3";return f;}
   if(pid!=f.pid){if(handle)CloseHandle(handle);handle=OpenProcess(PROCESS_VM_READ|SYNCHRONIZE,FALSE,f.pid);pid=f.pid;model=moduleBase=0;lockedTarget=0;routeTarget=0;flightWorkspace=0;groundY=NAN;flightTracker.clear();}
   if(!handle||WaitForSingleObject(handle,0)!=WAIT_TIMEOUT){f.reason="Waiting for the game process";return f;}
   auto h=handle;auto root=f.model;auto ws=child(h,root,"Workspace"),players=child(h,root,"Players");
-  auto player=rd<addr>(h,players+Offsets::Player::LocalPlayer);f.own=rd<addr>(h,player+Offsets::Player::ModelInstance);
+  auto player=rd<addr>(h,players+Offsets::Player::LocalPlayer);f.localPlayer=player;f.team=rd<addr>(h,player+Offsets::Player::Team);f.own=rd<addr>(h,player+Offsets::Player::ModelInstance);
   auto head=child(h,f.own,"Head"),hum=child(h,f.own,"Humanoid");
   const float health=rd<float>(h,hum+Offsets::Humanoid::Health,NAN);
   f.window=GetForegroundWindow();if(!focused(f.pid)){f.reason="Focus Football Fusion 3";return f;}
@@ -122,7 +171,7 @@ struct Reader {
    auto p=position(h,foot),size=partSize(h,foot),v=velocity(h,child(h,f.own,"HumanoidRootPart"));
    if(foot&&ff3qb::finite(p)&&ff3qb::finite(size)&&size.y>0&&size.y<8&&ff3qb::finite(v)&&std::abs(v.y)<2)groundY=p.y-size.y*.5;
   }
-  f.groundY=groundY;collectBalls(h,ws,f);
+  f.groundY=groundY;if(enabled)refreshActors(h,root,ws,players,session.placeId==81310542478972ULL,f.at);collectBalls(h,ws,f);updateThrow(h,ws,f);
   if(!f.own||!std::isfinite(health)||health<=0){f.reason="Waiting for your live character";return f;}
   if(!enabled){f.reason="QB aim off";return f;}
   auto ui=child(h,root,"UserInputService"),input=rd<addr>(h,ui+Offsets::UserInputService::WindowInputState);
@@ -135,9 +184,9 @@ struct Reader {
    if(handlePart&&value&&defense::classOf(h,value)=="NumberValue"){f.tool=item;ball=handlePart;break;}
   }
   f.held=f.tool&&defense::classOf(h,f.tool)=="Tool"&&descendant(h,f.tool,f.own)&&descendant(h,ball,f.tool);
-  if(!f.held){f.reason="Equip a football";return f;}
+  if(!f.held){f.reason="Equip a football";return f;}f.heldBall=ball;
   auto ballSize=partSize(h,ball);double ballRadius=std::max({ballSize.x,ballSize.y,ballSize.z})*.5;
-  if(!ff3qb::finite(ballSize)||ballRadius<=0||ballRadius>3){f.reason="Ball dimensions unavailable";return f;}
+  if(!ff3qb::finite(ballSize)||ballRadius<=0||ballRadius>3){f.reason="Ball dimensions unavailable";return f;}shapeBallRadius=ballRadius;
   std::vector<ff3qb::PowerDisplay> powerDisplays;
   for(auto gui:children(h,child(h,player,"PlayerGui")))if(nm(h,gui)=="BallGui"&&defense::classOf(h,gui)=="ScreenGui"){
    auto frame=child(h,gui,"Frame0"),display=child(h,frame,"Disp");
@@ -157,12 +206,6 @@ struct Reader {
   if(!packetMode&&(!ff3qb::finite(f.gameMouse)||f.gameMouse.x<0||f.gameMouse.x>width||f.gameMouse.y<0||f.gameMouse.y>height)){f.reason="Game cursor data unavailable";return f;}
 
   const auto ownTeam=rd<addr>(h,player+Offsets::Player::Team);const bool practicePlace=session.placeId==81310542478972ULL;
-  if(model!=root||f.at-scanAt>.25){
-   actors.clear();if(model!=root){retained=0;lockedTarget=0;routeTarget=0;}model=root;scanAt=f.at;
-   for(auto p:children(h,players)){auto rig=rd<addr>(h,p+Offsets::Player::ModelInstance);if(p!=player&&rig)actors.push_back({rig,p,rd<addr>(h,p+Offsets::Player::Team),false});}
-   if(practicePlace)for(auto group:children(h,child(h,ws,"npcwr")))for(auto rig:children(h,group))if(defense::classOf(h,rig)=="Model"&&child(h,rig,"WR"))actors.push_back({rig,0,0,true});
-   for(auto& actor:actors)actor.shape=readCatchGeometry(h,actor.rig,ballRadius);
-  }
   Vec origin=position(h,head);f.head=origin;double best=std::min(double(selectionRadius.load()),std::min(width,height)*.35);
   std::vector<ff3qb::Defender> defenders;
   const addr pinned=lockedTarget.load();const addr wanted=forced?forced:pinned;f.locked=pinned!=0;
@@ -191,7 +234,7 @@ struct Reader {
   if(routeTarget!=f.target||routeTool!=f.tool||plannerRevision!=f.revision){plannerRevision=f.revision;routeTarget=f.target;routeTool=f.tool;routeHistory.reset();angleHistory={};previousFit={};previousPower=0;previousLob=false;previousAngle=NAN;nextPlanSearch=0;}
   routeHistory.update(f.at,origin,position(h,child(h,f.target,"HumanoidRootPart")),targetVelocity);targetVelocity=routeHistory.movement;if(ff3qb::length(targetVelocity)<.5)targetVelocity={};
   f.route=routeHistory.route;
-  bool coverageComplete=true;int measuredShapes=0;const double worldGravity=rd<float>(h,ws+Offsets::Workspace::ReadOnlyGravity,NAN);
+  bool coverageComplete=true;f.hudCoverageKnown=true;int measuredShapes=0;const double worldGravity=rd<float>(h,ws+Offsets::Workspace::ReadOnlyGravity,NAN);
   if(!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)coverageComplete=false;
   // All other live players and enabled practice bots can contest a catch.
   // Do not require a team assignment in the practice place.
@@ -200,7 +243,7 @@ struct Reader {
    auto hrp=child(h,a.rig,"HumanoidRootPart"),humanoid=child(h,a.rig,"Humanoid");float health=rd<float>(h,humanoid+Offsets::Humanoid::Health,NAN);
    if(std::isfinite(health)&&health<=0)continue;
    auto p=position(h,hrp)+Vec{0,1.5,0},v=velocity(h,hrp);
-   if(!hrp||!std::isfinite(health)||!ff3qb::finite(p)||!ff3qb::finite(v)){coverageComplete=false;continue;}
+   if(!hrp||!std::isfinite(health)||!ff3qb::finite(p)||!ff3qb::finite(v)){coverageComplete=false;f.hudCoverageKnown=false;continue;}
    if(ff3qb::length(p-origin)>1200)continue;
    double jump=rd<float>(h,humanoid+Offsets::Humanoid::JumpHeight,NAN);
    if(rd<bool>(h,humanoid+Offsets::Humanoid::UseJumpPower)){double power=rd<float>(h,humanoid+Offsets::Humanoid::JumpPower,NAN),world=rd<float>(h,ws+Offsets::Workspace::ReadOnlyGravity,NAN);if(std::isfinite(power)&&power>=0&&power<150&&std::isfinite(world)&&world>10&&world<300)jump=power*power/(2*world);}
@@ -208,9 +251,10 @@ struct Reader {
    double walk=rd<float>(h,humanoid+Offsets::Humanoid::Walkspeed,NAN);if(!std::isfinite(walk)||walk<0||walk>45)walk=22;
    if(std::hypot(v.x,v.z)>45){coverageComplete=false;continue;}
    defenders.push_back({p,v,std::max(walk,std::hypot(v.x,v.z)),jump,double(diveReach.load()),a.shape.radius,a.shape.above,a.shape.below,std::isfinite(worldGravity)?worldGravity:196.2});
+   const bool sideKnown=a.npc||(f.team&&a.team);if(!sideKnown||(a.npc?!rd<bool>(h,child(h,a.rig,"WR")+Offsets::Misc::Value):a.team!=f.team))f.hudDefenders.push_back(defenders.back());
    if(a.shape.measured)++measuredShapes;
   }
-  f.coverageKnown=coverageComplete;f.coverageCount=int(defenders.size());
+  f.coverageKnown=coverageComplete;f.hudCoverageKnown=f.hudCoverageKnown&&coverageComplete;f.coverageCount=int(defenders.size());
   f.coverageDetail=!coverageComplete?"Some catcher data unavailable":defenders.empty()?"No other active catchers":std::to_string(defenders.size())+" catchers / jump + dive estimate";
   if(!defenders.empty())f.coverageDetail+=" / "+std::to_string(measuredShapes)+" measured shapes";
   if(!defenders.empty()){double nearest=1e9;for(const auto& d:defenders)nearest=std::min(nearest,ff3qb::length(d.position-targetPosition));f.coverageDetail+= " / nearest "+std::to_string(int(std::lround(nearest)))+" st";}
@@ -308,7 +352,7 @@ inline void tapPower(){INPUT in[2]{};in[0].type=in[1].type=INPUT_KEYBOARD;in[0].
 inline void worker(){
  Reader reader;double powerAt=-10;
  while(running){
-  if((!enabled&&!ballTrails)||!admitted()){reader.flightTracker.clear();Frame idle;idle.reason=enabled?"Connect to Football Fusion 3":"QB aim off";publish(idle);{std::lock_guard<std::mutex> lock(mutex);clicks.cancel();}Sleep(30);continue;}
+  if((!enabled&&!ballTrails)||!admitted()){reader.flightTracker.clear();reader.throwTracker.clear();Frame idle;idle.reason=enabled?"Connect to Football Fusion 3":"QB aim off";publish(idle);{std::lock_guard<std::mutex> lock(mutex);clicks.cancel();}Sleep(30);continue;}
   auto f=reader.read();
   if(!enabled){publish(f);Sleep(16);continue;}
   if(packetMode){

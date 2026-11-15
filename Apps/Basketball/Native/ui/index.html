@@ -1577,7 +1577,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   function openGameModule(message){
     if(!BB||!['basketball','ff3'].includes(message.moduleId))return;
     const next=message.moduleId;
-    if(next===BBS.moduleId){if(message.modules)applySnapshot(message.modules);syncDom();return;}
+    if(next===BBS.moduleId){if(message.modules)applySnapshot(message.modules,true);syncDom();return;}
     moduleViews[BBS.moduleId]={page:state.page,tab:{...state.tab}};
     if(BBS.moduleId==='basketball')Object.assign(basketballPages,Object.fromEntries(workspace()));
     stopListening();closeMenu();closePalette();drag=null;
@@ -1608,7 +1608,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     const saved=moduleViews[next];state.page=saved?.page||(next==='ff3'?'ff3':'home');
     if(state.page!=='home'&&!PAGES[state.page])state.page='home';
     state.tab={...Object.fromEntries(Object.entries(PAGES).map(([id,p])=>[id,p.tabs[0].id])),...(saved?.tab||{})};
-    if(message.modules)applySnapshot(message.modules);
+    if(message.modules)applySnapshot(message.modules,true);
     $('#profilesBtn').hidden=next==='ff3';$('#resetBtn').hidden=next==='ff3';
     if(BBS.resume){BBS.resume.scroll=0;BBS.resume.focus=null;}
     renderNav();renderPage();syncDom();if(state.minimized)renderMini();
@@ -1713,11 +1713,26 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     for (const { f } of allFeatures()) out[f.id] = { on: !!f.on, rows: Object.fromEntries(f.rows.filter(r=>'value' in r||r.type==='keybind').map(r => [r.id, r.type === 'keybind' ? [...r.keys] : r.value])) };
     return out;
   }
-  function applySnapshot(s) {
+  let drag = null;
+  const pendingSettings = new Map();
+  function applySnapshot(s, live = false) {
+    if(!live)pendingSettings.clear();
     for (const { f } of allFeatures()) {
       const d = s[f.id]; if (!d) continue;
       f.on = d.on;
-      f.rows.forEach(r => { if (r.id in (d.rows||{})) r.type === 'keybind' ? (r.keys = [...d.rows[r.id]]) : (r.value = d.rows[r.id]); });
+      f.rows.forEach(r => {
+        if (!(r.id in (d.rows||{}))) return;
+        const key=`${f.id}.${r.id}`, incoming=d.rows[r.id], pending=pendingSettings.get(key);
+        if(live) {
+          if(drag?.el.dataset.key===key || (document.activeElement?.classList.contains('value') && document.activeElement.dataset.key===key)) return;
+          if(pending) {
+            if(JSON.stringify(incoming)===JSON.stringify(pending.value)) pendingSettings.delete(key);
+            else if(performance.now()<pending.until) return;
+            else pendingSettings.delete(key);
+          }
+        }
+        r.type==='keybind' ? (r.keys=[...incoming]) : (r.value=incoming);
+      });
     }
   }
   const HUES = ['#8e97ff', '#3ecf8e', '#e8a24a', '#6aa8ff', '#e57ba0', '#b9a4ff'];
@@ -2439,6 +2454,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     $$('.card[data-feature]').forEach(c => { const { f } = find(c.dataset.feature); c.classList.toggle('on', !!f.on && !f.fixed); });
     $$('[data-on-count]').forEach(n => n.textContent = `${allFeatures().filter(x => x.f.on).length} on`);
     $$('.slider').forEach(el => {
+      if(drag?.el===el)return;
       paintSlider(el);
       const k = el.dataset.key, { r } = find(k);
       if (k in before && before[k] !== r.value) tweenText(el.closest('.row').querySelector('.value'), r, before[k], r.value);
@@ -2487,19 +2503,19 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   const logTimers = {};
   function logValue(key) {
     const { f, r } = find(key);
+    pendingSettings.set(key,{value:r.value,until:performance.now()+2000});
     hostSend('setting', { key, value: r.value });
     if (PAGES.settings.tabs[0].features.includes(f)) return;
     clearTimeout(logTimers[key]);
     logTimers[key] = setTimeout(() => log(`${r.label} set to ${fmt(r, r.value)}`, ICONS.sliders), 500);
   }
 
-  let drag = null;
   document.addEventListener('pointerdown', e => {
     const sw = e.target.closest('.switch');
     if (sw) { sw.classList.add('press'); sw._at = performance.now(); }
     const el = e.target.closest('.slider'); if (!el) return;
     e.preventDefault(); el.focus(); el.setPointerCapture(e.pointerId);
-    drag = { el, start: find(el.dataset.key).r.value, lx: e.clientX, lt: performance.now() };
+    drag = { el, pointerId:e.pointerId, start: find(el.dataset.key).r.value, lx: e.clientX, lt: performance.now() };
     moveDrag(e, true);
     requestAnimationFrame(() => drag?.el === el && el.classList.add('drag'));
   });
@@ -2508,7 +2524,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     const card = e.target.closest?.('.card');
     if (card) { const b = card.getBoundingClientRect(); card.style.setProperty('--mx', `${e.clientX - b.left}px`); card.style.setProperty('--my', `${e.clientY - b.top}px`); }
   });
-  document.addEventListener('pointerup', () => {
+  function finishSliderDrag() {
     if (drag) {
       const { el, start } = drag; drag = null;
       el.classList.remove('drag'); void el.offsetWidth;
@@ -2518,7 +2534,10 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       if (r.value !== start) logValue(el.dataset.key);
     }
     $$('.switch.press').forEach(sw => setTimeout(() => sw.classList.remove('press'), Math.max(0, 240 - (performance.now() - sw._at))));
-  });
+  }
+  document.addEventListener('pointerup', finishSliderDrag);
+  document.addEventListener('pointercancel', finishSliderDrag);
+  document.addEventListener('lostpointercapture', e => {if(drag?.pointerId===e.pointerId)finishSliderDrag();});
   function moveDrag(e, first) {
     const { el } = drag, { r } = find(el.dataset.key), rect = el.getBoundingClientRect();
     const t = clamp((e.clientX - rect.left) / rect.width, 0, 1);
@@ -2916,7 +2935,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     if(BB&&m.type==='networkInspector'){applyNetworkReport(m);return;}
     if(m.type==='closeRequested'){requestQuit();return;}
     if(BB&&m.type==='gameModule'){openGameModule(m);return;}
-    if(BB&&m.type==='ff3Live'){if(window.__VANTA_HOST__?.testMode&&ff3PreviewTest)return;if(BBS.moduleId==='ff3'){ff3Live=m;if(m.modules)applySnapshot(m.modules);syncDom();$$('[data-ff3-dashboard]').forEach(n=>n.innerHTML=ff3Dashboard());$$('[data-ff3-status]').forEach(n=>n.textContent=ff3StatusText());$$('[data-bb-reason]').forEach(n=>n.textContent=m.reason);}return;}
+    if(BB&&m.type==='ff3Live'){if(window.__VANTA_HOST__?.testMode&&ff3PreviewTest)return;if(BBS.moduleId==='ff3'){ff3Live=m;if(m.modules)applySnapshot(m.modules,true);syncDom();$$('[data-ff3-dashboard]').forEach(n=>n.innerHTML=ff3Dashboard());$$('[data-ff3-status]').forEach(n=>n.textContent=ff3StatusText());$$('[data-bb-reason]').forEach(n=>n.textContent=m.reason);}return;}
     if(BB&&m.type==='basketballConnection'){
       if(BBS.detectedId!==(m.moduleId||'')){BBS.sequence={stage:0,at:performance.now()};BBS.noticeSequence={stage:0,at:performance.now()};}
       BBS.detectedId=m.moduleId||'';BBS.gameName=m.gameName||'Supported game';
@@ -2931,7 +2950,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       return;
     }
     if(BB&&m.type==='menuToggle'){if(!document.body.classList.contains('booting')&&!BBS.reconnecting&&$('#quitLayer').hidden)state.minimized?restore():minimize();return;}
-    if(BB&&m.type==='basketball'){if(BBS.moduleId==='basketball'){applySnapshot(m.modules);syncDom();changed();}return;}
+    if(BB&&m.type==='basketball'){if(BBS.moduleId==='basketball'){applySnapshot(m.modules,true);syncDom();changed();}return;}
     if(BB&&m.type==='basketballError'){toast(m.error,ICONS.power);return;}
     if(BB&&m.type==='basketballLive'){$$('[data-bb-reason]').forEach(n=>n.textContent=m.reason||'Waiting for game data');if(m.shot)BBS.shot=m.shot;$$('[data-bb-shot]').forEach(n=>n.textContent=basketballShotText());if(m.window)BBS.window=m.window;$$('[data-bb-window]').forEach(n=>n.textContent=basketballWindowText());return;}
     if (m.type === 'reply') { const res = hostWait.get(m.rid); if (res) { hostWait.delete(m.rid); res(m); } return; }
@@ -3617,6 +3636,18 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       hostSend('setting',{key:'ff3_qb.force95',value:false});check(!(await native()).ff3.ff3_qb.rows.force95,'Adaptive power can be restored');
       $('[data-pass-next]').click();await until(()=>find('ff3_qb.preset').r.value===1);$('[data-pass-next]').click();check((await native()).ff3.ff3_qb.rows.preset===2,'Lob preset card reaches native state');
       hostSend('setting',{key:'ff3_qb.lead',value:-4});check((await native()).ff3.ff3_qb.rows.lead===-4,'Signed lead slider reaches native state');hostSend('setting',{key:'ff3_qb.lead',value:0});
+      {
+        const el=$('.slider[data-key="ff3_qb.lead"]'),r=find('ff3_qb.lead').r,old=r.value;
+        const stale=snapshot();drag={el,start:old,lx:0,lt:performance.now(),pointerId:71};
+        const rect=el.getBoundingClientRect();moveDrag({clientX:rect.left+rect.width*.75},true);
+        const chosen=r.value,position=$('.thumb',el).style.left;
+        applySnapshot(stale,true);syncDom();
+        check(r.value===chosen&&$('.thumb',el).style.left===position,'Live settings preserve an active slider drag');
+        finishSliderDrag();applySnapshot(stale,true);syncDom();
+        check(r.value===chosen,'Stale snapshot cannot undo a just-committed slider');
+        check((await native()).ff3.ff3_qb.rows.lead===chosen,'Dragged value reaches the native setting');
+        hostSend('setting',{key:'ff3_qb.lead',value:0});pendingSettings.delete('ff3_qb.lead');
+      }
       hostSend('setting',{key:'ff3_qb.angle',value:42});check((await native()).ff3.ff3_qb.rows.angle===42,'Angle control reaches native state');
       hostSend('setting',{key:'ff3_qb.autoangle',value:false});check(!(await native()).ff3.ff3_qb.rows.autoangle,'Manual angle mode reaches native state');
       hostSend('setting',{key:'ff3_qb.fit',value:true});check((await native()).ff3.ff3_qb.rows.fit,'Smart fit reaches native state');
