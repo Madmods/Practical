@@ -10,7 +10,7 @@ using ff3qb::Vec;
 inline std::atomic<bool> enabled{false},autoPower{true},practice{true},visuals{true};
 inline std::atomic<int> arc{0};
 inline std::atomic<int> passMode{0},manualAngle{35},selectionRadius{260};
-inline std::atomic<bool> automaticAngle{true},smartFit{true},showHud{true},showCandidates{true};
+inline std::atomic<bool> automaticAngle{true},smartFit{true},showHud{false},showCandidates{true};
 inline std::atomic<unsigned> revision{0};
 inline std::atomic<addr> lockedTarget{0};
 inline std::atomic<int> diveReach{12},leadDistance{0},catchHeightAdjustment{0},beamLeadDistance{3},beamCatchHeight{8};
@@ -27,7 +27,7 @@ struct Frame {
  std::shared_ptr<Frame> releaseVisual;bool afterRelease=false;
  unsigned revision=0;
  double at=0,gravity=0,power=0,gamePower=0,ping=0,margin=0,distance=0,planningMs=0;DWORD pid=0;addr model=0,own=0,tool=0,target=0;
- addr localPlayer=0,team=0,heldBall=0,headPrimitive=0;ff3qb::ThrowView throwView;std::vector<ff3qb::Defender> hudDefenders;bool hudCoverageKnown=false,fixedPowerRoute=false;double appliedLead=0;
+ addr localPlayer=0,team=0,heldBall=0,headPrimitive=0;ff3qb::ThrowView throwView;std::vector<ff3qb::Defender> hudDefenders;std::vector<bool> hudShapeMeasured;bool hudReachEstimated=false;bool hudCoverageKnown=false,fixedPowerRoute=false;double appliedLead=0;
  HWND window=nullptr;RECT client{};POINT origin{},cursor{};float matrix[16]{};
  std::vector<ff3qb::BallFlight> balls;
  ff3qb::Solution solution;ff3qb::Screen aim,receiver;
@@ -264,8 +264,9 @@ struct Reader {
    double walk=rd<float>(h,humanoid+Offsets::Humanoid::Walkspeed,NAN);if(!std::isfinite(walk)||walk<0||walk>45)walk=22;
    if(std::hypot(v.x,v.z)>45){coverageComplete=false;continue;}
    defenders.push_back({p,v,std::max(walk,std::hypot(v.x,v.z)),jump,double(diveReach.load()),a.shape.radius,a.shape.above,a.shape.below,std::isfinite(worldGravity)?worldGravity:196.2});
-   const bool sideKnown=a.npc||(f.team&&a.team);if(!sideKnown||(a.npc?!rd<bool>(h,child(h,a.rig,"WR")+Offsets::Misc::Value):a.team!=f.team))f.hudDefenders.push_back(defenders.back());
-   if(a.shape.measured)++measuredShapes;else f.hudCoverageKnown=false;
+   const bool sideKnown=a.npc||(f.team&&a.team);
+   if(!sideKnown||(a.npc?!rd<bool>(h,child(h,a.rig,"WR")+Offsets::Misc::Value):a.team!=f.team)){f.hudDefenders.push_back(defenders.back());f.hudShapeMeasured.push_back(a.shape.measured);if(!a.shape.measured)f.hudReachEstimated=true;}
+   if(a.shape.measured)++measuredShapes;
   }
   f.coverageKnown=coverageComplete;f.hudCoverageKnown=f.hudCoverageKnown&&coverageComplete;f.coverageCount=int(defenders.size());
   f.coverageDetail=!coverageComplete?"Some catcher data unavailable":defenders.empty()?"No other active catchers":std::to_string(defenders.size())+" catchers / jump + dive estimate";

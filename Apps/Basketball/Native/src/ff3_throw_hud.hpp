@@ -18,7 +18,7 @@ inline json::Value message(const ff3Native::Frame& f){
   state.o[L"power"]=number(f.power/95);state.o[L"angle"]=number(trajectory.angle);state.o[L"air"]=number(trajectory.time);state.o[L"distance"]=number(f.distance);
   auto target=object();target.o[L"role"]=string(widen(f.name));state.o[L"target"]=target;
   double nearest=1000;for(const auto& d:f.hudDefenders)nearest=std::min(nearest,ff3qb::length(d.position-trajectory.catchPoint));
-  state.o[L"open"]=number(nearest);state.o[L"unknownCoverage"]=basketballUi::boolean(!f.hudCoverageKnown);
+  state.o[L"open"]=number(nearest);state.o[L"unknownCoverage"]=basketballUi::boolean(!f.hudCoverageKnown||f.hudReachEstimated);
   const auto risk=ff3qb::riskForecast(trajectory,f.gravity,f.hudDefenders,std::clamp(f.ping*.0005+.05,0.,.25));
   state.o[L"intable"]=basketballUi::boolean(f.hudCoverageKnown&&risk.intable);
   state.o[L"possibleRisk"]=basketballUi::boolean(f.hudCoverageKnown&&risk.possible);

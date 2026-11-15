@@ -101,6 +101,10 @@ int main(){
   PumpSurface field;sample.target=123;sample.gravity=28;sample.fitOffset={4,4,0};sample.solution=ff3qb::solveAngle({0,8,0},{104,12,0},{},35,28,.05,5);sample.matrix[0]=.012f;sample.matrix[5]=.025f;sample.matrix[6]=.012f;sample.matrix[3]=-.65f;sample.matrix[7]=-.5f;sample.matrix[15]=1;sample.receiver=ff3qb::project({100,8,0},sample.matrix,1280,720);
   sample.defenders={{{75,8,8},{},20,7,12}};sample.coverageTrace={0,.3,.54,{55,13,0}};sample.hudDefenders=sample.defenders;sample.hudCoverageKnown=sample.receiverReachKnown=true;sample.receiverReach.position={100,8,0};sample.risk=ff3qb::riskForecast(sample.solution,28,sample.hudDefenders,.05);ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
   {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-field-preview.png",&png,nullptr)==Ok);}
+  {auto unknown=sample;unknown.hudCoverageKnown=false;unknown.hudReachEstimated=true;ff3Visual::renderField(field,unknown,false);
+   auto* pixels=static_cast<unsigned char*>(field.bits);std::vector<unsigned char> estimated(pixels,pixels+size_t(field.width)*field.height*4);unknown.hudDefenders.clear();ff3Visual::renderField(field,unknown,false);
+   check(!std::equal(estimated.begin(),estimated.end(),pixels)); // Missing shapes cannot hide available DB range geometry.
+  }
   sample.afterRelease=true;sample.throwView.phase=ff3qb::ThrowView::Flight;sample.throwView.ball=77;ff3Visual::renderField(field,sample,false);
   ff3qb::BallFlight owned;owned.id=77;owned.at=.8;owned.gravity=28;owned.model={true,0,28,0,sample.solution.origin,sample.solution.velocity+ff3qb::Vec{0,2,0}};owned.position=owned.model.pointAt(.8);sample.balls={owned};ff3Visual::renderBalls(field,sample,false,false);
   {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-release-preview.png",&png,nullptr)==Ok);}sample.afterRelease=false;
