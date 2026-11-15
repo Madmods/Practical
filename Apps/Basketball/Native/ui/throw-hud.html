@@ -200,7 +200,7 @@
       set('resultSub', `${t.resultBy || role} · ${Math.round((t.distance ?? 0) * YD)} st · ${(t.air ?? 0).toFixed(2)}s in the air`);
       if (t.phase === 'flight' && t.air) $('mcFill').style.width = Math.min(100, (1 - eta / t.air) * 100) + '%';
       document.querySelectorAll('[data-only]').forEach(el => { el.hidden = !windup; });
-      document.querySelectorAll('[data-int]').forEach(el => {el.hidden=!!t.unknownCoverage;el.style.display=t.unknownCoverage?'none':'';el.classList.toggle('pick', !!t.intable);});
+      document.querySelectorAll('[data-int]').forEach(el => {el.hidden=!!t.unknownCoverage;el.style.display=t.unknownCoverage?'none':'';el.classList.toggle('pick', !!t.intable);el.title=t.intable?(Number.isFinite(t.riskAt)?`Pre-throw forecast: possible interception ${t.riskAt.toFixed(2)}s after release`:'Pre-throw interception forecast'):'Pre-throw forecast: no estimated defender reach overlap';});
       $('res').classList.toggle('pick', t.result !== 'Caught');
       $('res').style.opacity = t.result==='Result unavailable' ? '.45' : '';
       document.querySelectorAll('[data-tone]').forEach(el => {

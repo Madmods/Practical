@@ -128,9 +128,9 @@ struct RouteHistory {
  Vec axis{1,0,0},movement{};std::string route="Reading route",pending;double pendingAt=0;int mode=5;
  void reset(){*this={};}
  void update(double time,Vec origin,Vec position,Vec velocity){
-  if(samples.empty()){axis=position-origin;axis.y=0;axis=axis*(1/std::max(1.,length(axis)));movement=velocity;}
+  if(samples.empty()){axis=position-origin;axis.y=0;axis=axis*(1/std::max(1.,length(axis)));movement=length(velocity)<1.5?Vec{}:velocity;}
   if(!samples.empty()&&time-samples.back().time<.04)return;
-  if(!samples.empty()){double dt=time-samples.back().time;if(dt>.5){reset();update(time,origin,position,velocity);return;}auto measured=(position-samples.back().position)*(1/dt);measured.y=0;const bool stopped=length(velocity)<.5&&length(measured)<.5;if(length(measured)<=45)velocity=velocity*.5+measured*.5;double blend=length(velocity-movement)>8?.7:.4;movement=stopped?Vec{}:movement*(1-blend)+velocity*blend;}
+  if(!samples.empty()){double dt=time-samples.back().time;if(dt>.5){reset();update(time,origin,position,velocity);return;}auto measured=(position-samples.back().position)*(1/dt);measured.y=0;const bool stopped=length(velocity)<1.5&&length(measured)<1.5;if(length(measured)<=45)velocity=velocity*.5+measured*.5;double blend=length(velocity-movement)>8?.7:.4;movement=stopped?Vec{}:movement*(1-blend)+velocity*blend;}
   samples.push_back({time,position});while(samples.size()>2&&time-samples.front().time>1.2)samples.erase(samples.begin());
   if(samples.size()<4)return;
   double speed=std::hypot(movement.x,movement.z),forward=dot(movement,axis),side=std::abs(movement.x*axis.z-movement.z*axis.x),distance=length(position-origin);
@@ -296,7 +296,20 @@ inline Solution solveTimed(Vec origin,Vec target,Vec movement,double time,double
  if(power<1||power>95+1e-8)return {};power=std::min(95.,power);auto direction=d*(1/distance),velocity=direction*power;
  return {true,origin+direction*5,velocity,end,time,std::atan2(velocity.y,std::hypot(velocity.x,velocity.z))*180/3.141592653589793};
 }
-inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool beam,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN,bool search=true,double elapsed=.1,const Defender* receiver=nullptr,double heightAdjustment=0){
+struct BeamMemory {
+ Plan goal,pending;double since=0;
+ Plan accept(Plan desired,const Plan& held,double time){
+  if(!desired.solution.valid){goal={};pending={};return desired;}
+  const bool change=goal.solution.valid&&(goal.lob!=desired.lob||std::abs(goal.power-desired.power)>4||std::abs(goal.solution.angle-desired.solution.angle)>6);
+  if(change&&held.solution.valid){
+   bool same=pending.solution.valid&&pending.lob==desired.lob&&std::abs(pending.power-desired.power)<=2&&length(pending.offset-desired.offset)<3;
+   if(!same||time<since){pending=desired;since=time;}
+   if(time-since<.22)return held;
+  }
+  pending={};goal=desired;return desired;
+ }
+};
+inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool beam,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN,bool search=true,double elapsed=.1,const Defender* receiver=nullptr,double heightAdjustment=0,BeamMemory* memory=nullptr,double time=0){
  if(!std::isfinite(receiverJump)||receiverJump<0||receiverJump>40||!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)return {};
  if(length(movement)<.5)movement={};
  const double jump=std::max(0.,(receiver?std::max(0.,receiver->jumpHeight+receiver->above-.75):std::min(8.,receiverJump*.85))-heightAdjustment);
@@ -331,12 +344,20 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  // roots and transitions from contested to clear. Coverage is recomputed for
  // the intermediate arc; it is never labelled clear merely because the goal is.
  auto stable=[&](Plan desired){
-  // Beam's power ordering is a gameplay constraint. Ease its displayed curve,
-  // not the transmitted solution into a weaker angle-derived throw.
+  // Beam retains a high-power goal. Ease actual reachable throw parameters,
+  // so the drawn arc and transmitted trajectory share the same solution.
   if(beam){
    if(!desired.solution.valid||previousPower<1||!std::isfinite(previousAngle))return desired;
-   auto delta=desired.offset-previousOffset;const double step=12*std::clamp(elapsed,.001,.1);
-   if(length(delta)>step){auto offset=previousOffset+delta*(step/length(delta));auto eased=replan(desired.power,offset,desired.lob);
+   auto delta=desired.offset-previousOffset;const double dt=std::clamp(elapsed,.001,.1),step=12*dt;
+   if(memory&&std::abs(desired.solution.angle-previousAngle)>45*dt){
+    auto offset=previousOffset+delta*std::min(1.,step/std::max(.001,length(delta)));
+    auto solved=solveAngle(origin,target+offset,movement,previousAngle+std::clamp(desired.solution.angle-previousAngle,-45*dt,45*dt),gravity,latency,5);
+    if(solved.valid){auto high=solve(origin,target+offset,movement,length(solved.velocity),gravity,latency,true,5);auto intermediate=candidate(solved,offset,high.valid&&std::abs(high.time-solved.time)<1e-5);auto prior=replan(previousPower,previousOffset,previousLob);
+     if(intermediate.solution.valid&&(!estimatedClear(prior,fit)||estimatedClear(intermediate,fit)))return intermediate;
+    }
+   }
+   const double power=memory?previousPower+std::clamp(desired.power-previousPower,-100*dt,100*dt):desired.power;
+   if(length(delta)>step||std::abs(power-desired.power)>.001){auto offset=previousOffset+delta*std::min(1.,step/std::max(.001,length(delta)));auto eased=replan(power,offset,desired.lob);
     if(eased.solution.valid&&estimatedClear(eased,fit)==estimatedClear(desired,fit))return eased;
    }return desired;
   }
@@ -363,7 +384,13 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  };
  Plan held;
  if(previousPower>=1&&previousPower<=95)held=replan(previousPower,previousOffset,previousLob);
- if(!search&&held.solution.valid)return stable(held);
+ auto finish=[&](Plan desired){
+  if(beam&&memory){
+   if(search||!memory->goal.solution.valid)desired=memory->accept(desired,held,time);
+   else{auto goal=replan(memory->goal.power,memory->goal.offset,memory->goal.lob);if(goal.solution.valid)desired=goal;else memory->goal={};}
+  }return stable(desired);
+ };
+ if(!search&&held.solution.valid)return finish(held);
  if(!beam&&held.solution.valid&&held.power>=94.999&&estimatedClear(held,fit)&&held.margin>catchSafetyMargin+.25)return stable(held);
  Plan best;const auto offsets=fitOffsets(origin,target,movement,defenders);
  auto atPower=[&](double power){Plan tier;
@@ -385,13 +412,13 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
   if(power==95&&estimatedClear(best,fit)&&best.solution.angle<=35)break;
   if(beam&&estimatedClear(best,fit))break;
  }
- if(!best.solution.valid)return stable(held);
+ if(!best.solution.valid)return finish(held);
  if(held.solution.valid){
   const bool hc=estimatedClear(held,fit),bc=estimatedClear(best,fit);
-  if(hc&&bc&&held.power>=best.power-(beam?.5:2.)&&(!beam||held.solution.angle<=best.solution.angle+1.)&&fitScore(held,fit)>=fitScore(best,fit)-1.0)return stable(held);
-  if(!hc&&!bc&&(!beam||(held.power>=best.power-.5&&held.solution.angle<=best.solution.angle+2.))&&best.margin-held.margin<.5)return stable(held);
+  if(hc&&bc&&held.power>=best.power-(beam?.5:2.)&&(!beam||held.solution.angle<=best.solution.angle+1.)&&fitScore(held,fit)>=fitScore(best,fit)-1.0)return finish(held);
+  if(!hc&&!bc&&(!beam||(held.power>=best.power-.5&&held.solution.angle<=best.solution.angle+2.))&&best.margin-held.margin<.5)return finish(held);
  }
- return stable(best);
+ return finish(best);
 }
 // Cursor selection must persist before replacing a still-visible receiver.
 struct SelectionLatch {

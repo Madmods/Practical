@@ -5,20 +5,23 @@ namespace ff3Hud {
 inline json::Value message(const ff3Native::Frame& f){
  using namespace basketballUi;auto out=object();out.o[L"type"]=string(L"ff3Hud");auto state=object();
  const auto& shot=f.throwView;
- if(shot.phase==ff3qb::ThrowView::Flight||shot.phase==ff3qb::ThrowView::Done){
+ if(!f.held&&(shot.phase==ff3qb::ThrowView::Flight||shot.phase==ff3qb::ThrowView::Done)){
   state.o[L"phase"]=string(shot.phase==ff3qb::ThrowView::Done?L"done":L"flight");
   if(std::isfinite(shot.eta))state.o[L"eta"]=number(shot.eta);if(std::isfinite(shot.toSpot))state.o[L"to_spot"]=number(shot.toSpot);if(std::isfinite(shot.nearD))state.o[L"near_d"]=number(shot.nearD);
   state.o[L"air"]=number(shot.air);state.o[L"distance"]=number(shot.distance);state.o[L"flightSub"]=string(widen(shot.detail));state.o[L"result"]=string(widen(shot.result));state.o[L"resultBy"]=string(widen(shot.resultBy));
   state.o[L"unknownCoverage"]=basketballUi::boolean(!shot.coverageKnown);state.o[L"intable"]=basketballUi::boolean(shot.intable);
+  if(std::isfinite(shot.riskAt))state.o[L"riskAt"]=number(shot.riskAt);
   auto target=object();target.o[L"role"]=string(widen(shot.name.empty()?"Receiver":shot.name));state.o[L"target"]=target;
  }else if(f.ready&&f.held){
+  auto trajectory=ff3Native::predictedThrow(f,now());if(!trajectory.valid)trajectory=f.solution;
   state.o[L"phase"]=string(L"windup");state.o[L"mode"]=string(ff3Native::force95?L"Beam":widen(ff3qb::presetName(f.mode)));
-  state.o[L"power"]=number(f.power/95);state.o[L"angle"]=number(f.solution.angle);state.o[L"air"]=number(f.solution.time);state.o[L"distance"]=number(f.distance);
+  state.o[L"power"]=number(f.power/95);state.o[L"angle"]=number(trajectory.angle);state.o[L"air"]=number(trajectory.time);state.o[L"distance"]=number(f.distance);
   auto target=object();target.o[L"role"]=string(widen(f.name));state.o[L"target"]=target;
-  double nearest=1000;for(const auto& d:f.hudDefenders)nearest=std::min(nearest,ff3qb::length(d.position-f.solution.catchPoint));
+  double nearest=1000;for(const auto& d:f.hudDefenders)nearest=std::min(nearest,ff3qb::length(d.position-trajectory.catchPoint));
   state.o[L"open"]=number(nearest);state.o[L"unknownCoverage"]=basketballUi::boolean(!f.hudCoverageKnown);
-  const double margin=f.hudCoverageKnown?ff3qb::coverageMargin(f.solution,f.gravity,f.hudDefenders,std::clamp(f.ping*.0005+.05,0.,.25)):0;
+  ff3qb::CoverageTrace trace;const double margin=f.hudCoverageKnown?ff3qb::coverageMargin(trajectory,f.gravity,f.hudDefenders,std::clamp(f.ping*.0005+.05,0.,.25),&trace):0;
   state.o[L"intable"]=basketballUi::boolean(f.hudCoverageKnown&&margin<=0);
+  if(f.hudCoverageKnown&&margin<=0)state.o[L"riskAt"]=number(trace.time);
  }
  out.o[L"throw"]=state;return out;
 }
@@ -44,6 +47,10 @@ inline int test(HINSTANCE instance,const std::filesystem::path& folder){
  ff3Native::Frame boundary;boundary.ready=boundary.held=boundary.hudCoverageKnown=true;boundary.gravity=0;boundary.solution={true,{0,8,0},{10,0,0},{10,8,0},1,0};boundary.hudDefenders={{{5,8,1.5},{},0,0,0,1,1,1,196.2}};
  if(message(boundary)[L"throw"][L"intable"].boolean())return 1; // A safety buffer is not an overlapping catch volume.
  boundary.hudDefenders[0].position.z=.5;if(!message(boundary)[L"throw"][L"intable"].boolean())return 1;
+ if(message(boundary)[L"throw"][L"riskAt"].num()<=0)return 1; // Warn before release about a future crossing, not an already-passed DB.
+ boundary.throwView.phase=ff3qb::ThrowView::Done;boundary.throwView.name="Previous pass";boundary.name="Current receiver";
+ auto current=message(boundary)[L"throw"];if(current[L"phase"].str()!=L"windup"||current[L"target"][L"role"].str()!=L"Current receiver")return 1;
+ boundary.ready=false;if(!message(boundary)[L"throw"][L"phase"].str().empty())return 1; // An equipped ball cannot show another flight/result card.
  ff3Native::Frame unrelated;unrelated.balls.push_back({});if(!message(unrelated)[L"throw"][L"phase"].str().empty())return 1;
  ff3Native::Frame owned;owned.throwView.phase=ff3qb::ThrowView::Flight;owned.throwView.name="Selected WR";owned.throwView.toSpot=4.25;owned.throwView.nearD=8.5;owned.throwView.coverageKnown=owned.throwView.intable=true;
  auto mapped=message(owned)[L"throw"];if(mapped[L"to_spot"].num()!=4.25||mapped[L"near_d"].num()!=8.5||!mapped[L"intable"].boolean()||mapped[L"unknownCoverage"].boolean())return 1;

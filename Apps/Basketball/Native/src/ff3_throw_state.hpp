@@ -7,12 +7,14 @@ struct ThrowActor {
 struct ThrowIntent {
  std::uint64_t click=0,model=0,own=0,player=0,target=0,heldBall=0;
  double at=0,power=0,angle=0,air=0,distance=0,catchHeight=NAN;std::string name,mode;
+ bool predictionKnown=false,predictedIntable=false;
+ double predictedRiskAt=NAN;
 };
 struct ThrowView {
  enum Phase{Hidden,Pending,Flight,Done};Phase phase=Hidden;
  std::uint64_t ball=0;
  double eta=NAN,toSpot=NAN,nearD=NAN,margin=NAN,air=0,power=0,angle=0,distance=0;
- bool coverageKnown=false,intable=false;Vec spot;std::string name,mode,result,resultBy,detail;
+ bool coverageKnown=false,intable=false;double riskAt=NAN;Vec spot;std::string name,mode,result,resultBy,detail;
 };
 inline void flightMetrics(ThrowView& view,const BallFlight& ball,double ground,const std::vector<ThrowActor>& actors,std::uint64_t target,bool complete,double catchHeight=NAN){
  view.eta=view.toSpot=view.nearD=view.margin=NAN;view.coverageKnown=false;view.intable=false;
@@ -40,7 +42,7 @@ struct ThrowTracker {
  std::vector<std::uint64_t> priorBalls;std::vector<std::pair<std::uint64_t,std::uint64_t>> priorHeld;
  void clear(){*this={};}
  void begin(const ThrowIntent& next,const std::vector<BallFlight>& existing,const std::vector<ThrowActor>& actors){
-  clear();intent=next;view.phase=ThrowView::Pending;view.name=next.name;view.mode=next.mode;view.power=next.power;view.angle=next.angle;view.air=next.air;view.distance=next.distance;
+  clear();intent=next;view.phase=ThrowView::Pending;view.name=next.name;view.mode=next.mode;view.power=next.power;view.angle=next.angle;view.air=next.air;view.distance=next.distance;view.coverageKnown=next.predictionKnown;view.intable=next.predictedIntable;view.riskAt=next.predictedRiskAt;
   for(const auto& f:existing)priorBalls.push_back(f.id);for(const auto& a:actors)priorHeld.push_back({a.id,a.ball});
  }
  void finish(const std::string& result,double time,const std::string& by={}){view.phase=ThrowView::Done;view.result=result;view.resultBy=by;view.air=std::max(0.,time-intent.at);doneAt=time;}
@@ -66,6 +68,7 @@ struct ThrowTracker {
   if(current){
    lastSeen=time;lastPosition=current->position;missingAt=0;
    if(current->landed){if(!landedAt)landedAt=time;}else if(!current->ended)flightMetrics(view,*current,ground,actors,intent.target,complete,intent.catchHeight);
+   if(intent.predictionKnown){view.coverageKnown=true;view.intable=intent.predictedIntable;view.detail="Your pass · pre-throw risk forecast";}
   }else if(!missingAt)missingAt=time;
   if((missingAt&&time-missingAt>.6)||time-intent.at>12){finish("Result unavailable",time);return;}
  }

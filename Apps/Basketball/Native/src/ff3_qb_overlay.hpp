@@ -72,13 +72,7 @@ struct ViewReader {
   f.client=client;f.origin=origin;return true;
  }
 };
-inline ff3qb::Solution projectedThrow(const ff3Native::Frame& f,double time){
- const double age=std::clamp(time-f.at,0.,.45),latency=std::clamp(f.ping*.0005+.05,0.,.25);
- auto target=f.targetPosition+f.targetVelocity*age;
- const bool powerFirst=ff3Native::automaticAngle&&ff3Native::autoPower&&f.mode==0;
- const bool anglePower=ff3Native::autoPower&&(!powerFirst||!ff3Native::force95);
- return anglePower?ff3qb::solveAngle(f.head,target,f.targetVelocity,f.solution.angle,f.gravity,latency,5):ff3qb::solve(f.head,target,f.targetVelocity,f.power,f.gravity,latency,powerFirst?f.selectedLob:(ff3Native::arc==1||f.mode==2),5);
-}
+inline ff3qb::Solution projectedThrow(const ff3Native::Frame& f,double time){return ff3Native::predictedThrow(f,time);}
 // One upload for both QB and ball geometry, with work-aware 144 Hz pacing.
 // High-resolution waitable timers avoid a fixed Sleep(16) after each raster.
 struct FramePacer {

@@ -4,6 +4,23 @@
 #include <iostream>
 using namespace ff3qb;
 int main(){int count=0;
+ {RouteHistory still;for(int i=0;i<30;++i)still.update(i*.05,{0,8,0},{50+(i%2?.01:-.01),8,0},{i%2?1.:-1.,0,0});assert(length(still.movement)==0);}
+ {BeamMemory memory;Plan low,high;low.solution.valid=high.solution.valid=true;low.power=95;low.solution.angle=20;high.power=60;high.solution.angle=65;high.lob=true;
+  assert(memory.accept(low,{},1).power==95);
+  assert(memory.accept(high,low,1.1).power==95);assert(memory.accept(low,low,1.2).power==95);
+  assert(memory.accept(high,low,1.3).power==95);assert(memory.accept(high,low,1.4).power==95);assert(memory.accept(high,low,1.55).power==60);
+ }
+ {BeamMemory memory;Vec origin{0,8,0},target{100,8,0};auto prior=solve(origin,target,{},95,28,.05,false,5);
+  memory.goal={solve(origin,target+Vec{0,1,0},{},95,28,.05,false,5),{0,1,0},95,10,false,false};Vec offset{};
+  for(int i=0;i<7;++i){auto next=planCoverageThrow(origin,target,{},28,.05,{},true,true,7,196.2,offset,95,false,prior.angle,false,.016,nullptr,0,&memory,1+i*.016);
+   assert(next.solution.valid&&next.offset.y>=offset.y&&next.offset.y-offset.y<=.192001);offset=next.offset;prior=next.solution;
+  }assert(std::abs(offset.y-1)<1e-6);
+  memory.goal={solve(origin,target,{},95,28,.05,true,5),{},95,10,false,true};double power=95;bool lob=false;prior=solve(origin,target,{},95,28,.05,false,5);
+  for(int i=0;i<180;++i){auto next=planCoverageThrow(origin,target,{},28,.05,{},true,true,7,196.2,{},power,lob,prior.angle,false,.016,nullptr,0,&memory,2+i*.016);
+   assert(next.solution.valid&&std::abs(next.solution.angle-prior.angle)<=.72001&&length(point(next.solution,28,next.solution.time)-target)<1e-6);
+   prior=next.solution;power=next.power;lob=next.lob;
+  }assert(power>94.9&&lob);
+ }
  {Defender still{{100,8,0},{},20,6.37,12,5.88,3.88,4.88};
   assert(receiverGap(still,{104,8,0},1)<0);
   assert(receiverGap(still,{110,8,0},1)>0&&reachGap(still,{110,8,0},1)<0);
@@ -199,6 +216,9 @@ int main(){int count=0;
   auto caught=wr;caught.ball=88;
   shot.update(10.3,1,2,{}, {caught,db},0,true);assert(shot.view.phase==ThrowView::Done&&shot.view.result=="Caught");
   shot.update(13,1,2,{}, {wr,db},0,true);assert(shot.view.phase==ThrowView::Hidden);
+  {auto predicted=intent;predicted.predictionKnown=predicted.predictedIntable=true;ThrowTracker retained;retained.begin(predicted,{}, {wr,db});
+   retained.update(10.2,1,2,{ownBall},{wr},0,true);assert(retained.view.coverageKnown&&retained.view.intable); // Passing the DB cannot erase the pre-throw forecast.
+  }
   shot.begin(intent,{}, {wr,db});shot.update(10.2,1,2,{ownBall},{wr,db},0,true);db.ball=88;
   shot.update(10.3,1,2,{}, {wr,db},0,true);assert(shot.view.result=="Intercepted");db.ball=0;
   shot.begin(intent,{}, {wr,db});shot.update(10.2,1,2,{ownBall},{wr,db},0,true);
