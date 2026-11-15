@@ -21,6 +21,14 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def test_auto_route_chest_pass_uses_fixed_power_below_five_degrees(self):
+        p=plan();p.update(targetPosition=[65,3.5,0],targetVelocity=[0,0,20],plannedPower=95,anglePower=False,beam95=False,routePosition=[65,5,0],leadDistance=0)
+        e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload())
+        self.assertAlmostEqual(e.last['newPower'],95)
+        launch,flight=velocity([0,5,0],p['targetPosition'],p['targetVelocity'],95,28,.05,False,5)
+        self.assertLess(math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2]))),5)
+        self.assertAlmostEqual(5+launch[1]*(flight+5/95)-14*flight*flight,3.5)
+
     def test_stationary_receiver_cannot_sprint_to_rescue_placement(self):
         receiver=dict(position=[70,5,0],velocity=[0,0,0],speed=20,jump=6.37,dive=12,radius=5.88,above=3.88,below=4.88,worldGravity=196.2)
         self.assertLess(receiver_gap(receiver,[74,5,0],1),0)

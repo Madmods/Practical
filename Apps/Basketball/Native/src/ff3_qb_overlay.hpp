@@ -11,7 +11,7 @@ inline void text(Gdiplus::Graphics& g,const std::wstring& value,float x,float y,
  using namespace Gdiplus;Font font(L"Segoe UI",size,bold?FontStyleBold:FontStyleRegular,UnitPixel);SolidBrush brush(color);StringFormat format;format.SetTrimming(StringTrimmingEllipsisCharacter);format.SetFormatFlags(StringFormatFlagsNoWrap);g.DrawString(value.c_str(),-1,&font,RectF(x,y,width,size*1.8f),&format,&brush);
 }
 inline std::wstring number(double value,int precision=0){std::wostringstream out;out<<std::fixed<<std::setprecision(precision)<<value;return out.str();}
-inline Gdiplus::Color accent(const ff3Native::Frame& f){return !f.coverageKnown?Gdiplus::Color(255,151,180,255):f.margin>ff3qb::catchSafetyMargin?Gdiplus::Color(255,115,232,186):Gdiplus::Color(255,255,191,115);}
+inline Gdiplus::Color accent(const ff3Native::Frame& f){return !f.hudCoverageKnown?Gdiplus::Color(255,151,180,255):f.risk.intable?Gdiplus::Color(255,255,125,143):f.risk.possible?Gdiplus::Color(255,255,191,115):Gdiplus::Color(255,115,232,186);}
 
 inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool present=true){
  using namespace Gdiplus;const int w=f.client.right,h=f.client.bottom;
@@ -35,11 +35,38 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
   auto catchScreen=ff3qb::project(catchSpot,f.matrix,w,h);if(catchScreen.valid){Pen marker(Color(245,235,231,255),1.5f);g.DrawEllipse(&marker,REAL(catchScreen.x-4),REAL(catchScreen.y-4),8.f,8.f);}
   auto end=project(catchSpot),base=project(unfitted);if(ff3qb::length(f.fitOffset)>.5){ring(unfitted,1.2,Color(145,181,188,208),1,true);line(base,end,Color(220,190,195,255),1.6f,true);}
   if(ff3Native::showCandidates){
-   for(const auto& d:f.defenders)if(ff3qb::length(d.position-landing)<85)ring(d.position,2.0,Color(150,255,125,143),1.2f);
-
+   // Show the limiting DB's reach at the instant the ball crosses it.
+   // The circle is a height-aware cross-section, not a generic nearby-player ring.
+   const auto& trace=f.risk.intable?f.risk.projected:f.risk.limit;
+   if(f.hudCoverageKnown&&trace.catcher>=0&&trace.catcher<int(f.hudDefenders.size())){
+    const auto& d=f.hudDefenders[trace.catcher];auto at=ff3qb::point(f.solution,f.gravity,std::min(trace.time,f.solution.time));
+    double horizon=trace.time+std::clamp(f.ping*.0005+.05,0.,.25);
+    double reach=ff3qb::reachSectionRadius(d,at.y,horizon);
+    auto db=project(d.position),ballGround=project(at),ballScreen=ff3qb::project(at,f.matrix,w,h);
+    if(reach>=0){
+     // Only the boundary facing this throw: a full sprint-radius circle can
+     // cover the entire field and obscure the trajectory.
+     double direction=std::atan2(at.z-d.position.z,at.x-d.position.x);GraphicsPath boundary;ff3qb::Screen last;
+     for(int i=0;i<=32;++i){double a=direction-.35+.7*i/32;auto q=project(d.position+ff3qb::Vec{std::cos(a)*reach,0,std::sin(a)*reach});if(i&&last.valid&&q.valid)boundary.AddLine(REAL(last.x),REAL(last.y),REAL(q.x),REAL(q.y));else boundary.StartFigure();last=q;}
+     Pen pen(Color(145,color.GetR(),color.GetG(),color.GetB()),1.4f);pen.SetDashStyle(DashStyleDash);g.DrawPath(&pen,&boundary);ring(d.position,1.5,Color(100,255,191,115),1);
+    }
+    else ring(d.position,2,Color(100,115,232,186),1.2f,true);
+    line(db,ballGround,Color(165,color.GetR(),color.GetG(),color.GetB()),1.2f,true);
+    line(ballGround,ballScreen,Color(140,210,204,255),1,true);
+    if(ballScreen.valid){Pen marker(color,1.5f);g.DrawEllipse(&marker,REAL(ballScreen.x-5),REAL(ballScreen.y-5),10.f,10.f);
+     auto label=reach<0?L"Above DB reach":f.risk.margin>0?L"Reach gap +"+number(f.risk.margin,1)+L" st":f.risk.intable?L"Projected catch overlap":L"Possible turn / dive";
+     text(g,label,REAL(ballScreen.x+9),REAL(ballScreen.y-15),11,color,false,240);
+    }
+   }
+   auto receiver=f.receiverReach.position+f.targetVelocity*(f.solution.time+std::clamp(f.ping*.0005+.05,0.,.25));
+   if(f.receiverReachKnown){ring(receiver,1.3,Color(180,115,232,186),1.3f);line(project(receiver),end,Color(200,115,232,186),1.5f,true);}
+   if(ff3qb::length(f.fitOffset)>.5&&end.valid){
+    double dx=end.x-base.x,dy=end.y-base.y,len=std::hypot(dx,dy);if(base.valid&&len>5){dx/=len;dy/=len;line(end,{end.x-dx*7+dy*3,end.y-dy*7-dx*3,true},color,1.5f);line(end,{end.x-dx*7-dy*3,end.y-dy*7+dx*3,true},color,1.5f);}
+    text(g,L"Fit "+number(std::hypot(f.fitOffset.x,f.fitOffset.z),1)+L" st",REAL(end.x+8),REAL(end.y+5),11,Color(230,210,204,255),false,120);
+   }
   }
  }
- // Text stays in the single HTML HUD; field visuals contain geometry only.
+ // Small field annotations explain the time/height reach comparison; no extra cards.
  if(present)surface.present(f.origin);
 }
 // Full measured flight and forward prediction to the retained field plane.

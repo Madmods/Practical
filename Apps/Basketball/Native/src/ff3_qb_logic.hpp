@@ -193,6 +193,16 @@ inline double reachGap(const Defender& d,Vec p,double horizon){
  // An arm cannot have its full horizontal and full vertical extension at once.
  return (std::hypot(horizontal/horizontalRadius,vertical/verticalRadius)-1)*std::min(horizontalRadius,verticalRadius);
 }
+// Horizontal cross-section of the same time-dependent catch volume used by
+// the planner, at the ball's future height. Negative means above/below reach.
+inline double reachSectionRadius(const Defender& d,double y,double horizon){
+ horizon=std::max(0.,horizon);double vr=(d.above+d.below)*.5,hr=std::min(d.radius,vr);
+ double cy=d.position.y+(d.above-d.below)*.5;
+ double top=cy+jumpRise(d.jumpHeight,d.worldGravity,horizon,d.velocity.y),bottom=cy+std::min(0.,d.velocity.y)*std::min(horizon,.25);
+ double vertical=std::max(0.,std::max(y-top,bottom-y));if(vertical>vr)return -1;
+ double speed=std::clamp(std::max(d.speed,std::hypot(d.velocity.x,d.velocity.z)),0.,45.);
+ return std::max(0.,d.radius-vr)+speed*horizon+std::min(d.diveReach,std::max(0.,horizon-.1)*std::max(0.,45-speed))+hr*std::sqrt(std::max(0.,1-vertical*vertical/(vr*vr)));
+}
 // Receiver placement follows the observed route. Do not assume a stationary
 // receiver will sprint sideways simply because a defender could do so.
 inline double receiverGap(const Defender& receiver,Vec point,double horizon){
@@ -227,6 +237,22 @@ inline double coverageMargin(const Solution& s,double gravity,const std::vector<
   if(gap<margin){margin=gap;if(trace)*trace={int(n),t,gap,p};}
   if(margin<=stopBelow)return margin;
  }}return margin;
+}
+// Distinguish observed-route interception from a worst-case reach envelope.
+// The envelope still drives Smart fit; a possible turn/dive is not a certainty.
+struct RiskForecast {double margin=1000,projectedMargin=1000;CoverageTrace limit,projected;bool intable=false,possible=false;};
+inline RiskForecast riskForecast(const Solution& s,double gravity,const std::vector<Defender>& defenders,double latency){
+ RiskForecast result;if(!s.valid)return result;
+ result.margin=coverageMargin(s,gravity,defenders,latency,&result.limit);
+ const int steps=std::clamp(int(std::ceil(s.time/.02)),32,400);
+ for(size_t n=0;n<defenders.size();++n)for(int i=0;i<=steps;++i){
+  double t=s.time*i/steps,horizon=t+latency;auto d=defenders[n];
+  d.position=d.position+Vec{d.velocity.x,0,d.velocity.z}*horizon;
+  d.velocity.x=d.velocity.z=0;d.speed=0;d.diveReach=0;
+  auto p=point(s,gravity,t);double gap=reachGap(d,p,horizon);
+  if(gap<result.projectedMargin){result.projectedMargin=gap;result.projected={int(n),t,gap,p};}
+ }
+ result.intable=result.projectedMargin<=0;result.possible=!result.intable&&result.margin<=0;return result;
 }
 inline std::vector<Vec> fitOffsets(Vec origin,Vec target,Vec movement,const std::vector<Defender>& defenders){
  std::vector<Vec> offsets{{}};for(int i=0;i<8;i++){double a=i*6.283185307179586/8;for(double r:{1.5,3.,6.})offsets.push_back({r*std::cos(a),0,r*std::sin(a)});}
@@ -297,7 +323,7 @@ inline Solution solveTimed(Vec origin,Vec target,Vec movement,double time,double
  return {true,origin+direction*5,velocity,end,time,std::atan2(velocity.y,std::hypot(velocity.x,velocity.z))*180/3.141592653589793};
 }
 struct BeamMemory {
- Plan goal,pending;double since=0;
+ Plan goal,pending;double since=0;bool transitioning=false;
  Plan accept(Plan desired,const Plan& held,double time){
   if(!desired.solution.valid){goal={};pending={};return desired;}
   const bool change=goal.solution.valid&&(goal.lob!=desired.lob||std::abs(goal.power-desired.power)>4||std::abs(goal.solution.angle-desired.solution.angle)>6);
@@ -349,6 +375,16 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
   if(beam){
    if(!desired.solution.valid||previousPower<1||!std::isfinite(previousAngle))return desired;
    auto delta=desired.offset-previousOffset;const double dt=std::clamp(elapsed,.001,.1),step=12*dt;
+   // Keep a physical elevation inside a small band, rather than chasing
+   // neighbouring 39/40-degree solutions. Power is solved again at that angle.
+   if(memory){double deltaAngle=std::abs(desired.solution.angle-previousAngle);if(deltaAngle>2)memory->transitioning=true;else if(deltaAngle<.01)memory->transitioning=false;}
+   if(memory&&!memory->transitioning&&std::abs(desired.solution.angle-previousAngle)<=1.25&&previousAngle>=5){
+    auto offset=previousOffset+delta*std::min(1.,step/std::max(.001,length(delta)));
+    auto solved=solveAngle(origin,target+offset,movement,previousAngle,gravity,latency,5);
+    if(solved.valid){auto high=solve(origin,target+offset,movement,length(solved.velocity),gravity,latency,true,5);auto quiet=candidate(solved,offset,high.valid&&std::abs(high.time-solved.time)<1e-5);
+     if(quiet.solution.valid&&estimatedClear(quiet,fit)==estimatedClear(desired,fit)&&quiet.margin>=desired.margin-.25)return quiet;
+    }
+   }
    if(memory&&std::abs(desired.solution.angle-previousAngle)>45*dt){
     auto offset=previousOffset+delta*std::min(1.,step/std::max(.001,length(delta)));
     auto solved=solveAngle(origin,target+offset,movement,previousAngle+std::clamp(desired.solution.angle-previousAngle,-45*dt,45*dt),gravity,latency,5);
@@ -419,6 +455,51 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
   if(!hc&&!bc&&(!beam||(held.power>=best.power-.5&&held.solution.angle<=best.solution.angle+2.))&&best.margin-held.margin<.5)return finish(held);
  }
  return finish(best);
+}
+enum class RoutePass {Fit,Head,Bullet,DiveBullet};
+inline const char* routePassName(RoutePass pass){switch(pass){case RoutePass::Head:return "Head pass";case RoutePass::Bullet:return "Bullet";case RoutePass::DiveBullet:return "Dive lead";default:return "Smart fit";}}
+inline RoutePass chooseRoutePass(Vec origin,Vec target,Vec movement,const std::vector<Defender>& defenders){
+ double nearest=1000;for(const auto& d:defenders)nearest=std::min(nearest,length(d.position-target));
+ Vec axis=target-origin;axis.y=0;double speed=std::hypot(movement.x,movement.z);
+ double forward=dot(axis,movement)/std::max(1.,length(axis));
+ if(speed>2&&std::abs(forward)<speed*.8)return nearest<24?RoutePass::DiveBullet:RoutePass::Bullet;
+ return nearest>32?RoutePass::Head:RoutePass::Fit;
+}
+struct RoutePassLatch {
+ RoutePass value=RoutePass::Fit,pending=RoutePass::Fit;double since=0;bool started=false;
+ RoutePass update(RoutePass next,double time){if(!started){started=true;value=pending=next;since=time;}
+  if(next!=pending){pending=next;since=time;}if(time-since>=.3)value=pending;return value;}
+};
+// Auto-route candidates target the receiver's head/chest, not the ground.
+// A dive lead stays inside the same receiver envelope enforced at dispatch.
+inline Plan planRoutePass(RoutePass style,Vec origin,Vec head,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,const Defender* receiver,double previousAngle=NAN,double elapsed=.016){
+ Plan best;if(style==RoutePass::Fit)return best;
+ const bool headPass=style==RoutePass::Head;Vec forward{movement.x,0,movement.z};if(length(forward)>.1)forward=forward*(1/length(forward));
+ auto candidate=[&](Solution s,Vec offset)->Plan{
+  if(!s.valid||!placementAllowed(offset,movement,s.time)||(receiver&&receiverGap(*receiver,s.catchPoint,s.time+latency)>-.25))return {};
+  auto high=solve(origin,head+offset,movement,length(s.velocity),gravity,latency,true,5);
+  return {s,offset,length(s.velocity),defenders.empty()?10:coverageMargin(s,gravity,defenders,latency),!defenders.empty(),high.valid&&std::abs(high.time-s.time)<1e-5};
+ };
+ if(headPass){
+  // Descend onto the head with no extra distance beyond observed route lead.
+  for(double angle:{55.,60.,65.,70.}){auto s=solveAngle(origin,head,movement,angle,gravity,latency,5);if(!s.valid||s.velocity.y-gravity*s.time>=0)continue;auto p=candidate(s,{});if(estimatedClear(p,fit)){best=p;break;}}
+ }else{
+  // Power descending, low root only. Lead in front of the route for coverage.
+  std::vector<double> leads=style==RoutePass::DiveBullet?std::vector<double>{3.,4.5,6.,1.5,0.}:std::vector<double>{0.};
+  for(double power=95;power>=35;power-=1){
+   for(double lead:leads){Vec offset=forward*lead+Vec{0,-1.5,0};auto s=solve(origin,head+offset,movement,power,gravity,latency,false,5);if(!s.valid||s.angle>30||s.angle<-30)continue;auto p=candidate(s,offset);if(!p.solution.valid)continue;
+    bool clear=estimatedClear(p,fit),oldClear=estimatedClear(best,fit);
+    if(!best.solution.valid||(clear&&!oldClear)||(clear==oldClear&&(clear?p.power>best.power+.5:p.margin>best.margin+.25)))best=p;
+   }if(estimatedClear(best,fit))break;
+  }
+ }
+ if(!best.solution.valid||!std::isfinite(previousAngle))return best;
+ const double delta=best.solution.angle-previousAngle;
+ double angle=previousAngle+std::clamp(delta,-24*std::clamp(elapsed,.001,.1),24*std::clamp(elapsed,.001,.1));
+ if(angle>=5&&angle<=85){
+  auto quiet=candidate(solveAngle(origin,head+best.offset,movement,angle,gravity,latency,5),best.offset);
+  if(quiet.solution.valid&&estimatedClear(quiet,fit)==estimatedClear(best,fit)&&quiet.margin>=best.margin-.25)best=quiet;
+ }return best;
 }
 // Cursor selection must persist before replacing a still-visible receiver.
 struct SelectionLatch {

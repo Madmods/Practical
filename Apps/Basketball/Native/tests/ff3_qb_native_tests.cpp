@@ -37,6 +37,10 @@ int main(){
   auto drawn=ff3Visual::projectedThrow(visual,10.08);auto sent=ff3qb::solve(visual.head,visual.targetPosition+visual.targetVelocity*.08,visual.targetVelocity,95,28,.06,false,5);
   check(drawn.valid&&sent.valid&&ff3qb::length(drawn.catchPoint-sent.catchPoint)<1e-6&&ff3qb::length(drawn.velocity-sent.velocity)<1e-6);force95=priorBeam;
  }
+ {auto visual=f;visual.at=10;visual.head={0,8,0};visual.targetPosition={65,6.5,0};visual.targetVelocity={0,0,20};visual.ping=20;visual.mode=0;visual.fixedPowerRoute=true;
+  bool priorBeam=force95;force95=false;auto drawn=ff3Visual::projectedThrow(visual,10.08);auto sent=ff3qb::solve(visual.head,visual.targetPosition+visual.targetVelocity*.08,visual.targetVelocity,95,28,.06,false,5);
+  check(drawn.valid&&drawn.angle<5&&sent.valid&&ff3qb::length(drawn.velocity-sent.velocity)<1e-6);force95=priorBeam;
+ }
  {ff3Visual::PreviewPlan preview;auto valid=f;valid.held=valid.solution.valid=true;
   check(preview.select(valid,10).ready);auto gap=valid;gap.ready=gap.solution.valid=false;
   check(preview.select(gap,10.05).ready);check(!gap.ready); // Only the renderer receives the retained plan.
@@ -89,7 +93,7 @@ int main(){
   using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;check(GdiplusStartup(&token,&startup,nullptr)==Ok);
   Frame sample;sample.groundY=0;sample.client={0,0,1280,720};sample.ready=sample.held=sample.wheelVisible=sample.coverageKnown=true;sample.name="Practice receiver";sample.route="Go / deep";sample.coverageCount=3;sample.coverageDetail="3 catchers / jump + dive estimate";sample.locked=true;sample.mode=2;sample.guarded=true;sample.margin=.54;sample.power=78;sample.distance=146;sample.solution.angle=48;sample.solution.time=2.36;
   PumpSurface field;sample.target=123;sample.gravity=28;sample.fitOffset={4,4,0};sample.solution=ff3qb::solveAngle({0,8,0},{104,12,0},{},35,28,.05,5);sample.matrix[0]=.012f;sample.matrix[5]=.025f;sample.matrix[6]=.012f;sample.matrix[3]=-.65f;sample.matrix[7]=-.5f;sample.matrix[15]=1;sample.receiver=ff3qb::project({100,8,0},sample.matrix,1280,720);
-  sample.defenders={{{75,8,8},{},20,7,12}};sample.coverageTrace={0,.3,.54,{55,13,0}};ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
+  sample.defenders={{{75,8,8},{},20,7,12}};sample.coverageTrace={0,.3,.54,{55,13,0}};sample.hudDefenders=sample.defenders;sample.hudCoverageKnown=sample.receiverReachKnown=true;sample.receiverReach.position={100,8,0};sample.risk=ff3qb::riskForecast(sample.solution,28,sample.hudDefenders,.05);ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
   {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-field-preview.png",&png,nullptr)==Ok);}
   sample.ready=false;sample.fitBlocked=true;sample.reason="Coverage incomplete: no assisted throw; normal click unchanged";
   ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);

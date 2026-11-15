@@ -4,6 +4,35 @@
 #include <iostream>
 using namespace ff3qb;
 int main(){int count=0;
+ {auto flight=solve({0,8,0},{80,8,0},{},95,28,.05,false,5);Defender far{{40,8,30},{},22,7,12,2,2,2};
+  auto clear=riskForecast(flight,28,{far},.05);assert(!clear.intable&&!clear.possible);
+  far.position.z=12;auto possible=riskForecast(flight,28,{far},.05);assert(!possible.intable&&possible.possible);
+  far.position.z=0;auto overlap=riskForecast(flight,28,{far},.05);assert(overlap.intable&&overlap.projected.time>0);
+  for(double y:{5.,10.,18.}){double radius=reachSectionRadius(far,y,.4);if(radius>=0){assert(std::abs(reachGap(far,{far.position.x+radius,y,far.position.z},.4))<1e-7);}}
+ }
+ {Vec origin{0,8,0},target{65,8,0};Defender wr{target,{},20,7,12};
+  assert(chooseRoutePass(origin,target,{}, {})==RoutePass::Head);
+  auto head=planRoutePass(RoutePass::Head,origin,target,{},28,.05,{},true,&wr);
+  assert(head.solution.valid&&length(head.solution.catchPoint-target)<1e-6&&head.solution.velocity.y-28*head.solution.time<0);
+  wr.velocity={0,0,20};assert(chooseRoutePass(origin,target,wr.velocity,{})==RoutePass::Bullet);
+  auto bullet=planRoutePass(RoutePass::Bullet,origin,target,wr.velocity,28,.05,{},true,&wr);
+  assert(bullet.solution.valid&&bullet.power>94.99&&bullet.solution.angle<=30&&std::abs(bullet.solution.catchPoint.y-(target.y-1.5))<1e-6);
+  Defender db=wr;db.position.z=-15;assert(chooseRoutePass(origin,target,wr.velocity,{db})==RoutePass::DiveBullet);
+  auto dive=planRoutePass(RoutePass::DiveBullet,origin,target,wr.velocity,28,.05,{db},true,&wr);
+  assert(dive.solution.valid&&dive.solution.angle<=30&&dive.offset.z>=0&&receiverGap(wr,dive.solution.catchPoint,dive.solution.time+.05)<=-.25);
+  double previous=55;Plan transition;
+  for(int i=0;i<180;++i){transition=planRoutePass(RoutePass::Bullet,origin,target,wr.velocity,28,.05,{},true,&wr,previous,.016);assert(transition.solution.valid);previous=transition.solution.angle;}
+  assert(transition.power>94.9&&transition.solution.angle<5);
+  RoutePassLatch latch;assert(latch.update(RoutePass::Head,0)==RoutePass::Head);for(int i=1;i<20;++i)assert(latch.update(i%2?RoutePass::Bullet:RoutePass::Head,i*.05)==RoutePass::Head);
+ }
+ {BeamMemory memory;Vec origin{0,8,0},target{80,8,0};auto prior=solveAngle(origin,target,{},40,28,.05,5);double power=length(prior.velocity);bool lob=false;
+  memory.goal={prior,{},power,10,false,false};
+  for(int i=0;i<40;++i){auto desired=solveAngle(origin,target,{},i%2?39.4:40.3,28,.05,5);memory.goal={desired,{},length(desired.velocity),10,false,false};
+   auto held=planCoverageThrow(origin,target,{},28,.05,{},true,true,7,196.2,{},power,lob,prior.angle,false,.016,nullptr,0,&memory,1+i*.016);
+   assert(held.solution.valid&&std::abs(held.solution.angle-40)<1e-6&&length(point(held.solution,28,held.solution.time)-target)<1e-6);prior=held.solution;power=held.power;lob=held.lob;
+  }
+ }
+
  {RouteHistory still;for(int i=0;i<30;++i)still.update(i*.05,{0,8,0},{50+(i%2?.01:-.01),8,0},{i%2?1.:-1.,0,0});assert(length(still.movement)==0);}
  {BeamMemory memory;Plan low,high;low.solution.valid=high.solution.valid=true;low.power=95;low.solution.angle=20;high.power=60;high.solution.angle=65;high.lob=true;
   assert(memory.accept(low,{},1).power==95);

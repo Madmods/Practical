@@ -27,7 +27,7 @@
      Browser preview: open this file directly for a sample loop, or ?state=aim|windup|flight|done to hold one. */
   :root {
     --accent: #8e97ff; --accent-hi: #c3c8ff; --accent-lo: #6870e0; --accent-rgb: 142, 151, 255;
-    --good: #3ecf8e; --good-rgb: 62, 207, 142; --bad: #ff6b7d; --bad-rgb: 255, 107, 125; --warn: #e8b25a;
+    --good: #3ecf8e; --good-rgb: 62, 207, 142; --bad: #ff6b7d; --bad-rgb: 255, 107, 125; --warn: #e8b25a; --warn-rgb: 232, 178, 90;
     --tint: rgba(12, 14, 20, .46);
     --spring: cubic-bezier(.32, 1.28, .52, 1); --ease: cubic-bezier(.22, .8, .24, 1); --out: cubic-bezier(.16, 1, .3, 1);
     font-family: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
@@ -67,6 +67,8 @@
     color: rgb(var(--c)); background: linear-gradient(180deg, rgba(var(--c), .22), rgba(var(--c), .08)); box-shadow: inset 0 1px .5px rgba(255,255,255,.35), inset 0 0 0 1px rgba(var(--c), .3);
     transition: color .35s, background .35s, box-shadow .35s; }
   .cap.pick { --c: var(--bad-rgb); }
+  .cap.possible { --c: var(--warn-rgb); }
+  .cap.unknown { --c: 151, 160, 180; }
   .cap i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
   .cap .sl { height: 24px; overflow: hidden; }
   .cap .sl b { display: block; height: 24px; line-height: 24px; font-weight: 650; transition: transform .45s var(--spring); }
@@ -117,16 +119,7 @@
       <div class="mc-n"><span class="k">Distance</span><b><span data-k="dist"></span><small>st</small></b></div>
       <span class="mc-sep"></span>
       <span class="who"><span class="av" data-k="ini"></span><span class="who2"><b data-k="target"></b><span data-k="open" data-tone="open"></span></span></span>
-      <span class="cap" data-int><i></i><span class="sl"><b>Clean</b><b>Intable</b></span></span>
-    </div>
-    <div class="mc-l" data-l="flight">
-      <div class="mc-n" style="padding-left:8px"><span class="k">Arrives in</span><b><span data-k="eta"></span><small>s</small></b></div>
-      <span class="mc-sep"></span>
-      <div class="mc-n"><span class="k">WR to spot</span><b><span data-k="toSpot"></span><small>st</small></b></div>
-      <div class="mc-n"><span class="k">Nearest D</span><b data-tone="near"><span data-k="nearD"></span><small>st</small></b></div>
-      <span class="mc-sep"></span>
-      <span class="who"><span class="av" data-k="ini"></span><span class="who2"><b data-k="target"></b><span data-k="flightSub"></span></span></span>
-      <span class="cap" data-int><i></i><span class="sl"><b>Clean</b><b>Intable</b></span></span>
+      <span class="cap" data-int><i></i><span data-risk-label>Clear path</span></span>
     </div>
     <div class="mc-l" data-l="done">
       <span class="res" id="res">
@@ -154,7 +147,7 @@
 
   let cur = null;          // latest throw object from the game
   let curAt = 0;           // when it arrived (for a smooth countdown between snapshots)
-  let doneAt = 0, doneExpired = false, lastShown = '';
+  let doneAt = 0, doneExpired = false, lastShown = '', displayedAngle = null;
 
   const set = (k, v) => document.querySelectorAll(`[data-k="${k}"]`).forEach(el => { if (el.textContent !== v) el.textContent = v; });
   const yd = m => Number.isFinite(m) ? (m * YD).toFixed(1) : '—';
@@ -164,6 +157,7 @@
   // The game keeps reporting "done" until the next snap; the result shows once, for HOLD_DONE.
   function onThrow(t) {
     const now = performance.now();
+    if (t?.phase === 'flight') {cur=null;render(now);return;}
     if (t && t.phase) {
       if (t.phase === 'done') { if (doneExpired) return; if (cur?.phase !== 'done') doneAt = now; }
       else doneExpired = false;
@@ -185,7 +179,8 @@
       const windup = t.phase !== 'aim';
       set('mode', windup ? (t.mode || 'Pass') : 'Aim');
       set('target', role); set('ini', ini(role));
-      set('angle', Math.round(t.angle ?? 0) + '°');
+      if(displayedAngle===null||Math.abs((t.angle??0)-displayedAngle)>.8)displayedAngle=Math.round(t.angle??0);
+      set('angle', displayedAngle + '°');
       set('powerK', windup ? 'Power' : 'Load');
       set('power', String(Math.round((windup ? t.power * 95 : t.load * 100) || 0)));
       $('mcPw').style.width = Math.round((windup ? t.power * 95 : t.load * 100) || 0) + '%';
@@ -200,7 +195,11 @@
       set('resultSub', `${t.resultBy || role} · ${Math.round((t.distance ?? 0) * YD)} st · ${(t.air ?? 0).toFixed(2)}s in the air`);
       if (t.phase === 'flight' && t.air) $('mcFill').style.width = Math.min(100, (1 - eta / t.air) * 100) + '%';
       document.querySelectorAll('[data-only]').forEach(el => { el.hidden = !windup; });
-      document.querySelectorAll('[data-int]').forEach(el => {el.hidden=!!t.unknownCoverage;el.style.display=t.unknownCoverage?'none':'';el.classList.toggle('pick', !!t.intable);el.title=t.intable?(Number.isFinite(t.riskAt)?`Pre-throw forecast: possible interception ${t.riskAt.toFixed(2)}s after release`:'Pre-throw interception forecast'):'Pre-throw forecast: no estimated defender reach overlap';});
+      document.querySelectorAll('[data-int]').forEach(el => {
+        const known=!t.unknownCoverage;el.classList.toggle('unknown',!known);el.classList.toggle('pick',known&&!!t.intable);el.classList.toggle('possible',known&&!!t.possibleRisk&&!t.intable);
+        el.style.opacity=known?'1':'.55';el.querySelector('[data-risk-label]').textContent=!known?'Checking reach':t.intable?'Intable':t.possibleRisk?'Reach risk':'Clear path';
+        el.title=!known?'Catch dimensions or player data unavailable':t.intable?`Projected defender route overlaps the ball in ${(t.riskAt??0).toFixed(2)}s`:t.possibleRisk?`A change of direction or dive could reach the ball in ${(t.riskAt??0).toFixed(2)}s`:`Estimated clearance: ${(t.clearance??0).toFixed(1)} studs`;
+      });
       $('res').classList.toggle('pick', t.result !== 'Caught');
       $('res').style.opacity = t.result==='Result unavailable' ? '.45' : '';
       document.querySelectorAll('[data-tone]').forEach(el => {
@@ -211,7 +210,7 @@
       const on = layers.find(l => l.dataset.l === layer);
       const w = Math.min(on.offsetWidth, mc.parentElement.clientWidth - 32) + 'px';
       if (mc.style.width !== w) mc.style.width = w;
-    } else lastShown = '';
+    } else {lastShown = '';displayedAngle=null;}
     reportShape();
   }
 
@@ -273,15 +272,16 @@
       const bounds=mc.getBoundingClientRect();check(bounds.width>500&&bounds.width<1000&&bounds.height===60,'Original capsule layout');
       send('hudCapture',{phase:'aim'});
       await wait(400);
-      onThrow({phase:'flight',target:{role:'Ball flight'},eta:1.5,air:2.4,to_spot:null,near_d:null,flightSub:'Predicted field landing',intable:false});
-      await wait(900);check(document.querySelector('[data-l=flight]').classList.contains('on'),'Flight transition');
-      check(document.querySelector('[data-k=toSpot]').textContent==='—','Unknown receiver distance');
-      onThrow({phase:'flight',target:{role:'Practice WR'},eta:1.5,air:2.4,to_spot:4.25,near_d:125.5,flightSub:'Your pass · projected catch spot',intable:false});
-      check(document.querySelector('[data-k=nearD]').textContent==='125.5','Distant defender distance is not hidden');
-      onThrow({phase:'flight',target:{role:'Practice WR'},eta:1.5,air:2.4,to_spot:4.25,near_d:8.5,flightSub:'Your pass · projected catch spot',intable:true});await wait(400);
-      send('hudCapture',{phase:'flight'});await wait(300);
+      onThrow({phase:'flight',target:{role:'Ball flight'},intable:true});await wait(400);
+      check(mc.classList.contains('gone')&&!document.querySelector('[data-l=flight]'),'Removed in-flight card');
+      onThrow({phase:'windup',target:{role:'Practice WR'},angle:39.45,power:1,possibleRisk:true,intable:false});
+      const chip=document.querySelector('[data-int]');check(chip.classList.contains('possible')&&!chip.classList.contains('pick')&&chip.textContent.includes('Reach risk'),'Possible reach is amber, not a projected interception');
+      onThrow({phase:'windup',angle:39.55,power:1,intable:true});check(chip.classList.contains('pick'),'Projected interception is red');
+      check(document.querySelector('[data-k=angle]').textContent==='39°','Angle rounding hysteresis');
+      onThrow({phase:'windup',angle:39.55,power:1,unknownCoverage:true,intable:true});check(!chip.classList.contains('pick')&&chip.textContent.includes('Checking'),'Unknown coverage is neutral');
       for(const result of ['Caught','Incomplete','Intercepted']){onThrow({phase:'done',target:{role:'Practice WR'},result,resultBy:'Observed player',distance:120,air:1.5});await wait(100);check(document.querySelector('[data-k=result]').textContent===result&&document.querySelector('[data-l=done]').classList.contains('on'),'Observed result: '+result);}
-      onThrow({phase:'flight',eta:.5,to_spot:4.25,near_d:8.5,intable:true});check(document.querySelector('[data-k=toSpot]').textContent==='4.3'&&document.querySelector('[data-k=nearD]').textContent==='8.5'&&document.querySelector('[data-l=flight] [data-int]').classList.contains('pick'),'Live flight metrics and risk binding');
+      send('hudCapture',{phase:'result'});await wait(300);
+      onThrow({phase:'flight'});
       onThrow(null);await wait(500);check(mc.classList.contains('gone'),'Hidden without live state');
       send('hudTestResult',{ok:checks.every(c=>c.ok),checks});
     })();
