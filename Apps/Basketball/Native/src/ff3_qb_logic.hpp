@@ -257,34 +257,41 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  if(!std::isfinite(receiverJump)||receiverJump<0||receiverJump>40||!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)return {};
  if(length(movement)<.5)movement={};
  const double jump=receiver?std::max(0.,receiver->jumpHeight+receiver->above-.35):std::min(8.,receiverJump*.85);
- auto candidate=[&](const Solution& solution,Vec offset,bool lob){
-  Plan p;
-  if(!solution.valid||!placementAllowed(offset,movement,solution.time)||solution.angle<(beam?-30:5)||solution.angle>beamMaxAngle||offset.y<0||offset.y>jump+.001)return p;
-  if(receiver){if(reachGap(*receiver,solution.catchPoint,solution.time+latency)>-.25)return p;}
-  else{if(!receiverCanReach(offset,movement,solution.time,jump))return p;
-   if(offset.y>0){const double ascent=(std::sqrt(2*worldGravity*receiverJump)-std::sqrt(2*worldGravity*(receiverJump-offset.y)))/worldGravity;if(solution.time<.15+ascent)return p;}}
-  return Plan{solution,offset,std::min(95.,length(solution.velocity)),defenders.empty()?10:coverageMargin(solution,gravity,defenders,latency),!defenders.empty(),lob};
- };
- auto replan=[&](double power,Vec offset,bool lob){if(!placementAllowed(offset,movement,8))return Plan{};auto p=candidate(solve(origin,target+offset,movement,power,gravity,latency,lob,5),offset,lob);if(p.solution.valid)p.power=power;return p;};
- Plan held;
- if(previousPower>=1&&previousPower<=95)held=replan(previousPower,previousOffset,previousLob);
- if(!search&&held.solution.valid)return held;
- if(held.solution.valid&&held.power>=94.999&&estimatedClear(held,fit)&&held.margin>catchSafetyMargin+.25)return held;
  auto better=[&](const Plan& a,const Plan& b){
   if(!a.solution.valid)return false;if(!b.solution.valid)return true;
   bool ac=estimatedClear(a,fit),bc=estimatedClear(b,fit);if(ac!=bc)return ac;
-  // A contested 95-power pass must not beat a safer lower-power/high arc.
   if(!ac){if(std::abs(a.margin-b.margin)>.25)return a.margin>b.margin;}
   else if(beam&&std::abs(a.power-b.power)>.5)return a.power>b.power;
   auto cost=[&](const Plan& p){return (95-p.power)*.055+p.solution.time*.65+std::max(0.,p.solution.angle-30)*.012+length(p.offset-previousOffset)*.04;};
   return cost(a)<cost(b);
  };
+ auto candidate=[&](const Solution& solution,Vec offset,bool lob,const Plan* incumbent=nullptr){
+  Plan p;
+  if(!solution.valid||!placementAllowed(offset,movement,solution.time)||solution.angle<(beam?-30:5)||solution.angle>beamMaxAngle||offset.y<0||offset.y>jump+.001)return p;
+  if(receiver){if(reachGap(*receiver,solution.catchPoint,solution.time+latency)>-.25)return p;}
+  else{if(!receiverCanReach(offset,movement,solution.time,jump))return p;
+   if(offset.y>0){const double ascent=(std::sqrt(2*worldGravity*receiverJump)-std::sqrt(2*worldGravity*(receiverJump-offset.y)))/worldGravity;if(solution.time<.15+ascent)return p;}}
+  p={solution,offset,std::min(95.,length(solution.velocity)),10,!defenders.empty(),lob};
+  if(incumbent&&incumbent->solution.valid&&!defenders.empty()){
+   // Endpoint/launch clearance is an upper bound on whole-path clearance.
+   // If even this optimistic score loses, the full scan cannot win either.
+   p.margin=1000;
+   for(const auto& d:defenders)p.margin=std::min(p.margin,std::min(reachGap(d,solution.origin,latency),reachGap(d,point(solution,gravity,solution.time),solution.time+latency)));
+   if(!better(p,*incumbent))return Plan{};
+  }
+  p.margin=defenders.empty()?10:coverageMargin(solution,gravity,defenders,latency);return p;
+ };
+ auto replan=[&](double power,Vec offset,bool lob,const Plan* incumbent=nullptr){if(!placementAllowed(offset,movement,8))return Plan{};auto p=candidate(solve(origin,target+offset,movement,power,gravity,latency,lob,5),offset,lob,incumbent);if(p.solution.valid)p.power=power;return p;};
+ Plan held;
+ if(previousPower>=1&&previousPower<=95)held=replan(previousPower,previousOffset,previousLob);
+ if(!search&&held.solution.valid)return held;
+ if(held.solution.valid&&held.power>=94.999&&estimatedClear(held,fit)&&held.margin>catchSafetyMargin+.25)return held;
  Plan best;const auto offsets=fitOffsets(origin,target,movement,defenders);
  auto atPower=[&](double power){Plan tier;
   for(double height:{0.,jump*.65,jump}){
    if(height>0&&(!fit||defenders.empty()))continue;
    for(size_t i=0;i<(fit&&!defenders.empty()?offsets.size():1);++i)for(bool lob:{false,true}){
-    auto p=replan(power,offsets[i]+Vec{0,height,0},lob);if(better(p,tier))tier=p;
+    auto p=replan(power,offsets[i]+Vec{0,height,0},lob,&tier);if(better(p,tier))tier=p;
    }
   }
   return tier;
@@ -335,8 +342,8 @@ struct SelectionLatch {
   return current;
  }
 };
-// Display-only easing. While the curve differs materially from the current
-// ballistic solution the renderer labels it as updating, not a ready path.
+// Follow launch/catch movement immediately; ease only the intervening shape.
+// Display smoothing never controls throw eligibility.
 struct CurveTracker {
  std::uint64_t target=0;double at=0;std::vector<Vec> points;bool settling=false;
  void reset(){*this={};}
@@ -345,8 +352,10 @@ struct CurveTracker {
   const bool fresh=target!=identity||points.size()!=65||time<at||time-at>.3;
   const double alpha=fresh?1:1-std::exp(-std::max(0.,time-at)/.075);
   if(fresh)points.resize(65);
+  const Vec startShift=fresh?Vec{}:point(s,gravity,0)-points.front();
+  const Vec endShift=fresh?Vec{}:point(s,gravity,s.time)-points.back();
   double error=0;
-  for(size_t i=0;i<points.size();i++){auto desired=point(s,gravity,s.time*i/64.);points[i]=fresh?desired:points[i]+(desired-points[i])*alpha;error=std::max(error,length(points[i]-desired));}
+  for(size_t i=0;i<points.size();i++){double u=i/64.;auto desired=point(s,gravity,s.time*u);auto moved=points[i]+startShift*(1-u)+endShift*u;points[i]=fresh?desired:moved+(desired-moved)*alpha;error=std::max(error,length(points[i]-desired));}
   target=identity;at=time;settling=error>.6;
  }
 };

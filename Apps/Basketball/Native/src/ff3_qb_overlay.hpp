@@ -32,7 +32,7 @@ inline void renderHud(PumpSurface& surface,const ff3Native::Frame& f,bool presen
  const std::wstring values[]={f.ready?number(f.solution.angle,1)+L" deg":L"--",f.ready?number(f.solution.time,2)+L" s":L"--",f.ready?number(std::hypot(f.fitOffset.x,f.fitOffset.z),1)+L" st":L"--",f.ready?(f.fitOffset.y>=3?L"RISE +"+number(f.fitOffset.y,1):L"LEVEL"):L"--"};
  const wchar_t* labels[]={L"ELEVATION",L"FLIGHT TIME",L"PLACEMENT",L"CATCH HEIGHT"};
  for(int i=0;i<4;i++){float x=122.f+(i%2)*190,y=78.f+(i/2)*42;text(g,labels[i],x,y,8,muted,false,174);text(g,values[i],x,y+12,17,i==3?color:white,true,174);}
- const auto status=connecting?L"SETTING UP":f.fitBlocked?L"NO WINDOW":!f.ready?L"STANDBY":!f.coverageKnown?L"INCOMPLETE":f.coverageCount==0?L"NO COVERAGE":f.margin>ff3qb::catchSafetyMargin?L"OPEN ESTIMATE":L"CONTESTED";
+ const auto status=connecting?L"SETTING UP":f.fitBlocked?L"UNAVAILABLE":!f.ready?L"STANDBY":!f.coverageKnown?L"INCOMPLETE":f.coverageCount==0?L"NO COVERAGE":f.margin>ff3qb::catchSafetyMargin?L"OPEN ESTIMATE":L"CONTESTED";
  rounded(g,{18,164,118,23},6,Color(20,color.GetR(),color.GetG(),color.GetB()),Color(50,color.GetR(),color.GetG(),color.GetB()));text(g,status,27,169,9,color,true,105);
  std::wstring detail=f.ready?basketballUi::widen(f.route)+L" / "+number(f.distance)+L" st":basketballUi::widen(f.reason);
  if(connecting)detail=ff3Native::packetStatus().second;
@@ -51,7 +51,7 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  const int x=std::clamp(int(std::floor(left))-8,0,w),y=std::clamp(int(std::floor(top))-8,0,h),x1=std::clamp(int(std::ceil(right))+8,0,w),y1=std::clamp(int(std::ceil(bottom))+8,0,h);
  if(x1<=x||y1<=y||!surface.prepare(x1-x,y1-y)){surface.hide();return;}
  Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);g.TranslateTransform(REAL(-x),REAL(-y));g.SetClip(Rect(0,0,w,h));
- const Color color=f.fitBlocked?Color(255,255,150,139):settling?Color(210,158,181,204):accent(f);
+ const Color color=f.fitBlocked?Color(255,255,150,139):accent(f);
  Pen line(color,1.7f),shadow(Color(110,5,10,20),3.5f),glow(Color(18,color.GetR(),color.GetG(),color.GetB()),6);line.SetStartCap(LineCapRound);line.SetEndCap(LineCapRound);if(settling)line.SetDashStyle(DashStyleDash);
  auto segment=[&](Pen& pen){for(size_t i=1;i<points.size();i++)if(points[i-1].valid&&points[i].valid)g.DrawLine(&pen,PointF(REAL(points[i-1].x),REAL(points[i-1].y)),PointF(REAL(points[i].x),REAL(points[i].y)));};
  segment(shadow);segment(glow);segment(line);
@@ -62,7 +62,7 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  const float tw=std::clamp(110.f+float(f.name.size())*5.f,170.f,230.f),tx=std::clamp(rx-tw*.5f,4.f,std::max(4.f,w-tw-4)),ty=std::clamp(ry+23,4.f,std::max(4.f,h-48.f));
  rounded(g,{tx,ty,tw,42},9,Color(232,12,20,29),Color(45,color.GetR(),color.GetG(),color.GetB()));
  SolidBrush dot(color);g.FillEllipse(&dot,tx+10,ty+12,4.f,4.f);text(g,basketballUi::widen(f.name),tx+21,ty+6,11,Color(255,230,239,246),true,tw-50);text(g,f.locked?L"Q":L"",tx+tw-20,ty+8,9,color,true,14);
- std::wstring status=f.fitBlocked?L"NO CLEAR WINDOW":!f.ready?L"READING THROW":settling?L"UPDATING ARC":(f.guarded?L"OPEN ESTIMATE":L"ASSIST")+std::wstring(L"  /  ")+number(f.power)+L" P  /  "+number(f.solution.angle)+L" deg";
+ std::wstring status=f.fitBlocked?L"FIT UNAVAILABLE":!f.ready?L"READING THROW":(f.guarded?(f.margin>ff3qb::catchSafetyMargin?L"OPEN ESTIMATE":L"CONTESTED / READY"):L"ASSIST")+std::wstring(L"  /  ")+number(f.power)+L" P  /  "+number(f.solution.angle)+L" deg";
  text(g,status,tx+11,ty+24,8,color,true,tw-20);
  if(!points.empty()&&points.back().valid){float cx=float(points.back().x),cy=float(points.back().y);g.DrawEllipse(&shadow,cx-4,cy-4,8.f,8.f);g.DrawEllipse(&line,cx-4,cy-4,8.f,8.f);}
  if(present)surface.present({f.origin.x+x,f.origin.y+y});

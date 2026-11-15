@@ -1592,7 +1592,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         {type:'slider',id:'angle',label:'Manual angle · R / F',description:'R / F switch to manual angle with calculated power. Z or a pass button restores preset control.',value:35,min:5,max:75,step:1,unit:'°'},
         {type:'switch',id:'power',label:'Calculate power for the angle',description:'Recomputes continuously, up to 95. R/F automatically enable it.',value:true},
         {type:'switch',id:'force95',label:'Beam mode · adaptive power',description:'Searches both low and high arcs for the highest power with estimated clearance, up to 95. Can lower power and raise the arc to get over coverage.',value:false},
-        {type:'switch',id:'fit',label:'Smart fit',description:'Uses measured catch-part dimensions when available and timed jump/dive reach. Adjusts landing around the observed route: up to 3 studs when stationary or 6 while moving, in addition to normal route lead. If no clear window is found, assistance is withheld and the status says so. Your manual click is not blocked; estimates cannot guarantee a catch.',value:true},
+        {type:'switch',id:'fit',label:'Smart fit',description:'Uses measured catch-part dimensions when available and timed jump/dive reach. Adjusts landing around the observed route: up to 3 studs when stationary or 6 while moving, in addition to normal route lead. Prefers clear placements and keeps the best available assisted throw ready when coverage is contested. Amber means the defense may still reach it; no guaranteed catch.',value:true},
         {type:'slider',id:'radius',label:'Mouse selection radius',value:260,min:40,max:700,step:10,unit:' px'},
         {type:'slider',id:'dive',label:'Estimated dive reach',description:'Extra reach allowed to other catchers. Conservative estimate, not a measured game limit.',value:12,min:0,max:24,step:1,unit:' studs',advanced:true},
         {type:'switch',id:'visuals',label:'Aim path, receiver and catch point',value:true},
@@ -2901,7 +2901,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   // Messages from the C++ host
   function ff3Dashboard(){
     const m=ff3Live,valid=!!m.ready,num=(x,d=0)=>Number.isFinite(x)?x.toFixed(d):'—';
-    const pressure=m.transportReady===false&&m.setup?'SETTING UP':m.fitBlocked?'NO CLEAR WINDOW':!valid?'STANDBY':!m.coverageKnown?'INCOMPLETE':m.coverageCount===0?'NO COVERAGE':m.margin>1?'OPEN ESTIMATE':'CONTESTED';
+    const pressure=m.transportReady===false&&m.setup?'SETTING UP':m.fitBlocked?'FIT UNAVAILABLE':!valid?'STANDBY':!m.coverageKnown?'INCOMPLETE':m.coverageCount===0?'NO COVERAGE':m.margin>1?'OPEN ESTIMATE':'CONTESTED';
     const color=valid&&m.coverageKnown&&m.coverageCount>0&&m.margin<=1?'#ffbc85':'#8ee5d5';
     const samples=valid&&Array.isArray(m.trajectory)?m.trajectory.filter(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)):[];
     let curve='',end='';
@@ -3638,7 +3638,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       ff3Live.margin=1.54;ff3Live.reason='Nearby catch placement';ff3Live.fitOffset=3;$('[data-ff3-dashboard]').innerHTML=ff3Dashboard();
       check($('.qb-badge').textContent==='OPEN ESTIMATE'&&$('.qb-metrics').textContent.includes('st')&&$('.qb-status').textContent.includes('placement'),'Spatial clearance and nearby placement are visible');
       ff3Live.ready=false;ff3Live.fitBlocked=true;$('[data-ff3-dashboard]').innerHTML=ff3Dashboard();
-      check($('.qb-badge').textContent==='NO CLEAR WINDOW','Unclear reach is not presented as a ready fit');ff3PreviewTest=false;ff3Live=previousLive;
+      check($('.qb-badge').textContent==='FIT UNAVAILABLE','Unavailable physics or coverage is not presented as ready');ff3PreviewTest=false;ff3Live=previousLive;
       await hostAsk('testConnection',{scenario:'wrong'});await until(()=>BBS.reconnecting);
       check(!(await native()).ff3.ff3_qb.on,'Connection loss turns QB aim off');
       check(!(await hostAsk('workspace')).ok,'Unsupported game remains blocked after FF3');

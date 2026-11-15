@@ -220,6 +220,15 @@ int main(){int count=0;
  for(int i=2;i<60;i++)display.update(highDisplay,28,1,i*.016);
  assert(!display.settling&&length(display.points[32]-point(highDisplay,28,highDisplay.time*.5))<.01);
  display.update(lowDisplay,28,2,1);assert(!display.settling&&length(display.points[32]-initial)<1e-6);
+ // Continuous receiver/QB translation must not leave the display perpetually
+ // settling. Endpoints remain exact even while a changed arc shape eases.
+ for(int i=1;i<=120;i++){
+  auto moving=lowDisplay;Vec shift{0,0,20*i*.016};moving.origin=moving.origin+shift;moving.catchPoint=moving.catchPoint+shift;
+  display.update(moving,28,2,1+i*.016);
+  assert(!display.settling&&length(display.points[32]-point(moving,28,moving.time*.5))<1e-6);
+ }
+ display.update(highDisplay,28,2,2.936);
+ assert(length(display.points.front()-highDisplay.origin)<1e-6&&length(display.points.back()-point(highDisplay,28,highDisplay.time))<1e-6);
 
  for(bool visible:{false,true})for(bool right:{false,true})for(bool first:{false,true})assert(cursorModeAllowed(visible,right,first)==(visible&&!right&&!first));
  const float identity[]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};float tilted[]={1,0,0,0,0,.8f,.6f,0,0,0,1,0,0,0,0,1};

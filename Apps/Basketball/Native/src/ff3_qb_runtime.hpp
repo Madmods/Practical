@@ -233,13 +233,12 @@ struct Reader {
   f.power=planned.power;f.fitOffset=planned.offset;f.targetPosition=targetPosition+planned.offset;f.margin=defenders.empty()?10:planned.margin;previousFit=planned.offset;previousPower=planned.power;previousLob=planned.lob;previousAngle=planned.solution.angle;f.selectedLob=planned.lob;f.distance=ff3qb::length(targetPosition-origin);
   f.solution=solution;
   if(!defenders.empty())f.margin=ff3qb::coverageMargin(solution,f.gravity,defenders,std::clamp(f.ping*.0005+.05,0.,.25),&f.coverageTrace);
-  if(smartFit&&f.coverageKnown&&!defenders.empty()&&f.margin<=ff3qb::catchSafetyMargin){f.fitBlocked=true;f.reason="No clear window: predicted defender reach overlaps; assistance withheld";return f;}
   // A distant point minimizes camera/head parallax. Normal mouse hit testing
   // still belongs to the game, so geometry can affect the actual throw.
   f.aim=ff3qb::project(origin+solution.velocity*(1000./f.power),f.matrix,width,height);
   if(!packetMode&&!f.aim.valid){f.reason="Turn the camera toward the throw arc";return f;}
   if(!descendant(h,f.tool,f.own)||rd<addr>(h,player+Offsets::Player::ModelInstance)!=f.own||rd<std::uint64_t>(h,root+Offsets::DataModel::GameId)!=gameModules::registry[1].universe){f.reason="Game state changed";return f;}
-  f.ready=true;f.reason=f.coverageKnown&&f.coverageCount>0&&f.margin<=ff3qb::catchSafetyMargin?"No clear window found: defender reach overlaps this path":f.fitOffset.y>=3?"Elevated catch: "+f.name:"Ready: click to throw to "+f.name;return f;
+  f.ready=true;f.reason=f.coverageKnown&&f.coverageCount>0&&f.margin<=ff3qb::catchSafetyMargin?"Ready: contested fit to "+f.name:f.fitOffset.y>=3?"Elevated catch: "+f.name:"Ready: click to throw to "+f.name;return f;
  }
 };
 inline bool eligible(const Frame& f,double time){return enabled&&f.revision==revision&&f.ready&&time>=f.at&&time-f.at<.10&&admitted()&&focused(f.pid)&&(packetMode||freeCursor());}

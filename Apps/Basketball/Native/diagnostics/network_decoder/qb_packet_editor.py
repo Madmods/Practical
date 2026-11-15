@@ -161,10 +161,10 @@ def replacement(body,call,plan,tick):
     margin=None
     if plan.get('smartFit') is True or plan.get('strictFit') is True:
         if plan.get('coverageKnown') is not True:raise DecodeError('Incomplete catcher coverage')
-        # Revalidate at the real event origin. A clear preview cannot authorize
-        # rewriting a throw whose updated path now overlaps defender reach.
+        # Recompute coverage at the actual origin. The app explicitly permits
+        # contested fits; retain their measured risk instead of vetoing them.
         margin=catch_path_margin(origin,launch,flight,power,float(plan['gravity']),float(plan['latency']),plan.get('catchers'))
-        if margin<=1.0:raise DecodeError('No clear window at actual throw origin')
+        if margin<=1.0 and (plan.get('allowContested') is not True or plan.get('strictFit') is True):raise DecodeError('No clear window at actual throw origin')
         if 'receiver' in plan:
             validate_reach(plan['receiver'])
             landing=[origin[i]+launch[i]*(5/power+flight)-(.5*float(plan['gravity'])*flight*flight if i==1 else 0) for i in range(3)]
