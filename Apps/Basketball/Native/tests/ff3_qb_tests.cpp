@@ -4,6 +4,13 @@
 #include <iostream>
 using namespace ff3qb;
 int main(){int count=0;
+ {Defender still{{100,8,0},{},20,6.37,12,5.88,3.88,4.88};
+  assert(receiverGap(still,{104,8,0},1)<0);
+  assert(receiverGap(still,{110,8,0},1)>0&&reachGap(still,{110,8,0},1)<0);
+  auto catchArc=solve({0,8,0},{100,16,0},{},95,28,.05,false,5);auto full=groundFlight(catchArc,28,0);
+  assert(full.valid&&full.time>catchArc.time&&full.catchPoint.x>catchArc.catchPoint.x);
+  assert(std::abs(full.catchPoint.y-.6)<1e-7&&length(full.velocity-catchArc.velocity)<1e-9);
+ }
  {Defender wr{{30,8,0},{},20,6.37,12,5.88,3.88,4.88};std::vector<Defender> overlapping{wr};
   auto p=planCoverageThrow({0,8,0},wr.position,{},28,.06,overlapping,true,true,6.37,196.2,{},35,true,80,true,.1,&wr);
   assert(p.solution.valid&&p.power==95&&p.solution.angle<20&&!estimatedClear(p,true));
@@ -317,7 +324,7 @@ int main(){int count=0;
  auto sideFit=planCoverageThrow({0,8,0},routeWr.position,routeWr.velocity,28,.06,routeCoverage,true,true,actualJump,196.2,{},0,false,NAN,true,.1,&routeWr);
  assert(estimatedClear(sideFit,true)&&sideFit.power==95&&sideFit.offset.x<0&&sideFit.offset.z<0);
  assert(std::hypot(sideFit.offset.x,sideFit.offset.z)<=3.01&&sideFit.solution.angle<20);
- assert(reachGap(routeWr,sideFit.solution.catchPoint,sideFit.solution.time+.06)<-.25);
+ assert(receiverGap(routeWr,sideFit.solution.catchPoint,sideFit.solution.time+.06)<-.25);
  assert(select.update(2,true,.05)==1);assert(select.update(1,true,.1)==1);
  assert(select.update(2,true,.15)==1);assert(select.update(2,true,.32)==2);
  assert(select.update(3,true,.33,true)==3);assert(select.update(4,false,.34)==4);

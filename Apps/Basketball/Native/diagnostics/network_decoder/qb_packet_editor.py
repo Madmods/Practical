@@ -118,8 +118,15 @@ def validate_reach(d):
     if d.get('above',6)+d.get('below',8)<.2:raise DecodeError('Empty catcher vertical extent')
     if math.hypot(movement[0],movement[2])>45:raise DecodeError('Catcher speed outside model')
 
+def receiver_gap(receiver,point,horizon):
+    pose=dict(receiver);movement=receiver['velocity']
+    pose['position']=[receiver['position'][0]+movement[0]*horizon,receiver['position'][1],receiver['position'][2]+movement[2]*horizon]
+    pose.update(velocity=[0,movement[1],0],speed=0,dive=0)
+    if math.hypot(movement[0],movement[2])>.5:pose['radius']=pose.get('radius',6)+min(3.0,max(0,horizon-.15)*4)
+    return reach_gap(pose,point,horizon)
+
 def placement_limit(movement,flight):
-    return 3.0 if math.hypot(movement[0],movement[2])<.5 else 3.0+min(3.0,max(0,flight-.15)*4)
+    return 6.0 if math.hypot(movement[0],movement[2])<.5 else 3.0+min(3.0,max(0,flight-.15)*4)
 
 def catch_path_margin(origin,launch,flight,power,gravity,latency,catchers):
     if not isinstance(catchers,list) or len(catchers)>128:raise DecodeError('Catcher coverage bounds')
@@ -186,7 +193,7 @@ def replacement(body,call,plan,tick):
         if 'receiver' in plan:
             validate_reach(plan['receiver'])
             landing=[origin[i]+launch[i]*(5/power+flight)-(.5*float(plan['gravity'])*flight*flight if i==1 else 0) for i in range(3)]
-            if reach_gap(plan['receiver'],landing,flight+float(plan['latency'])+sample_delay)>-.25:raise DecodeError('Receiver cannot reach updated throw')
+            if receiver_gap(plan['receiver'],landing,flight+float(plan['latency'])+sample_delay)>-.25:raise DecodeError('Receiver cannot reach updated throw')
     aim=tuple(origin[i]+launch[i]*(10000/power) for i in range(3))
     return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],routeOffset=offset,instance=call['instance'],clickAt=clicked,coverageMargin=margin,contested=margin is not None and margin<=1.0,coverageUnits='studs')
 

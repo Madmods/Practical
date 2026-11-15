@@ -21,6 +21,12 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def test_stationary_receiver_cannot_sprint_to_rescue_placement(self):
+        receiver=dict(position=[70,5,0],velocity=[0,0,0],speed=20,jump=6.37,dive=12,radius=5.88,above=3.88,below=4.88,worldGravity=196.2)
+        self.assertLess(receiver_gap(receiver,[74,5,0],1),0)
+        self.assertGreater(receiver_gap(receiver,[80,5,0],1),0)
+        p=plan();p.update(targetPosition=[76,5,0],routePosition=[70,5,0],smartFit=True,coverageKnown=True,allowContested=True,catchers=[],receiver=receiver)
+        self.assertEqual(editor().process_plain(payload(),p,1010),payload())
     def test_observed_dive_speed_remains_targetable(self):
         p=plan();p.update(beam95=True,plannedPower=95,targetVelocity=[0,0,43.5])
         self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
@@ -69,7 +75,7 @@ class Tests(unittest.TestCase):
             self.assertEqual(editor().process_plain(payload(),p,1010),payload())
             p['targetPosition']=[72,5,0]
             e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.last['routeOffset'],(2.,0.,0.))
-        self.assertEqual(placement_limit([0,0,0],8),3)
+        self.assertEqual(placement_limit([0,0,0],8),6)
         self.assertLessEqual(placement_limit([0,0,20],8),6)
     def test_near_tangent_roots_are_not_lost_between_samples(self):
         origin,target,moving=[0,8,0],[100,8,0],[0,0,0]

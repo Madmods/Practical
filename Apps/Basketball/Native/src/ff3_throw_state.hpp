@@ -27,12 +27,12 @@ inline void flightMetrics(ThrowView& view,const BallFlight& ball,double ground,c
   // Evaluate the actual remaining arc in 3D, stopping at the first predicted
   // receiver catch opportunity. Nearby/contested WR status is not the risk flag.
   const int steps=std::clamp(int(std::ceil(end/.02)),32,400);
-  for(int i=0;i<=steps;i++){double t=end*i/steps;Vec point=start+v*t+Vec{0,-.5*ball.gravity*t*t,0};if(reachGap(wr->reach,point,t)<=-.25){end=t;break;}}
+  for(int i=0;i<=steps;i++){double t=end*i/steps;Vec point=start+v*t+Vec{0,-.5*ball.gravity*t*t,0};if(receiverGap(wr->reach,point,t)<=-.25){end=t;break;}}
  }
  view.eta=end;view.spot=start+v*end+Vec{0,-.5*ball.gravity*end*end,0};
  if(wr)view.toSpot=length(wr->reach.position-view.spot);
  double nearest=INFINITY;for(const auto& d:opponents)nearest=std::min(nearest,length(d.position-view.spot));if(std::isfinite(nearest))view.nearD=nearest;
- if(complete){Solution remaining{true,start,v,view.spot,end,0};view.margin=coverageMargin(remaining,ball.gravity,opponents,0);view.coverageKnown=true;view.intable=view.margin<=catchSafetyMargin;}
+ if(complete){Solution remaining{true,start,v,view.spot,end,0};view.margin=coverageMargin(remaining,ball.gravity,opponents,0);view.coverageKnown=true;view.intable=view.margin<=0;}
  view.detail=wr?"Your pass · predicted catch spot":"Your pass · receiver unavailable";
 }
 struct ThrowTracker {

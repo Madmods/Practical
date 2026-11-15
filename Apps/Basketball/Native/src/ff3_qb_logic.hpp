@@ -193,6 +193,20 @@ inline double reachGap(const Defender& d,Vec p,double horizon){
  // An arm cannot have its full horizontal and full vertical extension at once.
  return (std::hypot(horizontal/horizontalRadius,vertical/verticalRadius)-1)*std::min(horizontalRadius,verticalRadius);
 }
+// Receiver placement follows the observed route. Do not assume a stationary
+// receiver will sprint sideways simply because a defender could do so.
+inline double receiverGap(const Defender& receiver,Vec point,double horizon){
+ auto pose=receiver;Vec movement{receiver.velocity.x,0,receiver.velocity.z};
+ pose.position=pose.position+movement*horizon;pose.velocity={0,receiver.velocity.y,0};pose.speed=0;pose.diveReach=0;
+ if(length(movement)>.5)pose.radius+=std::min(3.,std::max(0.,horizon-.15)*4.);
+ return reachGap(pose,point,horizon);
+}
+inline Solution groundFlight(const Solution& catchFlight,double gravity,double ground){
+ if(!catchFlight.valid||!std::isfinite(ground)||gravity<=0)return {};
+ double height=catchFlight.origin.y-ground-.6,vy=catchFlight.velocity.y,disc=vy*vy+2*gravity*height;
+ if(disc<0)return {};double time=(vy+std::sqrt(disc))/gravity;if(time<=0||time>12)return {};
+ auto full=catchFlight;full.time=time;full.catchPoint=point(full,gravity,time);return full;
+}
 struct CoverageTrace {int catcher=-1;double time=0,gap=1000;Vec point;};
 // Signed distance in studs from the time-dependent reachable volume. Positive
 // means outside. Sample the whole flight, including the actual launch position.
@@ -226,7 +240,7 @@ inline std::vector<Vec> fitOffsets(Vec origin,Vec target,Vec movement,const std:
 }
 // Additional adjustment around observed route lead, not a hypothetical new
 // sprint. This bound is independently enforced again by the throw helper.
-inline double placementLimit(Vec movement,double flight){return std::hypot(movement.x,movement.z)<.5?3.:3.+std::min(3.,std::max(0.,flight-.15)*4.);}
+inline double placementLimit(Vec movement,double flight){return std::hypot(movement.x,movement.z)<.5?6.:3.+std::min(3.,std::max(0.,flight-.15)*4.);}
 inline Vec leadAdjustment(Vec origin,Vec target,Vec movement,double studs){
  Vec direction{movement.x,0,movement.z};if(length(direction)<.5)direction={target.x-origin.x,0,target.z-origin.z};
  return length(direction)>.001?direction*(std::clamp(studs,-12.,12.)/length(direction)):Vec{};
@@ -299,7 +313,7 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  auto candidate=[&](const Solution& solution,Vec offset,bool lob,const Plan* incumbent=nullptr){
   Plan p;
   if(!solution.valid||!placementAllowed(offset,movement,solution.time)||solution.angle<(beam?-30:5)||solution.angle>beamMaxAngle||offset.y<0||offset.y>jump+.001)return p;
-  if(receiver){if(reachGap(*receiver,solution.catchPoint,solution.time+latency)>-.25)return p;}
+  if(receiver){if(receiverGap(*receiver,solution.catchPoint,solution.time+latency)>-.25)return p;}
   else{if(!receiverCanReach(offset,movement,solution.time,jump))return p;
    if(offset.y>0){const double ascent=(std::sqrt(2*worldGravity*receiverJump)-std::sqrt(2*worldGravity*(receiverJump-offset.y)))/worldGravity;if(solution.time<.15+ascent)return p;}}
   p={solution,offset,std::min(95.,length(solution.velocity)),10,!defenders.empty(),lob};
@@ -319,7 +333,13 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  auto stable=[&](Plan desired){
   // Beam's power ordering is a gameplay constraint. Ease its displayed curve,
   // not the transmitted solution into a weaker angle-derived throw.
-  if(beam)return desired;
+  if(beam){
+   if(!desired.solution.valid||previousPower<1||!std::isfinite(previousAngle))return desired;
+   auto delta=desired.offset-previousOffset;const double step=12*std::clamp(elapsed,.001,.1);
+   if(length(delta)>step){auto offset=previousOffset+delta*(step/length(delta));auto eased=replan(desired.power,offset,desired.lob);
+    if(eased.solution.valid&&estimatedClear(eased,fit)==estimatedClear(desired,fit))return eased;
+   }return desired;
+  }
   if(!desired.solution.valid||!std::isfinite(previousAngle)||previousPower<1)return desired;
   const double dt=std::clamp(elapsed,.001,.1),step=24*dt;
   auto delta=desired.offset-previousOffset;

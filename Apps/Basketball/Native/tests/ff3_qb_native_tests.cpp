@@ -26,9 +26,17 @@ int main(){
  check(leadDistance==-5&&modules()[L"ff3_qb"][L"rows"][L"lead"].num()==-5);check(set(L"ff3_qb.lead",basketballUi::number(0)));
  check(set(L"ff3_qb.power",basketballUi::boolean(false)));check(save(file));autoPower=true;load(file);check(!autoPower);
  check(!set(L"ff3_qb.force95",basketballUi::number(1)));check(set(L"ff3_qb.force95",basketballUi::boolean(true)));check(force95&&passMode==0&&automaticAngle&&autoPower);
+ check(selectedLead()==3&&selectedHeight()==8);
+ check(set(L"ff3_qb.height",basketballUi::number(7))&&beamCatchHeight==7&&catchHeightAdjustment==0);
+ check(save(file));beamCatchHeight=8;load(file);check(force95&&selectedHeight()==7&&selectedLead()==3);
+ check(set(L"ff3_qb.height",basketballUi::number(8)));
  check(save(file));force95=false;load(file);check(force95);check(set(L"ff3_qb.preset",basketballUi::number(2))&&!force95);std::filesystem::remove(file);
  check(json::dump(basketballUi::snapshot())==basketballBefore);
  Frame f;f.pid=5;f.model=100;f.own=200;f.tool=300;f.target=400;f.revision=revision;f.ready=true;f.power=95;f.gravity=28;f.aim={500,300,true};f.client={0,0,1920,1080};
+ {auto visual=f;visual.at=10;visual.head={0,8,0};visual.targetPosition={70,16,0};visual.targetVelocity={0,0,20};visual.ping=20;visual.mode=0;bool priorBeam=force95;force95=true;
+  auto drawn=ff3Visual::projectedThrow(visual,10.08);auto sent=ff3qb::solve(visual.head,visual.targetPosition+visual.targetVelocity*.08,visual.targetVelocity,95,28,.06,false,5);
+  check(drawn.valid&&sent.valid&&ff3qb::length(drawn.catchPoint-sent.catchPoint)<1e-6&&ff3qb::length(drawn.velocity-sent.velocity)<1e-6);force95=priorBeam;
+ }
  {ff3Visual::PreviewPlan preview;auto valid=f;valid.held=valid.solution.valid=true;
   check(preview.select(valid,10).ready);auto gap=valid;gap.ready=gap.solution.valid=false;
   check(preview.select(gap,10.05).ready);check(!gap.ready); // Only the renderer receives the retained plan.

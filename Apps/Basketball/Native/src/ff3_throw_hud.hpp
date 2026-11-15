@@ -18,7 +18,7 @@ inline json::Value message(const ff3Native::Frame& f){
   double nearest=1000;for(const auto& d:f.hudDefenders)nearest=std::min(nearest,ff3qb::length(d.position-f.solution.catchPoint));
   state.o[L"open"]=number(nearest);state.o[L"unknownCoverage"]=basketballUi::boolean(!f.hudCoverageKnown);
   const double margin=f.hudCoverageKnown?ff3qb::coverageMargin(f.solution,f.gravity,f.hudDefenders,std::clamp(f.ping*.0005+.05,0.,.25)):0;
-  state.o[L"intable"]=basketballUi::boolean(f.hudCoverageKnown&&margin<=ff3qb::catchSafetyMargin);
+  state.o[L"intable"]=basketballUi::boolean(f.hudCoverageKnown&&margin<=0);
  }
  out.o[L"throw"]=state;return out;
 }
@@ -41,6 +41,9 @@ public:
  ~Overlay(){stop();}
 };
 inline int test(HINSTANCE instance,const std::filesystem::path& folder){
+ ff3Native::Frame boundary;boundary.ready=boundary.held=boundary.hudCoverageKnown=true;boundary.gravity=0;boundary.solution={true,{0,8,0},{10,0,0},{10,8,0},1,0};boundary.hudDefenders={{{5,8,1.5},{},0,0,0,1,1,1,196.2}};
+ if(message(boundary)[L"throw"][L"intable"].boolean())return 1; // A safety buffer is not an overlapping catch volume.
+ boundary.hudDefenders[0].position.z=.5;if(!message(boundary)[L"throw"][L"intable"].boolean())return 1;
  ff3Native::Frame unrelated;unrelated.balls.push_back({});if(!message(unrelated)[L"throw"][L"phase"].str().empty())return 1;
  ff3Native::Frame owned;owned.throwView.phase=ff3qb::ThrowView::Flight;owned.throwView.name="Selected WR";owned.throwView.toSpot=4.25;owned.throwView.nearD=8.5;owned.throwView.coverageKnown=owned.throwView.intable=true;
  auto mapped=message(owned)[L"throw"];if(mapped[L"to_spot"].num()!=4.25||mapped[L"near_d"].num()!=8.5||!mapped[L"intable"].boolean()||mapped[L"unknownCoverage"].boolean())return 1;
