@@ -28,6 +28,10 @@ int main(){
  Frame f;f.pid=5;f.model=100;f.own=200;f.tool=300;f.target=400;f.revision=revision;f.ready=true;f.power=95;f.gravity=28;f.aim={500,300,true};f.client={0,0,1920,1080};
  f.gameMouse={500,300,0};f.matrix[0]=f.matrix[5]=f.matrix[10]=f.matrix[15]=1;
  check(!eligible(f,now())); // No admitted session or game focus: always closed.
+ {float live[16]{},sample[16]{};live[0]=1;
+  check(ff3Visual::ViewReader::matrix(GetCurrentProcess(),reinterpret_cast<addr>(live),sample)&&sample[0]==1);
+  live[0]=2;check(ff3Visual::ViewReader::matrix(GetCurrentProcess(),reinterpret_cast<addr>(live),sample)&&sample[0]==2);
+  live[0]=NAN;check(!ff3Visual::ViewReader::matrix(GetCurrentProcess(),reinterpret_cast<addr>(live),sample));}
  check(dispatchConsistent(f,f,f,{500,300}));
  for(int i=0;i<14;i++){
   Frame changed=f;

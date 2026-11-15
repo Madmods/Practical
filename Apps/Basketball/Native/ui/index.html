@@ -1596,10 +1596,10 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         {type:'slider',id:'lead',label:'Lead distance adjustment',description:'Negative pulls the catch point back; positive places it farther ahead. Added to automatic movement lead. Stationary targets use the direction from QB to receiver.',value:0,min:-12,max:12,step:1,unit:' studs'},
         {type:'slider',id:'radius',label:'Mouse selection radius',value:260,min:40,max:700,step:10,unit:' px'},
         {type:'slider',id:'dive',label:'Estimated dive reach',description:'Extra reach allowed to other catchers. Conservative estimate, not a measured game limit.',value:12,min:0,max:24,step:1,unit:' studs',advanced:true},
-        {type:'switch',id:'visuals',label:'Ground aim lane, catch zone and receiver',value:true},
+        {type:'switch',id:'visuals',label:'Aim beam and ground catch marker',value:true},
         {type:'switch',id:'trails',label:'Live ball trajectories',description:'Tracks visible workspace footballs, including other players’ throws. Full observed flight plus a forecast to the field, with a landing marker and countdown. Clears on catch, rest, or detected landing. Forecasts assume no collision before the field. Works with QB aim off.',value:true},
         {type:'switch',id:'hud',label:'Throw capsule HUD',value:true},
-        {type:'switch',id:'candidates',label:'Defender reach and fit explanation',value:true},
+        {type:'switch',id:'candidates',label:'Small defender position markers',value:true},
         {type:'switch',id:'practice',label:'Practice receivers',value:true,advanced:true},
         {type:'choice',id:'arc',label:'Game-power arc',value:0,options:[[0,'Direct'],[1,'Lob']],advanced:true},
         {type:'moduleinfo',id:'help',label:'Read the field',text:'Enable QB aim once. If asked to rejoin, keep Vanta open; Continue resumes QB aim automatically. Aim near a receiver’s body and click normally once Ready. Green means an estimated opening; amber means contested. Smart fit predicts movement, not a guaranteed catch. Mag is a high touch preset, not a change to catch range.'}

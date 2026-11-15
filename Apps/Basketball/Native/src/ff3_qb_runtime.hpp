@@ -25,7 +25,7 @@ struct Frame {
  HWND window=nullptr;RECT client{};POINT origin{},cursor{};float matrix[16]{};
  std::vector<ff3qb::BallFlight> balls;
  ff3qb::Solution solution;ff3qb::Screen aim,receiver;
- Vec gameMouse{NAN,NAN,NAN};
+ addr cameraMatrix=0;Vec gameMouse{NAN,NAN,NAN};
  Vec head{},targetPosition{},targetVelocity{},leadOffset{};double groundY=NAN;
  ff3qb::CoverageTrace coverageTrace;
  ff3qb::Defender receiverReach;bool receiverReachKnown=false;
@@ -107,6 +107,7 @@ struct Reader {
   const auto visual=rd<addr>(h,moduleBase+Offsets::VisualEngine::Pointer);
   struct Matrix{float m[16];};Matrix invalid;for(auto& v:invalid.m)v=NAN;const auto matrix=rd<Matrix>(h,visual+Offsets::VisualEngine::ViewMatrix,invalid);std::copy(std::begin(matrix.m),std::end(matrix.m),f.matrix);
   if(!ff3qb::finite(cameraPosition)||!visual||!std::all_of(std::begin(f.matrix),std::end(f.matrix),[](float v){return std::isfinite(v);})){f.reason="Camera data unavailable";return f;}
+  f.cameraMatrix=visual+Offsets::VisualEngine::ViewMatrix;
   if(groundWorkspace!=ws){groundWorkspace=ws;groundY=NAN;}
   // Use the local grounded rig's foot plane; retain it while jumping.
   if(f.own&&rd<int>(h,hum+Offsets::Humanoid::FloorMaterial,1792)!=1792){

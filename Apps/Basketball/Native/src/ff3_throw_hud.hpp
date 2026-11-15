@@ -29,6 +29,7 @@ class Overlay {
 public:
  bool start(HINSTANCE instance,const vanta::AppInfo& parent){
   vanta::AppInfo info=parent;info.title=L"Vanta QB HUD";info.page=L"throw-hud.html";info.resource=107;info.overlay=true;info.dataName=L"VantaQbHud";info.product=L"ff3Hud";info.testMode=false;
+  info.glass=vanta::Glass::None;
   if(!view_.Create(instance,info,{}))return false;current_=this;timer_=SetTimer(nullptr,0,60,tick);return timer_!=0;
  }
  void stop(){if(timer_)KillTimer(nullptr,timer_);timer_=0;current_=nullptr;view_.Shutdown();}

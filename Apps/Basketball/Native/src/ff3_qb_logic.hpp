@@ -346,20 +346,19 @@ struct SelectionLatch {
   return current;
  }
 };
-// Follow launch/catch movement immediately; ease only the intervening shape.
+// Follow launch movement immediately; ease arc and catch-placement changes.
 // Display smoothing never controls throw eligibility.
 struct CurveTracker {
  std::uint64_t target=0;double at=0;std::vector<Vec> points;bool settling=false;
  void reset(){*this={};}
  void update(const Solution& s,double gravity,std::uint64_t identity,double time){
-  if(!s.valid||!identity){reset();return;}
+  if(!s.valid||!identity){if(!identity||identity!=target||time<at||time-at>.3)reset();return;}
   const bool fresh=target!=identity||points.size()!=65||time<at||time-at>.3;
-  const double alpha=fresh?1:1-std::exp(-std::max(0.,time-at)/.075);
+  const double alpha=fresh?1:1-std::exp(-std::max(0.,time-at)/.16);
   if(fresh)points.resize(65);
   const Vec startShift=fresh?Vec{}:point(s,gravity,0)-points.front();
-  const Vec endShift=fresh?Vec{}:point(s,gravity,s.time)-points.back();
   double error=0;
-  for(size_t i=0;i<points.size();i++){double u=i/64.;auto desired=point(s,gravity,s.time*u);auto moved=points[i]+startShift*(1-u)+endShift*u;points[i]=fresh?desired:moved+(desired-moved)*alpha;error=std::max(error,length(points[i]-desired));}
+  for(size_t i=0;i<points.size();i++){double u=i/64.;auto desired=point(s,gravity,s.time*u);auto moved=points[i]+startShift;points[i]=fresh?desired:moved+(desired-moved)*alpha;error=std::max(error,length(points[i]-desired));}
   target=identity;at=time;settling=error>.6;
  }
 };
