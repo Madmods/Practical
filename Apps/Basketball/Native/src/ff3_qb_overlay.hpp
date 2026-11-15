@@ -12,78 +12,78 @@ inline void text(Gdiplus::Graphics& g,const std::wstring& value,float x,float y,
 }
 inline std::wstring number(double value,int precision=0){std::wostringstream out;out<<std::fixed<<std::setprecision(precision)<<value;return out.str();}
 inline Gdiplus::Color accent(const ff3Native::Frame& f){return !f.coverageKnown?Gdiplus::Color(255,151,180,255):f.margin>ff3qb::catchSafetyMargin?Gdiplus::Color(255,115,232,186):Gdiplus::Color(255,255,191,115);}
+
+// Capsule layout adapted from Claudes work/vanta-ui/throw-hud.html.
+// Values are FF3 studs and power, with no fabricated catch/result phases.
 inline void renderHud(PumpSurface& surface,const ff3Native::Frame& f,bool present=true){
  using namespace Gdiplus;
- const int width=520,height=206;if(f.client.right<width+20||f.client.bottom<height+40||!surface.prepare(width,height))return;
+ const int width=760,height=100;if(f.client.right<width+20||!surface.prepare(width,height))return;
  Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
  const bool connecting=ff3Native::packetStatus&&!ff3Native::packetStatus().first;
- const auto color=accent(f);const Color white(255,235,243,248),muted(255,134,151,168);
- rounded(g,{3,3,514,198},16,Color(244,10,16,24),Color(90,108,135,153));
- text(g,L"VANTA  /  QUARTERBACK",20,15,9,muted,true,280);
- text(g,ff3Native::force95?L"ADAPTIVE BEAM":basketballUi::widen(ff3qb::presetName(f.mode)),388,14,10,color,true,112);
- text(g,f.name.empty()?L"Select a receiver":basketballUi::widen(f.name),20,32,22,white,true,340);
- text(g,f.locked?L"LOCKED  /  Q":L"CURSOR  /  Q",389,39,9,muted,false,112);
- Pen divider(Color(50,108,135,153),1);g.DrawLine(&divider,20.f,65.f,500.f,65.f);
- // Power is the visual anchor; trajectory and placement sit beside it.
- Pen track(Color(55,119,160,166),4),meter(Color(255,142,229,213),4);track.SetStartCap(LineCapRound);meter.SetStartCap(LineCapRound);meter.SetEndCap(LineCapRound);
- g.DrawArc(&track,22.f,80.f,76.f,76.f,135.f,270.f);
- if(f.ready)g.DrawArc(&meter,22.f,80.f,76.f,76.f,135.f,270.f*float(std::clamp(f.power/95.,0.,1.)));
- text(g,f.ready?number(f.power):L"--",39,92,29,white,true,58);text(g,L"POWER / 95",29,130,8,muted,false,70);
- const std::wstring values[]={f.ready?number(f.solution.angle,1)+L" deg":L"--",f.ready?number(f.solution.time,2)+L" s":L"--",f.ready?number(std::hypot(f.fitOffset.x,f.fitOffset.z),1)+L" st":L"--",f.ready?(f.fitOffset.y>=3?L"RISE +"+number(f.fitOffset.y,1):L"LEVEL"):L"--"};
- const wchar_t* labels[]={L"ELEVATION",L"FLIGHT TIME",L"PLACEMENT",L"CATCH HEIGHT"};
- for(int i=0;i<4;i++){float x=122.f+(i%2)*190,y=78.f+(i/2)*42;text(g,labels[i],x,y,8,muted,false,174);text(g,values[i],x,y+12,17,i==3?color:white,true,174);}
- const auto status=connecting?L"SETTING UP":f.fitBlocked?L"UNAVAILABLE":!f.ready?L"STANDBY":!f.coverageKnown?L"INCOMPLETE":f.coverageCount==0?L"NO COVERAGE":f.margin>ff3qb::catchSafetyMargin?L"OPEN ESTIMATE":L"CONTESTED";
- rounded(g,{18,164,118,23},6,Color(20,color.GetR(),color.GetG(),color.GetB()),Color(50,color.GetR(),color.GetG(),color.GetB()));text(g,status,27,169,9,color,true,105);
- std::wstring detail=f.ready?basketballUi::widen(f.route)+L" / "+number(f.distance)+L" st":basketballUi::widen(f.reason);
- if(connecting)detail=ff3Native::packetStatus().second;
- text(g,detail,148,169,10,muted,false,233);text(g,L"Z  PASS   R/F  ANGLE",385,170,8,muted,false,120);
- if(present)surface.present({f.origin.x+(f.client.right-width)/2,f.origin.y+f.client.bottom-height-28});
+ const ff3qb::BallFlight* ball=nullptr;if(!f.held)for(const auto& b:f.balls)if(!ball||b.born>ball->born)ball=&b;
+ auto forecast=ball?ff3qb::forecast(*ball,f.groundY):ff3qb::FlightForecast{};const bool flight=forecast.valid;
+ Color violet(255,190,195,255),white(255,241,243,252),muted(255,155,163,181),color=flight?violet:accent(f);
+ rounded(g,{3,3,754,72},34,Color(238,18,20,31),Color(95,210,216,255));
+ rounded(g,{6,5,748,32},17,Color(20,255,255,255),Color(0,0,0,0));
+ rounded(g,{18,25,93,27},13,Color(70,119,127,226),Color(100,188,195,255));
+ text(g,flight?L"IN FLIGHT":ff3Native::force95?L"BEAM":basketballUi::widen(ff3qb::presetName(f.mode)),29,31,10,violet,true,78);
+ const wchar_t* labels[]={flight?L"LANDS IN":L"POWER",flight?L"REMAINING":L"ANGLE",flight?L"TRACKED":L"AIR TIME"};
+ std::wstring values[]={flight?number(forecast.remaining,2)+L" s":f.ready?number(f.power):L"--",flight?number(ff3qb::length(forecast.landing-ball->position))+L" st":f.ready?number(f.solution.angle,1)+L"\u00b0":L"--",flight?number(double(f.balls.size()))+L" balls":f.ready?number(f.solution.time,2)+L" s":L"--"};
+ for(int i=0;i<3;i++){float x=128.f+i*89;text(g,labels[i],x,18,8,muted,true,85);text(g,values[i],x,33,19,i==0?violet:white,true,85);}
+ Pen divider(Color(65,195,200,255),1);g.DrawLine(&divider,398.f,20.f,398.f,57.f);
+ rounded(g,{414,26,28,28},14,Color(160,73,79,115),Color(90,190,198,255));text(g,flight?L"FB":L"WR",420,34,9,white,true,22);
+ text(g,flight?L"Live ball trajectory":basketballUi::widen(f.name.empty()?"Select a receiver":f.name),452,21,13,white,true,166);
+ text(g,flight?L"Predicted field landing":f.ready?basketballUi::widen(f.route)+L" / lead "+number(ff3Native::leadDistance)+L" st":basketballUi::widen(f.reason),452,42,9,muted,false,166);
+ const std::wstring status=connecting?L"SETTING UP":flight?L"FORECAST":!f.ready?L"STANDBY":!f.coverageKnown?L"UNKNOWN":f.margin>ff3qb::catchSafetyMargin?L"OPEN EST.":L"CONTESTED";
+ rounded(g,{630,26,110,27},13,Color(25,color.GetR(),color.GetG(),color.GetB()),Color(90,color.GetR(),color.GetG(),color.GetB()));text(g,status,640,34,9,color,true,95);
+ text(g,L"Q  LOCK     Z  PASS     R / F  ANGLE",24,79,8,muted,false,300);
+ text(g,flight?L"Forecast ends on catch or landing":L"Ground lane / fit offset / defender reach",445,79,8,muted,false,290);
+ if(present)surface.present({f.origin.x+(f.client.right-width)/2,f.origin.y+f.client.bottom-height-18});
 }
 inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool present=true,const ff3qb::CurveTracker* curve=nullptr){
  using namespace Gdiplus;const int w=f.client.right,h=f.client.bottom;
- const bool settling=curve&&curve->settling;
- std::vector<ff3qb::Screen> points;
- double left=f.receiver.x-120,top=f.receiver.y-24,right=f.receiver.x+120,bottom=f.receiver.y+70;
- auto bounds=[&](ff3qb::Screen p){if(p.valid){left=std::min(left,p.x-12);top=std::min(top,p.y-12);right=std::max(right,p.x+12);bottom=std::max(bottom,p.y+12);}};
- if(f.ready)for(int i=0;i<=64;i++){auto world=curve&&curve->points.size()==65?curve->points[i]:ff3qb::point(f.solution,f.gravity,f.solution.time*i/64.);auto p=ff3qb::project(world,f.matrix,w,h);points.push_back(p);bounds(p);}
- std::vector<ff3qb::Screen> coverage;
- if(ff3Native::showCandidates)for(const auto& d:f.defenders)if(ff3qb::length(d.position-(f.targetPosition-f.fitOffset))<30&&coverage.size()<4){auto p=ff3qb::project(d.position,f.matrix,w,h);if(p.valid){coverage.push_back(p);bounds(p);}}
- const int x=std::clamp(int(std::floor(left))-8,0,w),y=std::clamp(int(std::floor(top))-8,0,h),x1=std::clamp(int(std::ceil(right))+8,0,w),y1=std::clamp(int(std::ceil(bottom))+8,0,h);
- if(x1<=x||y1<=y||!surface.prepare(x1-x,y1-y)){surface.hide();return;}
- Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);g.TranslateTransform(REAL(-x),REAL(-y));g.SetClip(Rect(0,0,w,h));
- const Color color=f.fitBlocked?Color(255,255,150,139):accent(f);
- Pen line(color,1.7f),shadow(Color(110,5,10,20),3.5f),glow(Color(18,color.GetR(),color.GetG(),color.GetB()),6);line.SetStartCap(LineCapRound);line.SetEndCap(LineCapRound);if(settling)line.SetDashStyle(DashStyleDash);
- auto segment=[&](Pen& pen){for(size_t i=1;i<points.size();i++)if(points[i-1].valid&&points[i].valid)g.DrawLine(&pen,PointF(REAL(points[i-1].x),REAL(points[i-1].y)),PointF(REAL(points[i].x),REAL(points[i].y)));};
- segment(shadow);segment(glow);segment(line);
- // Small local markers replace tall reach poles and field-spanning lead lines.
- Pen danger(Color(180,255,150,139),1.3f);for(auto p:coverage){g.DrawArc(&danger,REAL(p.x)-6,REAL(p.y)-6,12.f,12.f,195.f,150.f);}
- const float rx=float(f.receiver.x),ry=float(f.receiver.y),r=13,len=5;
- for(int dx:{-1,1})for(int dy:{-1,1}){g.DrawLine(&shadow,rx+dx*r,ry+dy*r,rx+dx*(r-len),ry+dy*r);g.DrawLine(&shadow,rx+dx*r,ry+dy*r,rx+dx*r,ry+dy*(r-len));g.DrawLine(&line,rx+dx*r,ry+dy*r,rx+dx*(r-len),ry+dy*r);g.DrawLine(&line,rx+dx*r,ry+dy*r,rx+dx*r,ry+dy*(r-len));}
- const float tw=std::clamp(110.f+float(f.name.size())*5.f,170.f,230.f),tx=std::clamp(rx-tw*.5f,4.f,std::max(4.f,w-tw-4)),ty=std::clamp(ry+23,4.f,std::max(4.f,h-48.f));
- rounded(g,{tx,ty,tw,42},9,Color(232,12,20,29),Color(45,color.GetR(),color.GetG(),color.GetB()));
- SolidBrush dot(color);g.FillEllipse(&dot,tx+10,ty+12,4.f,4.f);text(g,basketballUi::widen(f.name),tx+21,ty+6,11,Color(255,230,239,246),true,tw-50);text(g,f.locked?L"Q":L"",tx+tw-20,ty+8,9,color,true,14);
- std::wstring status=f.fitBlocked?L"FIT UNAVAILABLE":!f.ready?L"READING THROW":(f.guarded?(f.margin>ff3qb::catchSafetyMargin?L"OPEN ESTIMATE":L"CONTESTED / READY"):L"ASSIST")+std::wstring(L"  /  ")+number(f.power)+L" P  /  "+number(f.solution.angle)+L" deg";
- text(g,status,tx+11,ty+24,8,color,true,tw-20);
- if(!points.empty()&&points.back().valid){float cx=float(points.back().x),cy=float(points.back().y);g.DrawEllipse(&shadow,cx-4,cy-4,8.f,8.f);g.DrawEllipse(&line,cx-4,cy-4,8.f,8.f);}
- if(present)surface.present({f.origin.x+x,f.origin.y+y});
+ if(!surface.prepare(w,h)){surface.hide();return;}
+ Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);g.SetClip(Rect(0,0,w,h));
+ const auto color=accent(f);const double ground=f.groundY+.08;
+ auto project=[&](ff3qb::Vec p){p.y=ground;return ff3qb::project(p,f.matrix,w,h);};
+ auto line=[&](ff3qb::Screen a,ff3qb::Screen b,Color c,float width,bool dashed=false){if(!a.valid||!b.valid)return;Pen p(c,width);p.SetStartCap(LineCapRound);p.SetEndCap(LineCapRound);if(dashed)p.SetDashStyle(DashStyleDash);g.DrawLine(&p,REAL(a.x),REAL(a.y),REAL(b.x),REAL(b.y));};
+ auto ring=[&](ff3qb::Vec center,double radius,Color c,float width,bool dashed=false){ff3qb::Screen last;for(int i=0;i<=64;i++){double a=i*6.283185307179586/64;auto q=project(center+ff3qb::Vec{std::cos(a)*radius,0,std::sin(a)*radius});if(i)line(last,q,c,width,dashed);last=q;}};
+ if(f.ready&&std::isfinite(ground)){
+  ff3qb::Screen previous;GraphicsPath lane;
+  for(int i=0;i<=64;i++){auto p=curve&&curve->points.size()==65?curve->points[i]:ff3qb::point(f.solution,f.gravity,f.solution.time*i/64.);auto q=project(p);if(i&&previous.valid&&q.valid)lane.AddLine(REAL(previous.x),REAL(previous.y),REAL(q.x),REAL(q.y));else lane.StartFigure();previous=q;}
+  Pen laneShadow(Color(90,8,12,22),6),laneGlow(Color(35,color.GetR(),color.GetG(),color.GetB()),5),laneStroke(color,2.2f);laneStroke.SetLineJoin(LineJoinRound);g.DrawPath(&laneShadow,&lane);g.DrawPath(&laneGlow,&lane);g.DrawPath(&laneStroke,&lane);
+  auto landing=f.solution.catchPoint,unfitted=landing-f.fitOffset;
+  ring(landing,2.6,color,2);ring(landing,3.1,Color(55,color.GetR(),color.GetG(),color.GetB()),1);
+  auto end=project(landing),base=project(unfitted);if(ff3qb::length(f.fitOffset)>.5){ring(unfitted,1.2,Color(145,181,188,208),1,true);line(base,end,Color(220,190,195,255),1.6f,true);}
+  if(end.valid){float x=std::clamp(float(end.x)-66,4.f,std::max(4.f,w-140.f)),y=std::clamp(float(end.y)+13,4.f,std::max(4.f,h-60.f));rounded(g,{x,y,132,34},10,Color(225,18,21,32),Color(80,color.GetR(),color.GetG(),color.GetB()));text(g,L"CATCH / "+number(f.solution.time,2)+L" s",x+10,y+7,10,color,true,115);}
+  if(ff3Native::showCandidates){
+   for(const auto& d:f.defenders)if(ff3qb::length(d.position-landing)<85)ring(d.position,2.0,Color(150,255,125,143),1.2f);
+   const int index=f.coverageTrace.catcher;
+   if(index>=0&&index<int(f.defenders.size())){
+    const auto& d=f.defenders[index];double t=f.coverageTrace.time+std::clamp(f.ping*.0005+.05,0.,.25),speed=std::clamp(std::max(d.speed,std::hypot(d.velocity.x,d.velocity.z)),0.,45.);
+    double reach=d.radius+speed*t+std::min(d.diveReach,std::max(0.,t-.1)*std::max(0.,45-speed));
+    ring(d.position,reach,Color(105,255,125,143),1,true);
+    auto db=project(d.position),closestPoint=project(f.coverageTrace.point);line(db,closestPoint,Color(160,255,125,143),1,true);
+    if(db.valid){float x=std::clamp(float(db.x)-176,4.f,std::max(4.f,w-175.f)),y=std::clamp(float(db.y)-54,4.f,std::max(4.f,h-55.f));rounded(g,{x,y,164,40},10,Color(220,25,20,30),Color(60,255,125,143));text(g,L"DB REACH / "+number(t,2)+L" s",x+10,y+6,9,Color(255,244,160,173),true,148);std::wstring how=f.margin<=1?L"OVERLAP":f.coverageTrace.point.y>d.position.y+d.above+ff3qb::jumpRise(d.jumpHeight,d.worldGravity,t,d.velocity.y)?L"OVER":L"SIDE";text(g,how+L" / clearance "+number(f.margin,1)+L" st",x+10,y+23,8,Color(255,192,182,198),false,148);}
+   }
+  }
+ }
+ // Receiver card stays compact; the aim path itself is projected onto turf.
+ if(f.receiver.valid){float x=std::clamp(float(f.receiver.x)-95,4.f,std::max(4.f,w-194.f)),y=std::clamp(float(f.receiver.y)+24,4.f,std::max(4.f,h-54.f));rounded(g,{x,y,190,44},14,Color(235,18,21,32),Color(75,190,195,255));text(g,basketballUi::widen(f.name),x+12,y+7,11,Color(255,235,239,252),true,147);text(g,f.locked?L"Q":L"",x+168,y+9,9,Color(255,190,195,255),true,14);text(g,!f.ready?L"READING THROW":!std::isfinite(ground)?L"WAITING FOR FIELD PLANE":(f.margin>1?L"OPEN EST. / ":L"CONTESTED / ")+number(f.power)+L" P / "+number(f.solution.angle)+L" deg",x+12,y+27,8,color,true,171);}
+ if(present)surface.present(f.origin);
 }
-// Observed flight history and a short, separately dashed gravity forecast.
+// Full measured flight and forward prediction to the retained field plane.
 inline void renderBalls(PumpSurface& surface,const ff3Native::Frame& f,bool present=true){
- using namespace Gdiplus;int w=f.client.right,h=f.client.bottom;double left=w,top=h,right=0,bottom=0;
- struct Path{std::vector<ff3qb::Screen> trail,future;ff3qb::Screen ball;};std::vector<Path> paths;
- auto project=[&](ff3qb::Vec p){auto q=ff3qb::project(p,f.matrix,w,h);if(q.valid){left=std::min(left,q.x-12);top=std::min(top,q.y-12);right=std::max(right,q.x+12);bottom=std::max(bottom,q.y+12);}return q;};
- for(const auto& flight:f.balls){Path path;for(auto p:flight.trail)path.trail.push_back(project(p));path.ball=project(flight.position);
-  if(flight.gravity>0)for(int i=0;i<=20;i++){double t=i*.03;path.future.push_back(project(flight.position+flight.velocity*t+ff3qb::Vec{0,-.5*flight.gravity*t*t,0}));}paths.push_back(path);
+ using namespace Gdiplus;int w=f.client.right,h=f.client.bottom;if(!surface.prepare(w,h)){surface.hide();return;}
+ Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);g.SetClip(Rect(0,0,w,h));
+ auto project=[&](ff3qb::Vec p){return ff3qb::project(p,f.matrix,w,h);};
+ auto draw=[&](const std::vector<ff3qb::Vec>& path,Color color,float width){Pen shadow(Color(100,8,12,25),width+2),pen(color,width);pen.SetLineJoin(LineJoinRound);pen.SetStartCap(LineCapRound);pen.SetEndCap(LineCapRound);GraphicsPath shape;for(size_t i=1;i<path.size();i++){auto a=project(path[i-1]),b=project(path[i]);if(!a.valid||!b.valid){shape.StartFigure();continue;}shape.AddLine(REAL(a.x),REAL(a.y),REAL(b.x),REAL(b.y));}g.DrawPath(&shadow,&shape);g.DrawPath(&pen,&shape);};
+ for(const auto& ball:f.balls){auto prediction=ff3qb::forecast(ball,f.groundY);draw(ball.trail,Color(120,172,181,255),1.5f);if(!prediction.valid)continue;
+  draw(prediction.path,Color(35,190,195,255),7);draw(prediction.path,Color(240,190,195,255),2.4f);
+  std::vector<ff3qb::Vec> ring;for(int i=0;i<=64;i++){double a=i*6.283185307179586/64;ring.push_back({prediction.landing.x+std::cos(a)*2.5,f.groundY+.08,prediction.landing.z+std::sin(a)*2.5});}draw(ring,Color(235,208,212,255),2);
+  auto spot=project(prediction.landing);if(spot.valid){float x=std::clamp(float(spot.x)-65,4.f,std::max(4.f,w-136.f)),y=std::clamp(float(spot.y)+12,4.f,std::max(4.f,h-45.f));rounded(g,{x,y,130,29},12,Color(230,23,23,40),Color(110,190,195,255));text(g,L"LAND ~ "+number(prediction.remaining,2)+L" s",x+12,y+8,10,Color(255,213,216,255),true,112);}
  }
- int x=std::clamp(int(left),0,w),y=std::clamp(int(top),0,h),x1=std::clamp(int(right)+1,0,w),y1=std::clamp(int(bottom)+1,0,h);
- if(x1<=x||y1<=y||!surface.prepare(x1-x,y1-y)){surface.hide();return;}
- Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.TranslateTransform(REAL(-x),REAL(-y));
- for(const auto& path:paths){
-  for(size_t i=1;i<path.trail.size();i++)if(path.trail[i-1].valid&&path.trail[i].valid){Pen shadow(Color(150,4,12,20),4),trail(Color(BYTE(50+190*i/path.trail.size()),100,218,255),2);g.DrawLine(&shadow,REAL(path.trail[i-1].x),REAL(path.trail[i-1].y),REAL(path.trail[i].x),REAL(path.trail[i].y));g.DrawLine(&trail,REAL(path.trail[i-1].x),REAL(path.trail[i-1].y),REAL(path.trail[i].x),REAL(path.trail[i].y));}
-  Pen forecast(Color(130,145,215,245),1);forecast.SetDashStyle(DashStyleDash);for(size_t i=1;i<path.future.size();i++)if(i%3!=0&&path.future[i-1].valid&&path.future[i].valid)g.DrawLine(&forecast,REAL(path.future[i-1].x),REAL(path.future[i-1].y),REAL(path.future[i].x),REAL(path.future[i].y));
-  if(path.ball.valid){Pen ring(Color(255,187,240,255),1.5f);SolidBrush core(Color(240,225,250,255));g.DrawEllipse(&ring,REAL(path.ball.x)-5,REAL(path.ball.y)-5,10.f,10.f);g.FillEllipse(&core,REAL(path.ball.x)-2,REAL(path.ball.y)-2,4.f,4.f);}
- }
- if(present)surface.present({f.origin.x+x,f.origin.y+y});
+ if(present)surface.present(f.origin);
 }
 // The renderer owns both small transparent surfaces, independent of input and UI.
 inline void worker(){

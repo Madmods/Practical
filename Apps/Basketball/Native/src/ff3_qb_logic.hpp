@@ -202,6 +202,10 @@ inline std::vector<Vec> fitOffsets(Vec origin,Vec target,Vec movement,const std:
 // Additional adjustment around observed route lead, not a hypothetical new
 // sprint. This bound is independently enforced again by the throw helper.
 inline double placementLimit(Vec movement,double flight){return std::hypot(movement.x,movement.z)<.5?3.:3.+std::min(3.,std::max(0.,flight-.15)*4.);}
+inline Vec leadAdjustment(Vec origin,Vec target,Vec movement,double studs){
+ Vec direction{movement.x,0,movement.z};if(length(direction)<.5)direction={target.x-origin.x,0,target.z-origin.z};
+ return length(direction)>.001?direction*(std::clamp(studs,-12.,12.)/length(direction)):Vec{};
+}
 inline bool placementAllowed(Vec offset,Vec movement,double flight){return finite(offset)&&std::isfinite(flight)&&flight>=0&&std::hypot(offset.x,offset.z)<=placementLimit(movement,flight)+1e-6;}
 inline bool receiverCanReach(Vec offset,Vec movement,double flight,double jump){
  // Head target already includes route lead. Extra placement must fit a modest

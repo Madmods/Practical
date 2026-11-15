@@ -1593,12 +1593,13 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         {type:'switch',id:'power',label:'Calculate power for the angle',description:'Recomputes continuously, up to 95. R/F automatically enable it.',value:true},
         {type:'switch',id:'force95',label:'Beam mode · adaptive power',description:'Searches both low and high arcs for the highest power with estimated clearance, up to 95. Can lower power and raise the arc to get over coverage.',value:false},
         {type:'switch',id:'fit',label:'Smart fit',description:'Uses measured catch-part dimensions when available and timed jump/dive reach. Adjusts landing around the observed route: up to 3 studs when stationary or 6 while moving, in addition to normal route lead. Prefers clear placements and keeps the best available assisted throw ready when coverage is contested. Amber means the defense may still reach it; no guaranteed catch.',value:true},
+        {type:'slider',id:'lead',label:'Lead distance adjustment',description:'Negative pulls the catch point back; positive places it farther ahead. Added to automatic movement lead. Stationary targets use the direction from QB to receiver.',value:0,min:-12,max:12,step:1,unit:' studs'},
         {type:'slider',id:'radius',label:'Mouse selection radius',value:260,min:40,max:700,step:10,unit:' px'},
         {type:'slider',id:'dive',label:'Estimated dive reach',description:'Extra reach allowed to other catchers. Conservative estimate, not a measured game limit.',value:12,min:0,max:24,step:1,unit:' studs',advanced:true},
-        {type:'switch',id:'visuals',label:'Aim path, receiver and catch point',value:true},
-        {type:'switch',id:'trails',label:'Live ball trajectories',description:'Tracks visible workspace footballs, including other players’ throws. Solid trail = observed flight; dashed = short forecast. Clears on catch, rest, or detected landing. Works with QB aim off.',value:true},
-        {type:'switch',id:'hud',label:'In-game quarterback HUD',value:true},
-        {type:'switch',id:'candidates',label:'Other receiver markers',value:true},
+        {type:'switch',id:'visuals',label:'Ground aim lane, catch zone and receiver',value:true},
+        {type:'switch',id:'trails',label:'Live ball trajectories',description:'Tracks visible workspace footballs, including other players’ throws. Full observed flight plus a forecast to the field, with a landing marker and countdown. Clears on catch, rest, or detected landing. Forecasts assume no collision before the field. Works with QB aim off.',value:true},
+        {type:'switch',id:'hud',label:'Throw capsule HUD',value:true},
+        {type:'switch',id:'candidates',label:'Defender reach and fit explanation',value:true},
         {type:'switch',id:'practice',label:'Practice receivers',value:true,advanced:true},
         {type:'choice',id:'arc',label:'Game-power arc',value:0,options:[[0,'Direct'],[1,'Lob']],advanced:true},
         {type:'moduleinfo',id:'help',label:'Read the field',text:'Enable QB aim once. If asked to rejoin, keep Vanta open; Continue resumes QB aim automatically. Aim near a receiver’s body and click normally once Ready. Green means an estimated opening; amber means contested. Smart fit predicts movement, not a guaranteed catch. Mag is a high touch preset, not a change to catch range.'}
@@ -3615,6 +3616,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       hostSend('setting',{key:'ff3_qb.force95',value:true});check((await native()).ff3.ff3_qb.rows.force95,'Beam option reaches native state');
       hostSend('setting',{key:'ff3_qb.force95',value:false});check(!(await native()).ff3.ff3_qb.rows.force95,'Adaptive power can be restored');
       $('[data-pass-next]').click();await until(()=>find('ff3_qb.preset').r.value===1);$('[data-pass-next]').click();check((await native()).ff3.ff3_qb.rows.preset===2,'Lob preset card reaches native state');
+      hostSend('setting',{key:'ff3_qb.lead',value:-4});check((await native()).ff3.ff3_qb.rows.lead===-4,'Signed lead slider reaches native state');hostSend('setting',{key:'ff3_qb.lead',value:0});
       hostSend('setting',{key:'ff3_qb.angle',value:42});check((await native()).ff3.ff3_qb.rows.angle===42,'Angle control reaches native state');
       hostSend('setting',{key:'ff3_qb.autoangle',value:false});check(!(await native()).ff3.ff3_qb.rows.autoangle,'Manual angle mode reaches native state');
       hostSend('setting',{key:'ff3_qb.fit',value:true});check((await native()).ff3.ff3_qb.rows.fit,'Smart fit reaches native state');

@@ -125,6 +125,13 @@ class Tests(unittest.TestCase):
         self.assertEqual(editor().process_plain(payload(),p,1010),payload())
         p['routePosition']=[70,5,0];p['coverageKnown']=False
         self.assertEqual(editor().process_plain(payload(),p,1010),payload())
+    def test_signed_lead_is_applied_without_bypassing_fit_bound(self):
+        for movement,bias in (([0,0,0],[-5,0,0]),([0,0,20],[0,0,-5])):
+            p=plan();p.update(routePosition=[70,5,0],targetVelocity=movement,leadDistance=-5,targetPosition=[70+bias[0],5,bias[2]])
+            e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.last['routeOffset'],(0,0,0))
+            self.assertEqual(e.last['target'],p['targetPosition'])
+            for invalid in (13,-13,True,float('nan')):
+                p['leadDistance']=invalid;self.assertEqual(editor().process_plain(payload(),p,1010),payload())
     def test_selected_power_and_jump_target_reach_packet(self):
         for selected in (60,75,90,95):
             p=plan();p.update(plannedPower=selected,targetPosition=[70,10,0])

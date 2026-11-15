@@ -14,10 +14,13 @@ int main(){
  check(set(L"ff3_qb.preset",basketballUi::number(4)));check(passMode==4);
  check(!set(L"ff3_qb.preset",basketballUi::number(6)));check(!set(L"ff3_qb.angle",basketballUi::number(4)));check(!set(L"ff3_qb.angle",basketballUi::number(76)));check(!set(L"ff3_qb.radius",basketballUi::number(INFINITY)));
  check(set(L"ff3_qb.angle",basketballUi::number(42)));check(set(L"ff3_qb.autoangle",basketballUi::boolean(false)));check(set(L"ff3_qb.fit",basketballUi::boolean(true)));
+ check(set(L"ff3_qb.lead",basketballUi::number(-5))&&leadDistance==-5);
+ check(!set(L"ff3_qb.lead",basketballUi::number(13)));check(!set(L"ff3_qb.lead",basketballUi::number(-13)));check(!set(L"ff3_qb.lead",basketballUi::number(.5)));
  const auto savedRevision=revision.load();stop();check(!enabled&&revision>savedRevision);
  auto file=std::filesystem::temp_directory_path()/(L"vanta-ff3-test-"+std::to_wstring(GetCurrentProcessId())+L".json");
  check(save(file));set(L"ff3_qb.arc",basketballUi::number(0));set(L"ff3_qb",basketballUi::boolean(true));load(file);
  check(arc==1&&autoPower&&!enabled);check(passMode==4&&manualAngle==42&&!automaticAngle&&smartFit);
+ check(leadDistance==-5&&modules()[L"ff3_qb"][L"rows"][L"lead"].num()==-5);check(set(L"ff3_qb.lead",basketballUi::number(0)));
  check(set(L"ff3_qb.power",basketballUi::boolean(false)));check(save(file));autoPower=true;load(file);check(!autoPower);
  check(!set(L"ff3_qb.force95",basketballUi::number(1)));check(set(L"ff3_qb.force95",basketballUi::boolean(true)));check(force95&&passMode==0&&automaticAngle&&autoPower);
  check(save(file));force95=false;load(file);check(force95);check(set(L"ff3_qb.preset",basketballUi::number(2))&&!force95);std::filesystem::remove(file);
@@ -49,11 +52,11 @@ int main(){
  std::cout<<checks<<" FF3 settings, persistence, session isolation and dispatch cancellation checks passed (no game inputs)\n";
  {
   using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;check(GdiplusStartup(&token,&startup,nullptr)==Ok);
-  Frame sample;sample.client={0,0,1280,720};sample.ready=sample.held=sample.wheelVisible=sample.coverageKnown=true;sample.name="Practice receiver";sample.route="Go / deep";sample.coverageCount=3;sample.coverageDetail="3 catchers / jump + dive estimate";sample.locked=true;sample.mode=2;sample.guarded=true;sample.margin=.54;sample.power=78;sample.distance=146;sample.solution.angle=48;sample.solution.time=2.36;
+  Frame sample;sample.groundY=0;sample.client={0,0,1280,720};sample.ready=sample.held=sample.wheelVisible=sample.coverageKnown=true;sample.name="Practice receiver";sample.route="Go / deep";sample.coverageCount=3;sample.coverageDetail="3 catchers / jump + dive estimate";sample.locked=true;sample.mode=2;sample.guarded=true;sample.margin=.54;sample.power=78;sample.distance=146;sample.solution.angle=48;sample.solution.time=2.36;
   PumpSurface hud;ff3Visual::renderHud(hud,sample,false);check(hud.bits&&!hud.visible);
   {Bitmap image(hud.width,hud.height,hud.width*4,PixelFormat32bppPARGB,(BYTE*)hud.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-hud-preview.png",&png,nullptr)==Ok);}
   hud.close();PumpSurface field;sample.target=123;sample.gravity=28;sample.fitOffset={4,4,0};sample.solution=ff3qb::solveAngle({0,8,0},{104,12,0},{},35,28,.05,5);sample.matrix[0]=.012f;sample.matrix[5]=.025f;sample.matrix[6]=.012f;sample.matrix[3]=-.65f;sample.matrix[7]=-.5f;sample.matrix[15]=1;sample.receiver=ff3qb::project({100,8,0},sample.matrix,1280,720);
-  ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
+  sample.defenders={{{75,8,8},{},20,7,12}};sample.coverageTrace={0,.3,.54,{55,13,0}};ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
   {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-field-preview.png",&png,nullptr)==Ok);}
   sample.ready=false;sample.fitBlocked=true;sample.reason="Coverage incomplete: no assisted throw; normal click unchanged";
   ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);

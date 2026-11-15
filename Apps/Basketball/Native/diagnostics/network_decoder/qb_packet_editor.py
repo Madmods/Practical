@@ -156,7 +156,12 @@ def replacement(body,call,plan,tick):
     anchor=plan.get('routePosition')
     if anchor is None and isinstance(plan.get('receiver'),dict):anchor=plan['receiver'].get('position')
     if anchor is not None:
-        offset=tuple(a-b for a,b in zip(vector(plan['targetPosition']),vector(anchor)))
+        lead=plan.get('leadDistance',0)
+        if isinstance(lead,bool) or not isinstance(lead,(int,float)) or not math.isfinite(lead) or not -12<=lead<=12:raise DecodeError('Lead distance bounds')
+        base=vector(anchor);movement=vector(plan['targetVelocity']);direction=(movement[0],0,movement[2])
+        if length(direction)<.5:direction=(base[0]-plan['head'][0],0,base[2]-plan['head'][2])
+        norm=length(direction);bias=tuple(v*lead/norm for v in direction) if norm>.001 else (0,0,0)
+        offset=tuple(a-b-c for a,b,c in zip(vector(plan['targetPosition']),base,bias))
         if math.hypot(offset[0],offset[2])>placement_limit(vector(plan['targetVelocity']),flight)+1e-6:raise DecodeError('Placement leaves receiver route')
     margin=None
     if plan.get('smartFit') is True or plan.get('strictFit') is True:

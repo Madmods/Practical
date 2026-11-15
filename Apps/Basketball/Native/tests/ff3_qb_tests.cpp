@@ -135,6 +135,16 @@ int main(){int count=0;
  FlightTracker flights;
  for(int i=0;i<=25;i++){double t=i*.05;flights.update({{1,{40*t,10+20*t-14*t*t,0},{40,20,0},28,true},{2,{0,3,0},{95,60,0},28,false}},1+t);}
  auto observed=flights.visible();assert(observed.size()==1&&observed[0].id==1);
+ auto fullForecast=forecast(observed[0],0);assert(fullForecast.valid&&fullForecast.path.size()==81);
+ assert(std::abs(fullForecast.landing.y-.6)<1e-7&&fullForecast.remaining>.5);
+ const double absoluteLanding=1.25+fullForecast.remaining;
+ assert(std::abs(fullForecast.landing.x-40*absoluteLanding)<.02);
+ assert(!forecast(observed[0],NAN).valid);
+ FlightTracker contact=flights;contact.update({{1,{72,.6,0},{40,-30,0},28,true}},2.3,0);assert(contact.visible().empty());
+ auto noGravity=observed[0];noGravity.gravity=0;assert(!forecast(noGravity,0).valid);
+ assert(length(leadAdjustment({0,8,0},{100,8,0},{0,0,20},-5)-Vec{0,0,-5})<1e-9);
+ assert(length(leadAdjustment({0,8,0},{100,8,0},{},-5)-Vec{-5,0,0})<1e-9);
+ assert(length(leadAdjustment({0,8,0},{100,8,0},{},0))==0);
  assert(std::abs(observed[0].velocity.x-40)<.01&&std::abs(observed[0].velocity.y-(20-28*1.25))<.01);
  assert(observed[0].trail.size()>10); // Survives the apex with constant raw velocity.
  auto landed=observed[0].position;
