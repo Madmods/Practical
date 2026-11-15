@@ -29,43 +29,42 @@ inline void renderHud(PumpSurface& surface,const ff3Native::Frame& f,bool presen
  g.DrawArc(&track,22.f,80.f,76.f,76.f,135.f,270.f);
  if(f.ready)g.DrawArc(&meter,22.f,80.f,76.f,76.f,135.f,270.f*float(std::clamp(f.power/95.,0.,1.)));
  text(g,f.ready?number(f.power):L"--",39,92,29,white,true,58);text(g,L"POWER / 95",29,130,8,muted,false,70);
- const std::wstring values[]={f.ready?number(f.solution.angle,1)+L" deg":L"--",f.ready?number(f.solution.time,2)+L" s":L"--",f.ready?number(std::hypot(f.fitOffset.x,f.fitOffset.z),1)+L" st":L"--",f.ready?(f.fitOffset.y>=3?L"JUMP +"+number(f.fitOffset.y,1):L"HEAD"):L"--"};
+ const std::wstring values[]={f.ready?number(f.solution.angle,1)+L" deg":L"--",f.ready?number(f.solution.time,2)+L" s":L"--",f.ready?number(std::hypot(f.fitOffset.x,f.fitOffset.z),1)+L" st":L"--",f.ready?(f.fitOffset.y>=3?L"RISE +"+number(f.fitOffset.y,1):L"LEVEL"):L"--"};
  const wchar_t* labels[]={L"ELEVATION",L"FLIGHT TIME",L"PLACEMENT",L"CATCH HEIGHT"};
  for(int i=0;i<4;i++){float x=122.f+(i%2)*190,y=78.f+(i/2)*42;text(g,labels[i],x,y,8,muted,false,174);text(g,values[i],x,y+12,17,i==3?color:white,true,174);}
- const auto status=connecting?L"SETTING UP":f.fitBlocked?L"UNREACHABLE":!f.ready?L"STANDBY":!f.coverageKnown?L"INCOMPLETE":f.coverageCount==0?L"NO COVERAGE":f.margin>ff3qb::catchSafetyMargin?L"OPEN ESTIMATE":L"CONTESTED";
+ const auto status=connecting?L"SETTING UP":f.fitBlocked?L"NO WINDOW":!f.ready?L"STANDBY":!f.coverageKnown?L"INCOMPLETE":f.coverageCount==0?L"NO COVERAGE":f.margin>ff3qb::catchSafetyMargin?L"OPEN ESTIMATE":L"CONTESTED";
  rounded(g,{18,164,118,23},6,Color(20,color.GetR(),color.GetG(),color.GetB()),Color(50,color.GetR(),color.GetG(),color.GetB()));text(g,status,27,169,9,color,true,105);
  std::wstring detail=f.ready?basketballUi::widen(f.route)+L" / "+number(f.distance)+L" st":basketballUi::widen(f.reason);
  if(connecting)detail=ff3Native::packetStatus().second;
  text(g,detail,148,169,10,muted,false,233);text(g,L"Z  PASS   R/F  ANGLE",385,170,8,muted,false,120);
  if(present)surface.present({f.origin.x+(f.client.right-width)/2,f.origin.y+f.client.bottom-height-28});
 }
-inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool present=true){
+inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool present=true,const ff3qb::CurveTracker* curve=nullptr){
  using namespace Gdiplus;const int w=f.client.right,h=f.client.bottom;
- std::vector<ff3qb::Screen> points,catchRing;
- double left=f.receiver.x-110,top=f.receiver.y-50,right=f.receiver.x+110,bottom=f.receiver.y+50;
- auto bounds=[&](ff3qb::Screen p){if(p.valid){left=std::min(left,p.x-90);top=std::min(top,p.y-60);right=std::max(right,p.x+90);bottom=std::max(bottom,p.y+52);}};
- if(f.ready)for(int i=0;i<=64;i++){auto p=ff3qb::project(ff3qb::point(f.solution,f.gravity,f.solution.time*i/64.),f.matrix,w,h);points.push_back(p);bounds(p);}
- if(f.ready)for(int i=0;i<=40;i++){double a=i*6.283185307/40;auto p=ff3qb::project(f.solution.catchPoint+ff3qb::Vec{3*cos(a),-3,3*sin(a)},f.matrix,w,h);catchRing.push_back(p);bounds(p);}
- std::vector<std::pair<ff3qb::Screen,ff3qb::Screen>> coverage;
- if(ff3Native::showCandidates)for(const auto& d:f.defenders)if(ff3qb::length(d.position-(f.targetPosition-f.fitOffset))<30&&coverage.size()<4){auto base=ff3qb::project(d.position,f.matrix,w,h),reach=ff3qb::project(d.position+ff3qb::Vec{0,6+d.jumpHeight,0},f.matrix,w,h);coverage.push_back({base,reach});bounds(base);bounds(reach);}
- if(ff3Native::showCandidates)for(const auto& c:f.candidates)bounds(c.screen);
- if(f.ready){auto launch=ff3qb::project(f.solution.origin,f.matrix,w,h);bounds(launch);}
+ const bool settling=curve&&curve->settling;
+ std::vector<ff3qb::Screen> points;
+ double left=f.receiver.x-120,top=f.receiver.y-24,right=f.receiver.x+120,bottom=f.receiver.y+70;
+ auto bounds=[&](ff3qb::Screen p){if(p.valid){left=std::min(left,p.x-12);top=std::min(top,p.y-12);right=std::max(right,p.x+12);bottom=std::max(bottom,p.y+12);}};
+ if(f.ready)for(int i=0;i<=64;i++){auto world=curve&&curve->points.size()==65?curve->points[i]:ff3qb::point(f.solution,f.gravity,f.solution.time*i/64.);auto p=ff3qb::project(world,f.matrix,w,h);points.push_back(p);bounds(p);}
+ std::vector<ff3qb::Screen> coverage;
+ if(ff3Native::showCandidates)for(const auto& d:f.defenders)if(ff3qb::length(d.position-(f.targetPosition-f.fitOffset))<30&&coverage.size()<4){auto p=ff3qb::project(d.position,f.matrix,w,h);if(p.valid){coverage.push_back(p);bounds(p);}}
  const int x=std::clamp(int(std::floor(left))-8,0,w),y=std::clamp(int(std::floor(top))-8,0,h),x1=std::clamp(int(std::ceil(right))+8,0,w),y1=std::clamp(int(std::ceil(bottom))+8,0,h);
  if(x1<=x||y1<=y||!surface.prepare(x1-x,y1-y)){surface.hide();return;}
  Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);g.TranslateTransform(REAL(-x),REAL(-y));g.SetClip(Rect(0,0,w,h));
- Color color=accent(f);Pen shadow(Color(170,5,10,20),4),glow(Color(30,color.GetR(),color.GetG(),color.GetB()),9),line(color,2),muted(Color(100,164,188,228),1);line.SetStartCap(LineCapRound);line.SetEndCap(LineCapRound);
- auto segment=[&](const auto& path,Pen& pen){for(size_t i=1;i<path.size();i++)if(path[i-1].valid&&path[i].valid)g.DrawLine(&pen,PointF(REAL(path[i-1].x),REAL(path[i-1].y)),PointF(REAL(path[i].x),REAL(path[i].y)));};
- Pen pressure(Color(185,255,125,123),1);pressure.SetDashStyle(DashStyleDash);
- for(const auto& d:coverage){if(d.first.valid){g.DrawEllipse(&pressure,REAL(d.first.x)-9,REAL(d.first.y)-9,18.f,18.f);if(d.second.valid){g.DrawLine(&pressure,REAL(d.first.x),REAL(d.first.y)-10,REAL(d.second.x),REAL(d.second.y));g.DrawLine(&pressure,REAL(d.second.x)-7,REAL(d.second.y),REAL(d.second.x)+7,REAL(d.second.y));}}}
- segment(points,shadow);segment(points,glow);segment(points,line);segment(catchRing,glow);segment(catchRing,line);
- if(ff3Native::showCandidates)for(const auto& c:f.candidates)if(!c.selected&&c.screen.valid){float cx=float(c.screen.x),cy=float(c.screen.y);g.DrawEllipse(&muted,cx-6,cy-6,12.f,12.f);}
- // Moving time dots show direction without flashing the entire trajectory.
- SolidBrush dots(Color(255,237,246,255));double phase=.125;
- if(f.ready)for(int i=0;i<4;i++){double t=phase+i*.25;auto p=ff3qb::project(ff3qb::point(f.solution,f.gravity,f.solution.time*t),f.matrix,w,h);if(p.valid)g.FillEllipse(&dots,REAL(p.x)-2,REAL(p.y)-2,4.f,4.f);}
- const float rx=float(f.receiver.x),ry=float(f.receiver.y),r=17,len=7;
+ const Color color=f.fitBlocked?Color(255,255,150,139):settling?Color(210,158,181,204):accent(f);
+ Pen line(color,1.7f),shadow(Color(110,5,10,20),3.5f),glow(Color(18,color.GetR(),color.GetG(),color.GetB()),6);line.SetStartCap(LineCapRound);line.SetEndCap(LineCapRound);if(settling)line.SetDashStyle(DashStyleDash);
+ auto segment=[&](Pen& pen){for(size_t i=1;i<points.size();i++)if(points[i-1].valid&&points[i].valid)g.DrawLine(&pen,PointF(REAL(points[i-1].x),REAL(points[i-1].y)),PointF(REAL(points[i].x),REAL(points[i].y)));};
+ segment(shadow);segment(glow);segment(line);
+ // Small local markers replace tall reach poles and field-spanning lead lines.
+ Pen danger(Color(180,255,150,139),1.3f);for(auto p:coverage){g.DrawArc(&danger,REAL(p.x)-6,REAL(p.y)-6,12.f,12.f,195.f,150.f);}
+ const float rx=float(f.receiver.x),ry=float(f.receiver.y),r=13,len=5;
  for(int dx:{-1,1})for(int dy:{-1,1}){g.DrawLine(&shadow,rx+dx*r,ry+dy*r,rx+dx*(r-len),ry+dy*r);g.DrawLine(&shadow,rx+dx*r,ry+dy*r,rx+dx*r,ry+dy*(r-len));g.DrawLine(&line,rx+dx*r,ry+dy*r,rx+dx*(r-len),ry+dy*r);g.DrawLine(&line,rx+dx*r,ry+dy*r,rx+dx*r,ry+dy*(r-len));}
- rounded(g,{rx-105,ry+29,210,24},7,Color(225,10,18,32),Color(90,color.GetR(),color.GetG(),color.GetB()));text(g,(f.locked?L"LOCKED / ":L"")+basketballUi::widen(f.name),rx-96,ry+32,12,color,true,191);
- if(!points.empty()&&points.back().valid){float cx=float(points.back().x),cy=float(points.back().y);g.DrawEllipse(&shadow,cx-6,cy-6,12.f,12.f);g.DrawEllipse(&line,cx-6,cy-6,12.f,12.f);g.DrawLine(&line,cx-11,cy,cx+11,cy);g.DrawLine(&line,cx,cy-11,cx,cy+11);rounded(g,{cx-71,cy-40,142,26},6,Color(235,10,16,24),Color(75,color.GetR(),color.GetG(),color.GetB()));text(g,(f.fitOffset.y>=3?L"JUMP CATCH":L"CATCH POINT")+std::wstring(L" / ")+number(f.solution.time,1)+L"s",cx-62,cy-34,9,color,true,126);Pen lead(Color(130,color.GetR(),color.GetG(),color.GetB()),1);lead.SetDashStyle(DashStyleDash);g.DrawLine(&lead,rx,ry,cx,cy);}
+ const float tw=std::clamp(110.f+float(f.name.size())*5.f,170.f,230.f),tx=std::clamp(rx-tw*.5f,4.f,std::max(4.f,w-tw-4)),ty=std::clamp(ry+23,4.f,std::max(4.f,h-48.f));
+ rounded(g,{tx,ty,tw,42},9,Color(232,12,20,29),Color(45,color.GetR(),color.GetG(),color.GetB()));
+ SolidBrush dot(color);g.FillEllipse(&dot,tx+10,ty+12,4.f,4.f);text(g,basketballUi::widen(f.name),tx+21,ty+6,11,Color(255,230,239,246),true,tw-50);text(g,f.locked?L"Q":L"",tx+tw-20,ty+8,9,color,true,14);
+ std::wstring status=f.fitBlocked?L"NO CLEAR WINDOW":!f.ready?L"READING THROW":settling?L"UPDATING ARC":(f.guarded?L"OPEN ESTIMATE":L"ASSIST")+std::wstring(L"  /  ")+number(f.power)+L" P  /  "+number(f.solution.angle)+L" deg";
+ text(g,status,tx+11,ty+24,8,color,true,tw-20);
+ if(!points.empty()&&points.back().valid){float cx=float(points.back().x),cy=float(points.back().y);g.DrawEllipse(&shadow,cx-4,cy-4,8.f,8.f);g.DrawEllipse(&line,cx-4,cy-4,8.f,8.f);}
  if(present)surface.present({f.origin.x+x,f.origin.y+y});
 }
 // Observed flight history and a short, separately dashed gravity forecast.
@@ -88,15 +87,16 @@ inline void renderBalls(PumpSurface& surface,const ff3Native::Frame& f,bool pres
 }
 // The renderer owns both small transparent surfaces, independent of input and UI.
 inline void worker(){
- using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;if(GdiplusStartup(&token,&startup,nullptr)!=Ok)return;PumpSurface field,hud,balls;
+ using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;if(GdiplusStartup(&token,&startup,nullptr)!=Ok)return;PumpSurface field,hud,balls;ff3qb::CurveTracker curve;
  while(running){
   MSG message{};while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
   auto f=ff3Native::snapshot();bool live=(ff3Native::enabled||ff3Native::ballTrails)&&ff3Native::admitted()&&ff3Native::focused(f.pid)&&now()>=f.at&&now()-f.at<.15;
-  if(!live){field.hide();hud.hide();balls.hide();Sleep(30);continue;}
+  if(!live){field.hide();hud.hide();balls.hide();curve.reset();Sleep(30);continue;}
   if(!f.client.right){f.window=GetForegroundWindow();GetClientRect(f.window,&f.client);ClientToScreen(f.window,&f.origin);}
   if(f.client.right>8000||f.client.bottom>5000){field.hide();hud.hide();balls.hide();Sleep(30);continue;}
   if(ff3Native::enabled&&ff3Native::showHud)renderHud(hud,f);else hud.hide();
-  if(ff3Native::enabled&&ff3Native::visuals&&f.target&&f.receiver.valid&&!f.textFocus&&f.revision==ff3Native::revision)renderField(field,f);else field.hide();if(ff3Native::ballTrails&&!f.balls.empty())renderBalls(balls,f);else balls.hide();Sleep(16);
+  curve.update(f.solution,f.gravity,f.target,now());
+  if(ff3Native::enabled&&ff3Native::visuals&&f.target&&f.receiver.valid&&!f.textFocus&&f.revision==ff3Native::revision)renderField(field,f,true,&curve);else field.hide();if(ff3Native::ballTrails&&!f.balls.empty())renderBalls(balls,f);else balls.hide();Sleep(16);
  }
  field.close();hud.close();balls.close();GdiplusShutdown(token);
 }

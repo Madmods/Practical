@@ -74,7 +74,7 @@ struct Reader {
  }
 
  HANDLE handle=nullptr;DWORD pid=0;addr model=0,moduleBase=0,retained=0;double scanAt=-10;
- addr routeTarget=0,routeTool=0;ff3qb::RouteHistory routeHistory;ff3qb::AngleTracker angleHistory;Vec previousFit{};double previousPower=0;bool previousLob=false;double previousAngle=NAN;unsigned plannerRevision=0;double nextPlanSearch=0;
+ addr routeTarget=0,routeTool=0;ff3qb::SelectionLatch selection;ff3qb::RouteHistory routeHistory;ff3qb::AngleTracker angleHistory;Vec previousFit{};double previousPower=0;bool previousLob=false;double previousAngle=NAN;unsigned plannerRevision=0;double nextPlanSearch=0,lastSearch=0;
  struct Actor{addr rig=0,player=0,team=0;bool npc=false;};std::vector<Actor> actors;
  ~Reader(){if(handle)CloseHandle(handle);}
  Frame read(addr forced=0){
@@ -137,7 +137,7 @@ struct Reader {
   Vec origin=position(h,head);f.head=origin;double best=std::min(double(selectionRadius.load()),std::min(width,height)*.35);
   std::vector<ff3qb::Defender> defenders;
   const addr pinned=lockedTarget.load();const addr wanted=forced?forced:pinned;f.locked=pinned!=0;
-  Vec targetPosition{},targetVelocity{};
+  Vec targetPosition{},targetVelocity{},retainedPosition{},retainedVelocity{};Frame retainedFrame;bool retainedAvailable=false;
   for(const auto& a:actors){
    if(wanted&&a.rig!=wanted)continue;
    if(a.npc){if(!practice||!practicePlace||!rd<bool>(h,child(h,a.rig,"WR")+Offsets::Misc::Value))continue;auto active=child(h,a.rig,"Enabled");if(active&&!rd<bool>(h,active+Offsets::Misc::Value))continue;}
@@ -150,11 +150,14 @@ struct Reader {
    auto top=ff3qb::project(p+Vec{0,2,0},f.matrix,width,height),bottom=ff3qb::project(p-Vec{0,3,0},f.matrix,width,height);
    double distance=top.valid&&bottom.valid?ff3qb::selectionDistance(f.cursor.x-f.origin.x,f.cursor.y-f.origin.y,bottom.x,bottom.y,top.x,top.y,std::clamp(std::abs(top.y-bottom.y)*.3,18.,32.),a.rig==retained):std::hypot(screen.x-(f.cursor.x-f.origin.x),screen.y-(f.cursor.y-f.origin.y));
    f.candidates.push_back({screen,nm(h,a.rig),false});
-   if(!wanted&&distance>=best)continue;
    if(ff3qb::length(p-origin)<6||ff3qb::length(p-origin)>1000)continue;
+   if(a.rig==retained&&distance<std::min(double(selectionRadius.load()),std::min(width,height)*.35)+24){retainedAvailable=true;retainedFrame.target=a.rig;retainedFrame.name=nm(h,a.rig);retainedFrame.receiver=screen;retainedPosition=p;retainedVelocity=v;}
+   if(!wanted&&distance>=best)continue;
    best=distance;f.target=a.rig;f.name=nm(h,a.rig);f.receiver=screen;targetPosition=p;targetVelocity=v;
   }
-  if(!f.target){retained=0;f.reason=pinned?"Locked receiver unavailable or off screen; Q unlocks":"Aim near a teammate or practice receiver";return f;}
+  selection.current=retained;auto selected=selection.update(f.target,retainedAvailable,f.at,wanted!=0);
+  if(selected&&selected!=f.target&&retainedAvailable){f.target=retainedFrame.target;f.name=retainedFrame.name;f.receiver=retainedFrame.receiver;targetPosition=retainedPosition;targetVelocity=retainedVelocity;}
+  if(!f.target){retained=0;selection={};f.reason=pinned?"Locked receiver unavailable or off screen; Q unlocks":"Aim near a teammate or practice receiver";return f;}
   retained=f.target;for(auto& c:f.candidates)c.selected=c.screen.x==f.receiver.x&&c.screen.y==f.receiver.y;
   if(routeTarget!=f.target||routeTool!=f.tool||plannerRevision!=f.revision){plannerRevision=f.revision;routeTarget=f.target;routeTool=f.tool;routeHistory.reset();angleHistory={};previousFit={};previousPower=0;previousLob=false;previousAngle=NAN;nextPlanSearch=0;}
   routeHistory.update(f.at,origin,position(h,child(h,f.target,"HumanoidRootPart")),targetVelocity);targetVelocity=routeHistory.movement;if(ff3qb::length(targetVelocity)<.5)targetVelocity={};
@@ -198,19 +201,20 @@ struct Reader {
    // Unknown receiver jump capability cannot justify an elevated catch point.
    if(!std::isfinite(jump)||jump<0||jump>40)jump=0;
    if(!std::isfinite(world)||world<10||world>300){world=196.2;jump=0;}
-   planned=ff3qb::planCoverageThrow(origin,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,force95,jump,world,previousFit,previousPower,previousLob,previousAngle,f.at>=nextPlanSearch);
-   if(f.at>=nextPlanSearch)nextPlanSearch=f.at+.10;
+   planned=ff3qb::planCoverageThrow(origin,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,force95,jump,world,previousFit,previousPower,previousLob,previousAngle,f.at>=nextPlanSearch,f.at-lastSearch);
+   if(f.at>=nextPlanSearch){lastSearch=f.at;nextPlanSearch=f.at+.10;}
   }
   auto solution=planned.solution;
-  if(!solution.valid){f.fitBlocked=smartFit;f.reason=powerFirst&&force95?"No reachable Beam arc; choose Auto route for a higher arc":"No reachable throw at these settings";return f;}
+  if(!solution.valid){f.fitBlocked=smartFit;f.reason="No reachable throw at these settings";return f;}
   f.power=planned.power;f.fitOffset=planned.offset;f.targetPosition=targetPosition+planned.offset;f.margin=defenders.empty()?10:planned.margin;previousFit=planned.offset;previousPower=planned.power;previousLob=planned.lob;previousAngle=planned.solution.angle;f.selectedLob=planned.lob;f.distance=ff3qb::length(targetPosition-origin);
   f.solution=solution;
+  if(smartFit&&f.coverageKnown&&!defenders.empty()&&f.margin<=ff3qb::catchSafetyMargin){f.fitBlocked=true;f.reason="No clear window: predicted defender reach overlaps; assistance withheld";return f;}
   // A distant point minimizes camera/head parallax. Normal mouse hit testing
   // still belongs to the game, so geometry can affect the actual throw.
   f.aim=ff3qb::project(origin+solution.velocity*(1000./f.power),f.matrix,width,height);
   if(!packetMode&&!f.aim.valid){f.reason="Turn the camera toward the throw arc";return f;}
   if(!descendant(h,f.tool,f.own)||rd<addr>(h,player+Offsets::Player::ModelInstance)!=f.own||rd<std::uint64_t>(h,root+Offsets::DataModel::GameId)!=gameModules::registry[1].universe){f.reason="Game state changed";return f;}
-  f.ready=true;f.reason=force95&&f.fitOffset.y<3&&std::any_of(defenders.begin(),defenders.end(),[&](const auto& d){return ff3qb::length(d.position-targetPosition)<24;})?"Head-height fallback: elevated Beam catch unavailable":f.coverageKnown&&f.coverageCount>0&&f.margin<=ff3qb::catchSafetyMargin?"Contested: aiming assist active":f.fitOffset.y>=3?"Jump catch: "+f.name:"Ready: click to throw to "+f.name;return f;
+  f.ready=true;f.reason=f.coverageKnown&&f.coverageCount>0&&f.margin<=ff3qb::catchSafetyMargin?"No clear window found: defender reach overlaps this path":f.fitOffset.y>=3?"Elevated catch: "+f.name:"Ready: click to throw to "+f.name;return f;
  }
 };
 inline bool eligible(const Frame& f,double time){return enabled&&f.revision==revision&&f.ready&&time>=f.at&&time-f.at<.10&&admitted()&&focused(f.pid)&&(packetMode||freeCursor());}

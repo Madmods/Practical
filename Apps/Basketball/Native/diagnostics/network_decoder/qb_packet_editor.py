@@ -25,17 +25,30 @@ def velocity(origin,target,movement,power,gravity,latency,lob=False,spawn=0):
     def displacement(t):return tuple(target[i]+movement[i]*(t+latency)-origin[i]+(.5*gravity*t*t if i==1 else 0) for i in range(3))
     def at(t):return tuple(v*power/(power*t+spawn) for v in displacement(t))
     def error(t):return sum(v*v for v in displacement(t))-(power*t+spawn)**2
-    roots=[];previous=.03;prior=error(previous)
+    def slope(t):return 2*sum(v*(movement[i]+(gravity*t if i==1 else 0)) for i,v in enumerate(displacement(t)))-2*power*(power*t+spawn)
+    roots=[];previous=.03;prior=error(previous);prior_slope=slope(previous)
+    def bracket(low,high,a,b):
+        if not ((a>0 and b<=0) or (a<0 and b>=0)):return
+        positive=a>0
+        for _ in range(32):
+            mid=(low+high)*.5
+            if (error(mid)>0)==positive:low=mid
+            else:high=mid
+        root=(low+high)*.5
+        if not roots or root-roots[-1]>1e-6:roots.append(root)
     for i in range(1,801):
-        next_time=.03+i*.01;current=error(next_time)
-        if (prior>0 and current<=0) or (prior<0 and current>=0):
-            low,high=previous,next_time;positive=prior>0
-            for _ in range(32):
+        next_time=.03+i*.01;current=error(next_time);next_slope=slope(next_time)
+        if prior_slope*next_slope<0:
+            low,high=previous,next_time;positive=prior_slope>0
+            for _ in range(36):
                 mid=(low+high)*.5
-                if (error(mid)>0)==positive:low=mid
+                if (slope(mid)>0)==positive:low=mid
                 else:high=mid
-            roots.append((low+high)*.5)
-        previous,prior=next_time,current
+            mid=(low+high)*.5;value=error(mid);bracket(previous,mid,prior,value)
+            if abs(value)<1e-7 and (not roots or mid-roots[-1]>1e-6):roots.append(mid)
+            bracket(mid,next_time,value,current)
+        else:bracket(previous,next_time,prior,current)
+        previous,prior,prior_slope=next_time,current,next_slope
     if not roots:raise DecodeError('Receiver outside throw range')
     flight=roots[-1] if lob else roots[0];result=at(flight)
     if not .06<=flight<=8 or abs(length(result)-power)>.01:raise DecodeError('Invalid ballistic solution')
@@ -43,7 +56,7 @@ def velocity(origin,target,movement,power,gravity,latency,lob=False,spawn=0):
 
 def angle_velocity(origin,target,movement,angle,gravity,latency,spawn=0):
     origin,target,movement=map(vector,(origin,target,movement))
-    if not all(math.isfinite(x) for x in (angle,gravity,latency)) or not 5<=angle<=75 or not 1<=gravity<=300 or not 0<=latency<=.25 or length(movement)>40:raise DecodeError('Angle plan bounds')
+    if not all(math.isfinite(x) for x in (angle,gravity,latency)) or not 5<=angle<=85 or not 1<=gravity<=300 or not 0<=latency<=.25 or length(movement)>40:raise DecodeError('Angle plan bounds')
     if not 3<=length(tuple(b-a for a,b in zip(origin,target)))<=600:raise DecodeError('Receiver distance bounds')
     tangent=math.tan(math.radians(angle))
     if not math.isfinite(spawn) or not 0<=spawn<=5:raise DecodeError('Spawn offset bounds')
@@ -111,9 +124,9 @@ def replacement(body,call,plan,tick):
     beam=plan.get('beam95') is True
     if beam:
         if plan.get('autoPower') is not True:raise DecodeError('Beam requires calculated power')
-        launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],power,float(plan['gravity']),float(plan['latency']),False,spawn=5)
+        launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],power,float(plan['gravity']),float(plan['latency']),bool(plan.get('lob')),spawn=5)
         elevation=math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2])))
-        if not -30<=elevation<=35:raise DecodeError('Receiver outside low-arc Beam range')
+        if not -30<=elevation<=85:raise DecodeError('Receiver outside planned Beam range')
     elif plan.get('anglePower') is True and plan.get('autoPower') is True:
         launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],float(plan['angle']),float(plan['gravity']),float(plan['latency']),spawn=5)
     else:
@@ -121,9 +134,10 @@ def replacement(body,call,plan,tick):
     margin=None
     if plan.get('smartFit') is True or plan.get('strictFit') is True:
         if plan.get('coverageKnown') is not True:raise DecodeError('Incomplete catcher coverage')
-        # Validate and report actual-origin coverage, but preserve the selected
-        # receiver's assisted throw even when defenders can contest the path.
+        # Revalidate at the real event origin. A clear preview cannot authorize
+        # rewriting a throw whose updated path now overlaps defender reach.
         margin=catch_path_margin(origin,launch,flight,power,float(plan['gravity']),float(plan['latency']),plan.get('catchers'))
+        if margin<=.30:raise DecodeError('No clear window at actual throw origin')
     aim=tuple(origin[i]+launch[i]*(10000/power) for i in range(3))
     return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],instance=call['instance'],clickAt=clicked,coverageMargin=margin,contested=margin is not None and margin<=.30)
 

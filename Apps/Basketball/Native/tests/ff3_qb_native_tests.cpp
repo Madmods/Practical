@@ -49,12 +49,15 @@ int main(){
  std::cout<<checks<<" FF3 settings, persistence, session isolation and dispatch cancellation checks passed (no game inputs)\n";
  {
   using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;check(GdiplusStartup(&token,&startup,nullptr)==Ok);
-  Frame sample;sample.client={0,0,1280,720};sample.ready=sample.held=sample.wheelVisible=sample.coverageKnown=true;sample.name="Practice receiver";sample.route="Go / deep";sample.coverageCount=3;sample.coverageDetail="3 catchers / jump + dive estimate";sample.locked=true;sample.mode=2;sample.margin=.24;sample.power=78;sample.distance=146;sample.solution.angle=48;sample.solution.time=2.36;
+  Frame sample;sample.client={0,0,1280,720};sample.ready=sample.held=sample.wheelVisible=sample.coverageKnown=true;sample.name="Practice receiver";sample.route="Go / deep";sample.coverageCount=3;sample.coverageDetail="3 catchers / jump + dive estimate";sample.locked=true;sample.mode=2;sample.guarded=true;sample.margin=.54;sample.power=78;sample.distance=146;sample.solution.angle=48;sample.solution.time=2.36;
   PumpSurface hud;ff3Visual::renderHud(hud,sample,false);check(hud.bits&&!hud.visible);
   {Bitmap image(hud.width,hud.height,hud.width*4,PixelFormat32bppPARGB,(BYTE*)hud.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-hud-preview.png",&png,nullptr)==Ok);}
   hud.close();PumpSurface field;sample.target=123;sample.gravity=28;sample.fitOffset={4,4,0};sample.solution=ff3qb::solveAngle({0,8,0},{104,12,0},{},35,28,.05,5);sample.matrix[0]=.012f;sample.matrix[5]=.025f;sample.matrix[6]=.012f;sample.matrix[3]=-.65f;sample.matrix[7]=-.5f;sample.matrix[15]=1;sample.receiver=ff3qb::project({100,8,0},sample.matrix,1280,720);
   ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
   {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-field-preview.png",&png,nullptr)==Ok);}
+  sample.ready=false;sample.fitBlocked=true;sample.reason="No clear window: predicted defender reach overlaps; assistance withheld";
+  ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
+  {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-field-blocked-preview.png",&png,nullptr)==Ok);}
   field.close();PumpSurface balls;ff3qb::BallFlight flight;flight.position={60,22,0};flight.velocity={40,-8,0};flight.gravity=28;for(int i=30;i>=0;i--){double dt=i*.05;flight.trail.push_back(flight.position-flight.velocity*dt+ff3qb::Vec{0,-.5*28*dt*dt,0});}sample.balls={flight};ff3Visual::renderBalls(balls,sample,false);check(balls.bits&&!balls.visible);
   {Bitmap image(balls.width,balls.height,balls.width*4,PixelFormat32bppPARGB,(BYTE*)balls.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-balls-preview.png",&png,nullptr)==Ok);}
   balls.close();GdiplusShutdown(token);

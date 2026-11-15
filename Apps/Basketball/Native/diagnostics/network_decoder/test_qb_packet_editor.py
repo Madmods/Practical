@@ -21,6 +21,21 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def test_near_tangent_roots_are_not_lost_between_samples(self):
+        origin,target,moving=[0,8,0],[100,8,0],[0,0,0]
+        def required(angle):return angle_velocity(origin,target,moving,angle,28,.05,5)[2]
+        lo,hi=30.,60.
+        for _ in range(80):
+            a,b=lo+(hi-lo)/3,hi-(hi-lo)/3
+            if required(a)<required(b):hi=b
+            else:lo=a
+        power=required((lo+hi)/2)*(1+1e-10)
+        low,t0=velocity(origin,target,moving,power,28,.05,False,5)
+        high,t1=velocity(origin,target,moving,power,28,.05,True,5)
+        self.assertLess(t1-t0,.01);self.assertGreater(t1,t0)
+        for launch,t in ((low,t0),(high,t1)):
+            landing=[origin[i]+launch[i]*(t+5/power)-(.5*28*t*t if i==1 else 0) for i in range(3)]
+            self.assertLess(length(tuple(landing[i]-target[i] for i in range(3))),1e-5)
     def test_signed_clearance_distinguishes_inside_catch_radius(self):
         defender=dict(position=[70,5,0],velocity=[0,0,0],speed=22,jump=9,dive=12)
         central=catch_path_margin([65,5,0],[95,0,0],0,95,28,.05,[defender])
@@ -28,7 +43,7 @@ class Tests(unittest.TestCase):
         self.assertGreater(beyond,central);self.assertLess(beyond,0)
     def test_beam_uses_low_root_and_exact_power_at_actual_origin(self):
         for distance,height in ((15,0),(35,5),(150,5),(220,5)):
-            p=plan();p.update(beam95=True,plannedPower=95,lob=True,anglePower=True,angle=75,targetPosition=[distance,5+height,0])
+            p=plan();p.update(beam95=True,plannedPower=95,lob=False,anglePower=True,angle=75,targetPosition=[distance,5+height,0])
             e=editor();args=arguments(e.process_plain(payload(),p,1010))
             self.assertEqual(e.stats['modifiedThrows'],1);self.assertEqual(args[3],95)
             aim=args[2]['components'];angle=math.degrees(math.atan2(aim[1]-5,math.hypot(aim[0],aim[2])))
@@ -42,17 +57,22 @@ class Tests(unittest.TestCase):
         e=editor();args=arguments(e.process_plain(payload(),p,1010))
         self.assertEqual(e.stats['modifiedThrows'],1);self.assertEqual(args[3],45)
         aim=args[2]['components'];self.assertLessEqual(math.degrees(math.atan2(aim[1]-5,math.hypot(aim[0],aim[2]))),35)
-    def test_beam_never_falls_back_to_sky_lob(self):
-        for target in ([25,100,0],[320,5,0],[500,5,0]):
-            p=plan();p.update(beam95=True,plannedPower=95,lob=True,targetPosition=target)
-            self.assertEqual(editor().process_plain(payload(),p,1010),payload())
-    def test_smart_fit_keeps_contested_throws_assisted(self):
+    def test_beam_transmits_selected_high_arc_and_power(self):
+        p=plan();p.update(beam95=True,plannedPower=65,lob=True,targetPosition=[150,5,0])
+        e=editor();args=arguments(e.process_plain(payload(),p,1010))
+        self.assertEqual(e.stats['modifiedThrows'],1);self.assertEqual(args[3],65)
+        direction=tuple(a-b for a,b in zip(args[2]['components'],args[1]['components']))
+        angle=math.degrees(math.atan2(direction[1],math.hypot(direction[0],direction[2])))
+        self.assertGreater(angle,35);self.assertLessEqual(angle,85)
+        t=e.last['flight'];norm=length(direction)
+        landed=[args[1]['components'][i]+direction[i]/norm*(5+65*t)-(.5*28*t*t if i==1 else 0) for i in range(3)]
+        self.assertLess(length(tuple(landed[i]-p['targetPosition'][i] for i in range(3))),.001)
+    def test_smart_fit_withholds_rewrite_when_contested(self):
         p=plan();p.update(smartFit=True,coverageKnown=True,catchers=[])
         self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
         for position in ([70,5,0],[15,5,0]):
             p['catchers']=[dict(position=position,velocity=[0,0,0],speed=22,jump=9,dive=12)]
-            e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.stats['modifiedThrows'],1)
-            self.assertTrue(e.last['contested']);self.assertLessEqual(e.last['coverageMargin'],.30)
+            e=editor();self.assertEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.stats.get('modifiedThrows',0),0)
         p['catchers']=[dict(position=[35,5,100],velocity=[0,0,0],speed=22,jump=9,dive=12)]
         e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload());self.assertFalse(e.last['contested'])
         p['coverageKnown']=False;self.assertEqual(editor().process_plain(payload(),p,1010),payload())
