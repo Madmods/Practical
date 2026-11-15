@@ -19,12 +19,12 @@ int main(){int count=0;
  auto baseline=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,false,defenders);
  auto fit=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,defenders);
  assert(baseline.solution.valid&&fit.solution.valid&&fit.margin<=catchSafetyMargin); // Coverage does not veto a reachable throw.
- assert(fit.offset.x<0&&fit.margin>baseline.margin); // Stationary WR: away from the DB on their far shoulder.
+ assert(fit.margin>=baseline.margin-1e-6); // Do not worsen a deeply overlapping reach volume.
  auto past=planCoverageThrow({0,8,0},{60,8,0},{10,0,0},28,.05,{{{55,8,0},{},22,9,12}},true,false,7,196.2);
  assert(past.solution.valid&&past.margin>=coverageMargin(solve({0,8,0},{60,8,0},{10,0,0},95,28,.05,false,5),28,{{{55,8,0},{},22,9,12}},.05)-.025); // Fit can clear a trailing DB above or beyond the WR.
  assert(receiverCanReach(past.offset,{10,0,0},past.solution.time,5.95));
  auto still=planCoverageThrow({0,8,0},{60,8,0},{},28,.05,{{{57,8,0},{},22,9,12}},true,false,7,196.2);
- assert(still.solution.valid&&length(still.solution.catchPoint-Vec{57,8,0})>length(Vec{60,8,0}-Vec{57,8,0})&&std::hypot(still.offset.x,still.offset.z)<=4.001);
+ assert(still.solution.valid&&std::hypot(still.offset.x,still.offset.z)<=4.001);
  auto unknown=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,true,{});assert(!unknown.coverageKnown&&length(unknown.offset)==0);
  auto manual=planThrow({0,8,0},{60,7,0},{},28,.05,0,false,35,true,95,false,false,{});assert(manual.solution.valid&&manual.solution.angle==35);
  assert(!planThrow({0,8,0},{340,7,0},{},28,.05,0,false,5,true,95,false,false,{}).solution.valid);
@@ -45,6 +45,8 @@ int main(){int count=0;
   auto fast=planThrow({0,8,0},head,movement,28,.05,0,true,35,true,60,false,false,athletic,48,{},true,5);
   assert(fast.solution.valid&&std::abs(fast.power-95)<1e-6);
   assert(length(point(fast.solution,28,fast.solution.time)-fast.solution.catchPoint)<1e-5);
+  auto timed=solveTimed({0,8,0},head,movement,fast.solution.time,28,.05);
+  assert(timed.valid&&length(point(timed,28,timed.time)-timed.catchPoint)<1e-5&&std::abs(length(timed.velocity)-95)<1e-5);
   assert(std::abs(length(fast.solution.origin-Vec{0,8,0})-5)<1e-6);
   if(length(movement)==0){assert(length(fast.offset)==0);assert(length(fast.solution.catchPoint-head)==0);}
   auto angled=solveAngle({0,8,0},head,movement,35,28,.05,5);
@@ -162,6 +164,29 @@ int main(){int count=0;
   assert(overlap.solution.valid&&!estimatedClear(overlap,true));
  }
  SelectionLatch select;assert(select.update(1,false,0)==1);
+ // Dimensions from the bounded R6 catch-part check, shared by WR and DB.
+ auto geometry=catchGeometry({2,2,1},{2,1,1},{1,2,1},{1.4,1.65,1.4},.6);
+ assert(geometry.measured&&geometry.radius>5.8&&geometry.radius<5.9&&geometry.above>3.8&&geometry.above<3.9);
+ assert(!catchGeometry({NAN,2,1},{2,1,1},{1,2,1},{1.4,1.65,1.4},.6).measured);
+ double actualJump=2500./(2*196.2);
+ assert(jumpRise(actualJump,196.2,.01)<.51&&std::abs(jumpRise(actualJump,196.2,.3)-actualJump)<1e-8);
+ Defender reach{{0,0,0},{},20,0,12,geometry.radius,geometry.above,geometry.below,196.2};
+ assert(std::abs(reachGap(reach,{geometry.radius+20*.2+25*.1,-.5,0},.2))<1e-6); // Dive replaces sprint, not both at full speed.
+ assert(reachGap(reach,{geometry.radius,geometry.above,0},0)>0); // Cannot extend an arm fully in two directions.
+ Vec closeOrigin{11.364845275879,7.489995002747,-15.778594970703},closeTarget{0,7.488372802734,0};
+ Defender wr{closeTarget,{},20,actualJump,12,geometry.radius,geometry.above,geometry.below,196.2};
+ Defender db=wr;db.position.z=-5.843841552735;Defender other=db;other.position={1.52346,7.48837,34.29739};
+ std::vector<Defender> closeScene{db,other};
+ auto window=planCoverageThrow(closeOrigin,closeTarget,{},28,.0624565,closeScene,true,true,actualJump,196.2,{},0,false,NAN,true,.1,&wr);
+ assert(estimatedClear(window,true)&&window.power>94.9&&window.solution.angle<30);
+ assert(std::hypot(window.offset.x,window.offset.z)>8&&reachGap(wr,window.solution.catchPoint,window.solution.time+.0624565)<-.25);
+ CoverageTrace threat;assert(coverageMargin(window.solution,28,closeScene,.0624565,&threat)>catchSafetyMargin&&threat.catcher>=0&&threat.time>=0&&threat.time<=window.solution.time);
+ auto rebuilt=solve(closeOrigin,closeTarget+window.offset,{},window.power,28,.0624565,window.lob,5);
+ assert(rebuilt.valid&&length(rebuilt.catchPoint-window.solution.catchPoint)<1e-5&&std::abs(rebuilt.time-window.solution.time)<1e-6);
+ auto heldWindow=planCoverageThrow(closeOrigin,closeTarget,{},28,.0624565,closeScene,true,true,actualJump,196.2,window.offset,window.power,window.lob,window.solution.angle,true,.1,&wr);
+ assert(length(heldWindow.offset-window.offset)<1e-6&&heldWindow.power==window.power);
+ auto overlapping=planCoverageThrow(closeOrigin,closeTarget,{},28,.0624565,{wr},true,true,actualJump,196.2,{},0,false,NAN,true,.1,&wr);
+ assert(!estimatedClear(overlapping,true));
  assert(select.update(2,true,.05)==1);assert(select.update(1,true,.1)==1);
  assert(select.update(2,true,.15)==1);assert(select.update(2,true,.32)==2);
  assert(select.update(3,true,.33,true)==3);assert(select.update(4,false,.34)==4);

@@ -93,22 +93,40 @@ def throw_fields(body,call):
     if r.pos!=call['consumed'] or not math.isfinite(power) or not 1<=power<=95:return None
     return origin,aim_offset,power_offset,power
 
+def jump_rise(jump,gravity,horizon,vertical_speed=0):
+    launch=math.sqrt(2*gravity*max(0,jump));t=min(max(0,horizon),launch/gravity)
+    rise=launch*t-.5*gravity*t*t;t=min(max(0,horizon),max(0,vertical_speed)/gravity)
+    return max(rise,max(0,vertical_speed)*t-.5*gravity*t*t)
+
+def reach_gap(d,p,horizon):
+    position=d['position'];movement=d['velocity'];horizon=max(0,horizon)
+    speed=max(0,min(45,max(d['speed'],math.hypot(movement[0],movement[2]))))
+    extra=min(d['dive'],max(0,horizon-.1)*max(0,45-speed))
+    vertical_radius=(d.get('above',6)+d.get('below',8))*.5;horizontal_radius=min(d.get('radius',6),vertical_radius)
+    shoulder_radius=max(0,d.get('radius',6)-vertical_radius);shoulder_y=position[1]+(d.get('above',6)-d.get('below',8))*.5
+    horizontal=max(0,math.hypot(p[0]-position[0],p[2]-position[2])-shoulder_radius-speed*horizon-extra)
+    top=shoulder_y+jump_rise(d['jump'],d.get('worldGravity',196.2),horizon,movement[1])
+    bottom=shoulder_y+min(0,movement[1])*min(horizon,.25)
+    vertical=max(0,p[1]-top,bottom-p[1])
+    return (math.hypot(horizontal/horizontal_radius,vertical/vertical_radius)-1)*min(horizontal_radius,vertical_radius)
+
+def validate_reach(d):
+    if not isinstance(d,dict):raise DecodeError('Catcher metadata')
+    vector(d['position']);movement=vector(d['velocity'])
+    fields=((d['speed'],0,45),(d['jump'],0,42),(d['dive'],0,24),(d.get('radius',6),.1,12),(d.get('above',6),0,12),(d.get('below',8),0,12),(d.get('worldGravity',196.2),10,300))
+    if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or not lo<=v<=hi for v,lo,hi in fields):raise DecodeError('Catcher reach bounds')
+    if d.get('above',6)+d.get('below',8)<.2:raise DecodeError('Empty catcher vertical extent')
+    if math.hypot(movement[0],movement[2])>45:raise DecodeError('Catcher speed outside model')
+
 def catch_path_margin(origin,launch,flight,power,gravity,latency,catchers):
     if not isinstance(catchers,list) or len(catchers)>128:raise DecodeError('Catcher coverage bounds')
-    margin=10.0
-    steps=max(32,min(400,math.ceil(flight/.02)))
+    margin=1000.0;steps=max(32,min(400,math.ceil(flight/.02)))
     for d in catchers:
-        if not isinstance(d,dict):raise DecodeError('Catcher metadata')
-        position=vector(d['position']);movement=vector(d['velocity']);speed=d['speed'];jump=d['jump'];dive=d['dive']
-        if any(isinstance(x,bool) or not isinstance(x,(int,float)) or not math.isfinite(x) for x in (speed,jump,dive)) or not 0<=speed<=45 or not 0<=jump<=42 or not 0<=dive<=24:raise DecodeError('Catcher reach bounds')
-        rise=max(jump,max(0,movement[1]*.2));speed=max(16,min(45,max(speed,math.hypot(movement[0],movement[2]))))
+        validate_reach(d)
         for i in range(steps+1):
             t=flight*i/steps
             p=[origin[j]+launch[j]*(5/power+t)-(.5*gravity*t*t if j==1 else 0) for j in range(3)]
-            distance=math.hypot(p[0]-position[0],p[2]-position[2]);reach=min(dive,max(0,t-.1)*45)
-            horizontal=(distance-6-reach)/speed-t-latency
-            excess=max(0,p[1]-position[1]-6-rise,position[1]-8-p[1]);blend=min(1,excess/4)
-            margin=min(margin,horizontal*(1-blend)+(.5+excess/speed)*blend)
+            margin=min(margin,reach_gap(d,p,t+latency))
     return margin
 
 def replacement(body,call,plan,tick):
@@ -137,9 +155,13 @@ def replacement(body,call,plan,tick):
         # Revalidate at the real event origin. A clear preview cannot authorize
         # rewriting a throw whose updated path now overlaps defender reach.
         margin=catch_path_margin(origin,launch,flight,power,float(plan['gravity']),float(plan['latency']),plan.get('catchers'))
-        if margin<=.30:raise DecodeError('No clear window at actual throw origin')
+        if margin<=1.0:raise DecodeError('No clear window at actual throw origin')
+        if 'receiver' in plan:
+            validate_reach(plan['receiver'])
+            landing=[origin[i]+launch[i]*(5/power+flight)-(.5*float(plan['gravity'])*flight*flight if i==1 else 0) for i in range(3)]
+            if reach_gap(plan['receiver'],landing,flight+float(plan['latency']))>-.25:raise DecodeError('Receiver cannot reach updated throw')
     aim=tuple(origin[i]+launch[i]*(10000/power) for i in range(3))
-    return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],instance=call['instance'],clickAt=clicked,coverageMargin=margin,contested=margin is not None and margin<=.30)
+    return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],instance=call['instance'],clickAt=clicked,coverageMargin=margin,contested=margin is not None and margin<=1.0,coverageUnits='studs')
 
 class RecordTracker:
     def __init__(self,schema):self.schema=schema;self.streams={}

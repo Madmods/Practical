@@ -21,6 +21,32 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def test_timed_jump_and_nonduplicated_dive(self):
+        jump=2500/(2*196.2)
+        self.assertLess(jump_rise(jump,196.2,.01),.51)
+        self.assertAlmostEqual(jump_rise(jump,196.2,.3),jump)
+        reach=math.hypot(3.65,.5*math.hypot(1.4,1.4))+.6
+        d=dict(position=[0,0,0],velocity=[0,0,0],speed=20,jump=0,dive=12,radius=1.5+reach,above=reach-.5,below=reach+.5,worldGravity=196.2)
+        self.assertAlmostEqual(reach_gap(d,[d['radius']+20*.2+25*.1,-.5,0],.2),0)
+        self.assertGreater(reach_gap(d,[d['radius'],d['above'],0],0),0)
+    def test_diagonal_close_window_uses_shared_geometry(self):
+        reach=math.hypot(3.65,.5*math.hypot(1.4,1.4))+.6
+        d=dict(position=[0,7.4883728,-5.84384155],velocity=[0,0,0],speed=20,jump=2500/(2*196.2),dive=12,radius=1.5+reach,above=reach-.5,below=reach+.5,worldGravity=196.2)
+        origin=[11.3648453,7.489995,-15.778595];end=[11.9801,13.82776,11.9801]
+        launch,flight=velocity(origin,end,[0,0,0],95,28,.0624565,False,5)
+        margin=catch_path_margin(origin,launch,flight,95,28,.0624565,[d])
+        self.assertGreater(margin,1.0)
+        wr=dict(d,position=[0,7.4883728,0])
+        self.assertLess(reach_gap(wr,end,flight+.0624565),-.25)
+        self.assertLess(catch_path_margin(origin,launch,flight,95,28,.0624565,[wr]),0)
+    def test_sender_revalidates_receiver_reach(self):
+        p=plan();p.update(smartFit=True,coverageKnown=True,catchers=[],receiver=dict(position=[70,5,0],velocity=[0,0,0],speed=20,jump=6.37,dive=12,radius=5.88,above=3.88,below=4.88,worldGravity=196.2))
+        self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
+        p['receiver']['position']=[200,5,0]
+        self.assertEqual(editor().process_plain(payload(),p,1010),payload())
+        for key,value in (('radius',0),('above',float('nan')),('worldGravity',0)):
+            p['receiver'].update(position=[70,5,0],radius=5.88,above=3.88,worldGravity=196.2);p['receiver'][key]=value
+            self.assertEqual(editor().process_plain(payload(),p,1010),payload())
     def test_near_tangent_roots_are_not_lost_between_samples(self):
         origin,target,moving=[0,8,0],[100,8,0],[0,0,0]
         def required(angle):return angle_velocity(origin,target,moving,angle,28,.05,5)[2]

@@ -27,6 +27,8 @@ struct Frame {
  ff3qb::Solution solution;ff3qb::Screen aim,receiver;
  Vec gameMouse{NAN,NAN,NAN};
  Vec head{},targetPosition{},targetVelocity{};
+ ff3qb::CoverageTrace coverageTrace;
+ ff3qb::Defender receiverReach;bool receiverReachKnown=false;
  std::vector<ff3qb::Defender> defenders;bool guarded=false,fitBlocked=false;Vec fitOffset{};bool coverageKnown=false,wheelVisible=false,selectedLob=false;
  int mode=0,coverageCount=0;bool locked=false;std::string route,coverageDetail;
  struct Candidate{ff3qb::Screen screen;std::string name;bool selected=false;};std::vector<Candidate> candidates;
@@ -49,6 +51,14 @@ inline bool freeCursor(){CURSORINFO info{sizeof info};return GetCursorInfo(&info
 inline Vec vector(shooting::Vec v){return {v.x,v.y,v.z};}
 inline Vec position(HANDLE h,addr part){auto primitive=rd<addr>(h,part+Offsets::BasePart::Primitive);return vector(rd<shooting::Vec>(h,primitive+Offsets::Primitive::Position,{NAN,NAN,NAN}));}
 inline Vec velocity(HANDLE h,addr part){return vector(rd<shooting::Vec>(h,rd<addr>(h,part+Offsets::BasePart::Primitive)+Offsets::Primitive::AssemblyLinearVelocity,{NAN,NAN,NAN}));}
+inline Vec partSize(HANDLE h,addr part){return vector(rd<shooting::Vec>(h,rd<addr>(h,part+Offsets::BasePart::Primitive)+Offsets::Primitive::Size,{NAN,NAN,NAN}));}
+inline ff3qb::CatchGeometry readCatchGeometry(HANDLE h,addr rig,double ballRadius){
+ auto left=child(h,rig,"CatchLeft"),right=child(h,rig,"CatchRight");
+ if(!left||!right)return {};
+ auto a=ff3qb::catchGeometry(partSize(h,child(h,rig,"Torso")),partSize(h,child(h,rig,"Head")),partSize(h,child(h,rig,"Left Arm")),partSize(h,left),ballRadius);
+ auto b=ff3qb::catchGeometry(partSize(h,child(h,rig,"Torso")),partSize(h,child(h,rig,"Head")),partSize(h,child(h,rig,"Right Arm")),partSize(h,right),ballRadius);
+ if(!a.measured||!b.measured)return {};return {std::max(a.radius,b.radius),std::max(a.above,b.above),std::max(a.below,b.below),true};
+}
 inline bool descendant(HANDLE h,addr part,addr parent){return part&&parent&&rd<addr>(h,part+Offsets::Instance::Parent)==parent;}
 struct Reader {
  ff3qb::FlightTracker flightTracker;std::vector<addr> flightParts;addr flightWorkspace=0;double flightScanAt=-10;
@@ -75,7 +85,7 @@ struct Reader {
 
  HANDLE handle=nullptr;DWORD pid=0;addr model=0,moduleBase=0,retained=0;double scanAt=-10;
  addr routeTarget=0,routeTool=0;ff3qb::SelectionLatch selection;ff3qb::RouteHistory routeHistory;ff3qb::AngleTracker angleHistory;Vec previousFit{};double previousPower=0;bool previousLob=false;double previousAngle=NAN;unsigned plannerRevision=0;double nextPlanSearch=0,lastSearch=0;
- struct Actor{addr rig=0,player=0,team=0;bool npc=false;};std::vector<Actor> actors;
+ struct Actor{addr rig=0,player=0,team=0;bool npc=false;ff3qb::CatchGeometry shape;};std::vector<Actor> actors;
  ~Reader(){if(handle)CloseHandle(handle);}
  Frame read(addr forced=0){
   Frame f;f.at=now();f.revision=revision;f.mode=passMode;auto session=gameModules::router.get();f.pid=session.pid;f.model=session.model;
@@ -110,6 +120,8 @@ struct Reader {
   }
   f.held=f.tool&&defense::classOf(h,f.tool)=="Tool"&&descendant(h,f.tool,f.own)&&descendant(h,ball,f.tool);
   if(!f.held){f.reason="Equip a football";return f;}
+  auto ballSize=partSize(h,ball);double ballRadius=std::max({ballSize.x,ballSize.y,ballSize.z})*.5;
+  if(!ff3qb::finite(ballSize)||ballRadius<=0||ballRadius>3){f.reason="Ball dimensions unavailable";return f;}
   std::vector<ff3qb::PowerDisplay> powerDisplays;
   for(auto gui:children(h,child(h,player,"PlayerGui")))if(nm(h,gui)=="BallGui"&&defense::classOf(h,gui)=="ScreenGui"){
    auto frame=child(h,gui,"Frame0"),display=child(h,frame,"Disp");
@@ -133,6 +145,7 @@ struct Reader {
    actors.clear();if(model!=root){retained=0;lockedTarget=0;routeTarget=0;}model=root;scanAt=f.at;
    for(auto p:children(h,players)){auto rig=rd<addr>(h,p+Offsets::Player::ModelInstance);if(p!=player&&rig)actors.push_back({rig,p,rd<addr>(h,p+Offsets::Player::Team),false});}
    if(practicePlace)for(auto group:children(h,child(h,ws,"npcwr")))for(auto rig:children(h,group))if(defense::classOf(h,rig)=="Model"&&child(h,rig,"WR"))actors.push_back({rig,0,0,true});
+   for(auto& actor:actors)actor.shape=readCatchGeometry(h,actor.rig,ballRadius);
   }
   Vec origin=position(h,head);f.head=origin;double best=std::min(double(selectionRadius.load()),std::min(width,height)*.35);
   std::vector<ff3qb::Defender> defenders;
@@ -162,7 +175,8 @@ struct Reader {
   if(routeTarget!=f.target||routeTool!=f.tool||plannerRevision!=f.revision){plannerRevision=f.revision;routeTarget=f.target;routeTool=f.tool;routeHistory.reset();angleHistory={};previousFit={};previousPower=0;previousLob=false;previousAngle=NAN;nextPlanSearch=0;}
   routeHistory.update(f.at,origin,position(h,child(h,f.target,"HumanoidRootPart")),targetVelocity);targetVelocity=routeHistory.movement;if(ff3qb::length(targetVelocity)<.5)targetVelocity={};
   f.route=routeHistory.route;
-  bool coverageComplete=true;
+  bool coverageComplete=true;int measuredShapes=0;const double worldGravity=rd<float>(h,ws+Offsets::Workspace::ReadOnlyGravity,NAN);
+  if(!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)coverageComplete=false;
   // All other live players and enabled practice bots can contest a catch.
   // Do not require a team assignment in the practice place.
   for(const auto& a:actors)if(a.rig!=f.target&&a.rig!=f.own){
@@ -175,10 +189,14 @@ struct Reader {
    double jump=rd<float>(h,humanoid+Offsets::Humanoid::JumpHeight,NAN);
    if(rd<bool>(h,humanoid+Offsets::Humanoid::UseJumpPower)){double power=rd<float>(h,humanoid+Offsets::Humanoid::JumpPower,NAN),world=rd<float>(h,ws+Offsets::Workspace::ReadOnlyGravity,NAN);if(std::isfinite(power)&&power>=0&&power<150&&std::isfinite(world)&&world>10&&world<300)jump=power*power/(2*world);}
    if(!std::isfinite(jump)||jump<0||jump>40)jump=7;
-   defenders.push_back({p,v,std::clamp(std::hypot(v.x,v.z)+3.,22.,45.),jump+2.,double(diveReach.load())});
+   double walk=rd<float>(h,humanoid+Offsets::Humanoid::Walkspeed,NAN);if(!std::isfinite(walk)||walk<0||walk>45)walk=22;
+   if(std::hypot(v.x,v.z)>45){coverageComplete=false;continue;}
+   defenders.push_back({p,v,std::max(walk,std::hypot(v.x,v.z)),jump,double(diveReach.load()),a.shape.radius,a.shape.above,a.shape.below,std::isfinite(worldGravity)?worldGravity:196.2});
+   if(a.shape.measured)++measuredShapes;
   }
   f.coverageKnown=coverageComplete;f.coverageCount=int(defenders.size());
   f.coverageDetail=!coverageComplete?"Some catcher data unavailable":defenders.empty()?"No other active catchers":std::to_string(defenders.size())+" catchers / jump + dive estimate";
+  if(!defenders.empty())f.coverageDetail+=" / "+std::to_string(measuredShapes)+" measured shapes";
   if(!defenders.empty()){double nearest=1e9;for(const auto& d:defenders)nearest=std::min(nearest,ff3qb::length(d.position-targetPosition));f.coverageDetail+= " / nearest "+std::to_string(int(std::lround(nearest)))+" st";}
   f.targetPosition=targetPosition;f.targetVelocity=targetVelocity;f.defenders=defenders;f.guarded=smartFit;
   if(smartFit&&(!f.coverageKnown||defenders.size()>128)){f.fitBlocked=true;f.reason="Coverage incomplete: no assisted throw; normal click unchanged";return f;}
@@ -201,20 +219,26 @@ struct Reader {
    // Unknown receiver jump capability cannot justify an elevated catch point.
    if(!std::isfinite(jump)||jump<0||jump>40)jump=0;
    if(!std::isfinite(world)||world<10||world>300){world=196.2;jump=0;}
-   planned=ff3qb::planCoverageThrow(origin,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,force95,jump,world,previousFit,previousPower,previousLob,previousAngle,f.at>=nextPlanSearch,f.at-lastSearch);
+   ff3qb::Defender receiver{targetPosition,targetVelocity,20,jump,double(diveReach.load())};bool measuredReceiver=false;
+   double walk=rd<float>(h,receiverHum+Offsets::Humanoid::Walkspeed,NAN);if(std::isfinite(walk)&&walk>=0&&walk<=45)receiver.speed=std::max(walk,std::hypot(targetVelocity.x,targetVelocity.z));
+   for(const auto& actor:actors)if(actor.rig==f.target&&actor.shape.measured){receiver.radius=actor.shape.radius;receiver.above=actor.shape.above;receiver.below=actor.shape.below;receiver.worldGravity=world;measuredReceiver=true;break;}
+   f.receiverReach=receiver;f.receiverReachKnown=measuredReceiver;
+   planned=ff3qb::planCoverageThrow(origin,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,force95,jump,world,previousFit,previousPower,previousLob,previousAngle,f.at>=nextPlanSearch,f.at-lastSearch,measuredReceiver?&receiver:nullptr);
    if(f.at>=nextPlanSearch){lastSearch=f.at;nextPlanSearch=f.at+.10;}
   }
   auto solution=planned.solution;
   if(!solution.valid){f.fitBlocked=smartFit;f.reason="No reachable throw at these settings";return f;}
   f.power=planned.power;f.fitOffset=planned.offset;f.targetPosition=targetPosition+planned.offset;f.margin=defenders.empty()?10:planned.margin;previousFit=planned.offset;previousPower=planned.power;previousLob=planned.lob;previousAngle=planned.solution.angle;f.selectedLob=planned.lob;f.distance=ff3qb::length(targetPosition-origin);
   f.solution=solution;
+  if(!defenders.empty())f.margin=ff3qb::coverageMargin(solution,f.gravity,defenders,std::clamp(f.ping*.0005+.05,0.,.25),&f.coverageTrace);
   if(smartFit&&f.coverageKnown&&!defenders.empty()&&f.margin<=ff3qb::catchSafetyMargin){f.fitBlocked=true;f.reason="No clear window: predicted defender reach overlaps; assistance withheld";return f;}
   // A distant point minimizes camera/head parallax. Normal mouse hit testing
   // still belongs to the game, so geometry can affect the actual throw.
   f.aim=ff3qb::project(origin+solution.velocity*(1000./f.power),f.matrix,width,height);
   if(!packetMode&&!f.aim.valid){f.reason="Turn the camera toward the throw arc";return f;}
   if(!descendant(h,f.tool,f.own)||rd<addr>(h,player+Offsets::Player::ModelInstance)!=f.own||rd<std::uint64_t>(h,root+Offsets::DataModel::GameId)!=gameModules::registry[1].universe){f.reason="Game state changed";return f;}
-  f.ready=true;f.reason=f.coverageKnown&&f.coverageCount>0&&f.margin<=ff3qb::catchSafetyMargin?"No clear window found: defender reach overlaps this path":f.fitOffset.y>=3?"Elevated catch: "+f.name:"Ready: click to throw to "+f.name;return f;
+  const double adjustment=std::hypot(f.fitOffset.x,f.fitOffset.z);
+  f.ready=true;f.reason=f.coverageKnown&&f.coverageCount>0&&f.margin<=ff3qb::catchSafetyMargin?"No clear window found: defender reach overlaps this path":adjustment>8?"WR must adjust "+std::to_string(int(std::lround(adjustment)))+" studs toward the catch":f.fitOffset.y>=3?"Elevated catch: "+f.name:"Ready: click to throw to "+f.name;return f;
  }
 };
 inline bool eligible(const Frame& f,double time){return enabled&&f.revision==revision&&f.ready&&time>=f.at&&time-f.at<.10&&admitted()&&focused(f.pid)&&(packetMode||freeCursor());}
