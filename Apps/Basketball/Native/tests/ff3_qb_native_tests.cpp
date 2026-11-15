@@ -41,6 +41,12 @@ int main(){
   bool priorBeam=force95;force95=false;auto drawn=ff3Visual::projectedThrow(visual,10.08);auto sent=ff3qb::solve(visual.head,visual.targetPosition+visual.targetVelocity*.08,visual.targetVelocity,95,28,.06,false,5);
   check(drawn.valid&&drawn.angle<5&&sent.valid&&ff3qb::length(drawn.velocity-sent.velocity)<1e-6);force95=priorBeam;
  }
+ {Frame release=f;release.ready=true;release.at=10;release.solution=ff3qb::solve({0,8,0},{80,8,0},{},95,28,.05,false,5);release.target=400;
+  Frame live=f;live.releaseVisual=std::make_shared<Frame>(release);live.throwView.phase=ff3qb::ThrowView::Flight;live.head={100,20,80};Frame shown;
+  check(ff3Visual::releasedFrame(live,shown,10.5)&&shown.afterRelease&&ff3qb::length(shown.solution.origin-release.solution.origin)<1e-9&&!shown.releaseVisual);
+  live.held=true;check(!ff3Visual::releasedFrame(live,shown,10.5));live.held=false;live.model++;check(!ff3Visual::releasedFrame(live,shown,10.5));live.model--;
+  live.throwView.phase=ff3qb::ThrowView::Hidden;check(!ff3Visual::releasedFrame(live,shown,10.5));
+ }
  {ff3Visual::PreviewPlan preview;auto valid=f;valid.held=valid.solution.valid=true;
   check(preview.select(valid,10).ready);auto gap=valid;gap.ready=gap.solution.valid=false;
   check(preview.select(gap,10.05).ready);check(!gap.ready); // Only the renderer receives the retained plan.
@@ -95,6 +101,9 @@ int main(){
   PumpSurface field;sample.target=123;sample.gravity=28;sample.fitOffset={4,4,0};sample.solution=ff3qb::solveAngle({0,8,0},{104,12,0},{},35,28,.05,5);sample.matrix[0]=.012f;sample.matrix[5]=.025f;sample.matrix[6]=.012f;sample.matrix[3]=-.65f;sample.matrix[7]=-.5f;sample.matrix[15]=1;sample.receiver=ff3qb::project({100,8,0},sample.matrix,1280,720);
   sample.defenders={{{75,8,8},{},20,7,12}};sample.coverageTrace={0,.3,.54,{55,13,0}};sample.hudDefenders=sample.defenders;sample.hudCoverageKnown=sample.receiverReachKnown=true;sample.receiverReach.position={100,8,0};sample.risk=ff3qb::riskForecast(sample.solution,28,sample.hudDefenders,.05);ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
   {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-field-preview.png",&png,nullptr)==Ok);}
+  sample.afterRelease=true;sample.throwView.phase=ff3qb::ThrowView::Flight;sample.throwView.ball=77;ff3Visual::renderField(field,sample,false);
+  ff3qb::BallFlight owned;owned.id=77;owned.at=.8;owned.gravity=28;owned.model={true,0,28,0,sample.solution.origin,sample.solution.velocity+ff3qb::Vec{0,2,0}};owned.position=owned.model.pointAt(.8);sample.balls={owned};ff3Visual::renderBalls(field,sample,false,false);
+  {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-release-preview.png",&png,nullptr)==Ok);}sample.afterRelease=false;
   sample.ready=false;sample.fitBlocked=true;sample.reason="Coverage incomplete: no assisted throw; normal click unchanged";
   ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
   {

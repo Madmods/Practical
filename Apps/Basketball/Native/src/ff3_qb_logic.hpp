@@ -93,7 +93,7 @@ inline Vec point(const Solution& s,double gravity,double t){return s.origin+s.ve
 // Solve flight time at a requested elevation, then derive required power.
 // No clamping of an unreachable power: that would change the landing point.
 inline Solution solveAngle(Vec origin,Vec target,Vec movement,double angle,double gravity,double latency,double spawn=0){
- if(!finite(origin)||!finite(target)||!finite(movement)||!std::isfinite(angle)||angle<5||angle>85||!std::isfinite(gravity)||gravity<1||gravity>300||!std::isfinite(latency)||latency<0||latency>.3||length(movement)>45||length(target-origin)<3||length(target-origin)>600)return {};
+ if(!finite(origin)||!finite(target)||!finite(movement)||!std::isfinite(angle)||angle<-30||angle>85||!std::isfinite(gravity)||gravity<1||gravity>300||!std::isfinite(latency)||latency<0||latency>.3||length(movement)>45||length(target-origin)<3||length(target-origin)>600)return {};
  const double tangent=std::tan(angle*3.141592653589793/180.);
  if(!std::isfinite(spawn)||spawn<0||spawn>5)return {};
  auto error=[&](double t){auto d=target+movement*(t+latency)-origin;return std::hypot(d.x,d.z)*tangent-d.y-.5*gravity*t*t;};
@@ -322,8 +322,22 @@ inline Solution solveTimed(Vec origin,Vec target,Vec movement,double time,double
  if(power<1||power>95+1e-8)return {};power=std::min(95.,power);auto direction=d*(1/distance),velocity=direction*power;
  return {true,origin+direction*5,velocity,end,time,std::atan2(velocity.y,std::hypot(velocity.x,velocity.z))*180/3.141592653589793};
 }
+// Absolute elevation hysteresis, shared by every automatic planner. A small
+// reversal must persist; it is not a per-frame rate limit that follows chatter.
+struct ElevationIntent {
+ double value=NAN,since=0;int direction=0;
+ void accept(double angle,double time){value=angle;since=time;direction=0;}
+ double update(double desired,double time){
+  if(!std::isfinite(value)||time<since){accept(desired,time);return value;}
+  double delta=desired-value;if(std::abs(delta)<=1.35){direction=0;return value;}
+  int next=delta>0?1:-1;
+  if(std::abs(delta)>4){accept(desired,time);return value;}
+  if(direction!=next){direction=next;since=time;}
+  if(time-since>=.22)accept(desired,time);return value;
+ }
+};
 struct BeamMemory {
- Plan goal,pending;double since=0;bool transitioning=false;
+ Plan goal,pending;double since=0;bool transitioning=false;ElevationIntent elevation;
  Plan accept(Plan desired,const Plan& held,double time){
   if(!desired.solution.valid){goal={};pending={};return desired;}
   const bool change=goal.solution.valid&&(goal.lob!=desired.lob||std::abs(goal.power-desired.power)>4||std::abs(goal.solution.angle-desired.solution.angle)>6);
@@ -370,6 +384,17 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  // roots and transitions from contested to clear. Coverage is recomputed for
  // the intermediate arc; it is never labelled clear merely because the goal is.
  auto stable=[&](Plan desired){
+  if(memory&&desired.solution.valid){
+   double angle=memory->elevation.update(desired.solution.angle,time);
+   if(std::abs(angle-desired.solution.angle)>.001){
+    auto solved=solveAngle(origin,target+desired.offset,movement,angle,gravity,latency,5);
+    auto high=solved.valid?solve(origin,target+desired.offset,movement,length(solved.velocity),gravity,latency,true,5):Solution{};
+    auto heldAngle=candidate(solved,desired.offset,high.valid&&std::abs(high.time-solved.time)<1e-5);
+    if(heldAngle.solution.valid&&estimatedClear(heldAngle,fit)==estimatedClear(desired,fit)&&heldAngle.margin>=desired.margin-.25)desired=heldAngle;
+    else memory->elevation.accept(desired.solution.angle,time);
+   }
+  }
+
   // Beam retains a high-power goal. Ease actual reachable throw parameters,
   // so the drawn arc and transmitted trajectory share the same solution.
   if(beam){
@@ -472,7 +497,7 @@ struct RoutePassLatch {
 };
 // Auto-route candidates target the receiver's head/chest, not the ground.
 // A dive lead stays inside the same receiver envelope enforced at dispatch.
-inline Plan planRoutePass(RoutePass style,Vec origin,Vec head,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,const Defender* receiver,double previousAngle=NAN,double elapsed=.016){
+inline Plan planRoutePass(RoutePass style,Vec origin,Vec head,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,const Defender* receiver,double previousAngle=NAN,double elapsed=.016,ElevationIntent* intent=nullptr,double time=0){
  Plan best;if(style==RoutePass::Fit)return best;
  const bool headPass=style==RoutePass::Head;Vec forward{movement.x,0,movement.z};if(length(forward)>.1)forward=forward*(1/length(forward));
  auto candidate=[&](Solution s,Vec offset)->Plan{
@@ -491,6 +516,12 @@ inline Plan planRoutePass(RoutePass style,Vec origin,Vec head,Vec movement,doubl
     bool clear=estimatedClear(p,fit),oldClear=estimatedClear(best,fit);
     if(!best.solution.valid||(clear&&!oldClear)||(clear==oldClear&&(clear?p.power>best.power+.5:p.margin>best.margin+.25)))best=p;
    }if(estimatedClear(best,fit))break;
+  }
+ }
+ if(intent&&best.solution.valid){
+  double angle=intent->update(best.solution.angle,time);
+  if(std::abs(angle-best.solution.angle)>.001){auto held=candidate(solveAngle(origin,head+best.offset,movement,angle,gravity,latency,5),best.offset);
+   if(held.solution.valid&&estimatedClear(held,fit)==estimatedClear(best,fit)&&held.margin>=best.margin-.25)best=held;else intent->accept(best.solution.angle,time);
   }
  }
  if(!best.solution.valid||!std::isfinite(previousAngle))return best;

@@ -147,7 +147,7 @@
 
   let cur = null;          // latest throw object from the game
   let curAt = 0;           // when it arrived (for a smooth countdown between snapshots)
-  let doneAt = 0, doneExpired = false, lastShown = '', displayedAngle = null;
+  let doneAt = 0, doneExpired = false, lastShown = '', displayedAngle = null, angleCandidate=null, angleSince=0;
 
   const set = (k, v) => document.querySelectorAll(`[data-k="${k}"]`).forEach(el => { if (el.textContent !== v) el.textContent = v; });
   const yd = m => Number.isFinite(m) ? (m * YD).toFixed(1) : '—';
@@ -179,7 +179,10 @@
       const windup = t.phase !== 'aim';
       set('mode', windup ? (t.mode || 'Pass') : 'Aim');
       set('target', role); set('ini', ini(role));
-      if(displayedAngle===null||Math.abs((t.angle??0)-displayedAngle)>.8)displayedAngle=Math.round(t.angle??0);
+      const roundedAngle=Math.round(t.angle??0);
+      if(displayedAngle===null||Math.abs(roundedAngle-displayedAngle)>3){displayedAngle=roundedAngle;angleCandidate=null;}
+      else if(roundedAngle!==displayedAngle){if(angleCandidate!==roundedAngle){angleCandidate=roundedAngle;angleSince=now;}else if(now-angleSince>=240){displayedAngle=roundedAngle;angleCandidate=null;}}
+      else angleCandidate=null;
       set('angle', displayedAngle + '°');
       set('powerK', windup ? 'Power' : 'Load');
       set('power', String(Math.round((windup ? t.power * 95 : t.load * 100) || 0)));
@@ -210,7 +213,7 @@
       const on = layers.find(l => l.dataset.l === layer);
       const w = Math.min(on.offsetWidth, mc.parentElement.clientWidth - 32) + 'px';
       if (mc.style.width !== w) mc.style.width = w;
-    } else {lastShown = '';displayedAngle=null;}
+    } else {lastShown = '';displayedAngle=null;angleCandidate=null;}
     reportShape();
   }
 
@@ -278,6 +281,7 @@
       const chip=document.querySelector('[data-int]');check(chip.classList.contains('possible')&&!chip.classList.contains('pick')&&chip.textContent.includes('Reach risk'),'Possible reach is amber, not a projected interception');
       onThrow({phase:'windup',angle:39.55,power:1,intable:true});check(chip.classList.contains('pick'),'Projected interception is red');
       check(document.querySelector('[data-k=angle]').textContent==='39°','Angle rounding hysteresis');
+      for(const center of [18,33,57,72]){onThrow({phase:'windup',angle:center,power:1});for(let i=0;i<6;i++){onThrow({phase:'windup',angle:center+(i%2?.4:.6),power:1});await wait(35);}check(document.querySelector('[data-k=angle]').textContent===`${center}°`,`No rounding chatter near ${center} degrees`);}
       onThrow({phase:'windup',angle:39.55,power:1,unknownCoverage:true,intable:true});check(!chip.classList.contains('pick')&&chip.textContent.includes('Checking'),'Unknown coverage is neutral');
       for(const result of ['Caught','Incomplete','Intercepted']){onThrow({phase:'done',target:{role:'Practice WR'},result,resultBy:'Observed player',distance:120,air:1.5});await wait(100);check(document.querySelector('[data-k=result]').textContent===result&&document.querySelector('[data-l=done]').classList.contains('on'),'Observed result: '+result);}
       send('hudCapture',{phase:'result'});await wait(300);

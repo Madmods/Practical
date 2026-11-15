@@ -4,6 +4,11 @@
 #include <iostream>
 using namespace ff3qb;
 int main(){int count=0;
+ {for(double center:{8.,17.,34.,52.,71.}){ElevationIntent hold;hold.update(center,0);for(int i=1;i<=100;++i)assert(std::abs(hold.update(center+(i%2?.55:-.55),i*.016)-center)<1e-8);
+   assert(hold.update(center+2,2)==center);assert(hold.update(center-2,2.1)==center);assert(hold.update(center+2,2.2)==center);assert(hold.update(center+2,2.45)==center+2);
+  }}
+ {auto low=solveAngle({0,8,0},{25,6.5,0},{},-1,28,.05,5);assert(low.valid&&length(point(low,28,low.time)-Vec{25,6.5,0})<1e-6);}
+
  {auto flight=solve({0,8,0},{80,8,0},{},95,28,.05,false,5);Defender far{{40,8,30},{},22,7,12,2,2,2};
   auto clear=riskForecast(flight,28,{far},.05);assert(!clear.intable&&!clear.possible);
   far.position.z=12;auto possible=riskForecast(flight,28,{far},.05);assert(!possible.intable&&possible.possible);
