@@ -4,6 +4,12 @@
 #include <iostream>
 using namespace ff3qb;
 int main(){int count=0;
+ {Defender wr{{30,8,0},{},20,6.37,12,5.88,3.88,4.88};std::vector<Defender> overlapping{wr};
+  auto p=planCoverageThrow({0,8,0},wr.position,{},28,.06,overlapping,true,true,6.37,196.2,{},35,true,80,true,.1,&wr);
+  assert(p.solution.valid&&p.power==95&&p.solution.angle<20&&!estimatedClear(p,true));
+  auto open=planCoverageThrow({0,8,0},{100,8,0},{},28,.06,{},true,true,6.37,196.2,{},95,true,80,true,.1);
+  assert(open.solution.valid&&open.power==95&&!open.lob&&open.solution.angle<20);
+ }
  auto divingReceiver=solve({0,8,0},{60,8,0},{0,0,43.5},95,28,.05,false,5);
  assert(divingReceiver.valid&&length(point(divingReceiver,28,divingReceiver.time)-divingReceiver.catchPoint)<1e-6);
  assert(!solve({0,8,0},{60,8,0},{0,0,46},95,28,.05,false,5).valid);
@@ -317,6 +323,10 @@ int main(){int count=0;
  assert(select.update(3,true,.33,true)==3);assert(select.update(4,false,.34)==4);
  CurveTracker display;auto lowDisplay=solve({0,8,0},{80,8,0},{},95,28,.05,false,5);
  auto highDisplay=solve({0,8,0},{80,8,0},{},60,28,.05,true,5);
+ {CurveTracker anchored;Vec head{0,8,0};anchored.update(lowDisplay,28,1,1,head);auto start=anchored.points.front();
+  anchored.update(highDisplay,28,1,1.016,head);
+  assert(length(anchored.points.front()-start)<length(highDisplay.origin-start)*.2); // Angle changes cannot teleport the launch point.
+ }
  display.update(lowDisplay,28,1,0);auto initial=display.points[32];
  display.update(highDisplay,28,1,.016);assert(display.settling&&length(display.points[32]-initial)<length(point(highDisplay,28,highDisplay.time*.5)-initial)*.3);
  for(int i=2;i<120;i++)display.update(highDisplay,28,1,i*.016);

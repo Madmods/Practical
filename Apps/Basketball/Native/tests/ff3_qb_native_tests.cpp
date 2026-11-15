@@ -29,6 +29,14 @@ int main(){
  check(save(file));force95=false;load(file);check(force95);check(set(L"ff3_qb.preset",basketballUi::number(2))&&!force95);std::filesystem::remove(file);
  check(json::dump(basketballUi::snapshot())==basketballBefore);
  Frame f;f.pid=5;f.model=100;f.own=200;f.tool=300;f.target=400;f.revision=revision;f.ready=true;f.power=95;f.gravity=28;f.aim={500,300,true};f.client={0,0,1920,1080};
+ {ff3Visual::PreviewPlan preview;auto valid=f;valid.held=valid.solution.valid=true;
+  check(preview.select(valid,10).ready);auto gap=valid;gap.ready=gap.solution.valid=false;
+  check(preview.select(gap,10.05).ready);check(!gap.ready); // Only the renderer receives the retained plan.
+  check(!preview.select(gap,10.2).ready);
+  preview.select(valid,11);gap.held=false;check(!preview.select(gap,11.01).ready);
+  preview.select(valid,12);gap.held=true;++gap.revision;check(!preview.select(gap,12.01).ready);
+  preview.select(valid,13);gap=valid;gap.ready=false;++gap.target;check(!preview.select(gap,13.01).ready);
+ }
  f.gameMouse={500,300,0};f.matrix[0]=f.matrix[5]=f.matrix[10]=f.matrix[15]=1;
  check(!eligible(f,now())); // No admitted session or game focus: always closed.
  {

@@ -289,8 +289,10 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  auto better=[&](const Plan& a,const Plan& b){
   if(!a.solution.valid)return false;if(!b.solution.valid)return true;
   bool ac=estimatedClear(a,fit),bc=estimatedClear(b,fit);if(ac!=bc)return ac;
+  if(beam&&std::abs(a.power-b.power)>.5)return a.power>b.power;
+  if(beam&&!ac&&std::abs(a.solution.angle-b.solution.angle)>2.)return a.solution.angle<b.solution.angle;
   if(!ac){if(std::abs(a.margin-b.margin)>.25)return a.margin>b.margin;}
-  else if(beam&&std::abs(a.power-b.power)>.5)return a.power>b.power;
+  if(beam&&ac&&std::abs(a.solution.angle-b.solution.angle)>.5)return a.solution.angle<b.solution.angle;
   auto cost=[&](const Plan& p){return (95-p.power)*.055+p.solution.time*.65+std::max(0.,p.solution.angle-30)*.012+length(p.offset-previousOffset)*.04;};
   return cost(a)<cost(b);
  };
@@ -342,7 +344,7 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  Plan held;
  if(previousPower>=1&&previousPower<=95)held=replan(previousPower,previousOffset,previousLob);
  if(!search&&held.solution.valid)return stable(held);
- if(held.solution.valid&&held.power>=94.999&&estimatedClear(held,fit)&&held.margin>catchSafetyMargin+.25)return stable(held);
+ if(!beam&&held.solution.valid&&held.power>=94.999&&estimatedClear(held,fit)&&held.margin>catchSafetyMargin+.25)return stable(held);
  Plan best;const auto offsets=fitOffsets(origin,target,movement,defenders);
  auto atPower=[&](double power){Plan tier;
   for(double height:{0.,jump*.45,jump*.65,jump*.8,jump*.9,jump}){
@@ -366,8 +368,8 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  if(!best.solution.valid)return stable(held);
  if(held.solution.valid){
   const bool hc=estimatedClear(held,fit),bc=estimatedClear(best,fit);
-  if(hc&&bc&&held.power>=best.power-(beam?.5:2.)&&fitScore(held,fit)>=fitScore(best,fit)-1.0)return stable(held);
-  if(!hc&&!bc&&best.margin-held.margin<.5)return stable(held);
+  if(hc&&bc&&held.power>=best.power-(beam?.5:2.)&&(!beam||held.solution.angle<=best.solution.angle+1.)&&fitScore(held,fit)>=fitScore(best,fit)-1.0)return stable(held);
+  if(!hc&&!bc&&(!beam||(held.power>=best.power-.5&&held.solution.angle<=best.solution.angle+2.))&&best.margin-held.margin<.5)return stable(held);
  }
  return stable(best);
 }
@@ -385,17 +387,18 @@ struct SelectionLatch {
 // Follow launch movement immediately; ease arc and catch-placement changes.
 // Display smoothing never controls throw eligibility.
 struct CurveTracker {
- std::uint64_t target=0;double at=0;std::vector<Vec> points;bool settling=false;
+ std::uint64_t target=0;double at=0;std::vector<Vec> points;bool settling=false;Vec anchor;
  void reset(){*this={};}
- void update(const Solution& s,double gravity,std::uint64_t identity,double time){
+ void update(const Solution& s,double gravity,std::uint64_t identity,double time,Vec launchAnchor={NAN,NAN,NAN}){
   if(!s.valid||!identity){if(!identity||identity!=target||time<at||time-at>.3)reset();return;}
   const bool fresh=target!=identity||points.size()!=65||time<at||time-at>.3;
   const double alpha=fresh?1:1-std::exp(-std::max(0.,time-at)/.16);
   if(fresh)points.resize(65);
-  const Vec startShift=fresh?Vec{}:point(s,gravity,0)-points.front();
+  const bool physicalAnchor=finite(launchAnchor);if(!physicalAnchor)launchAnchor=point(s,gravity,0);
+  const Vec startShift=fresh?Vec{}:physicalAnchor?launchAnchor-anchor:point(s,gravity,0)-points.front();
   double error=0;
   for(size_t i=0;i<points.size();i++){double u=i/64.;auto desired=point(s,gravity,s.time*u);auto moved=points[i]+startShift;points[i]=fresh?desired:moved+(desired-moved)*alpha;error=std::max(error,length(points[i]-desired));}
-  target=identity;at=time;settling=error>.6;
+  target=identity;at=time;anchor=launchAnchor;settling=error>.6;
  }
 };
 // Mouse distance to a projected body capsule, with a bounded retention bonus.

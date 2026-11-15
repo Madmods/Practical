@@ -75,16 +75,29 @@ struct FramePacer {
  ~FramePacer(){if(timer)CloseHandle(timer);}
  void wait(double started){double remaining=1./144-(now()-started);if(remaining<=0){SwitchToThread();return;}LARGE_INTEGER due;due.QuadPart=-std::max<LONGLONG>(1,LONGLONG(remaining*10000000));if(timer&&SetWaitableTimer(timer,&due,0,nullptr,nullptr,FALSE))WaitForSingleObject(timer,20);else Sleep(DWORD(std::max(1.,remaining*1000)));}
 };
+// Bridge a brief invalid search result without flashing the surface. This
+// cache is presentation-only and is never passed to the input/throw helper.
+struct PreviewPlan {
+ ff3Native::Frame retained;double validAt=0;
+ void clear(){retained={};validAt=0;}
+ ff3Native::Frame select(const ff3Native::Frame& live,double time){
+  if(!live.held||!live.tool||live.textFocus||live.pid!=retained.pid||live.model!=retained.model||live.own!=retained.own||live.tool!=retained.tool||live.revision!=retained.revision||time<validAt)clear();
+  if(live.ready&&live.solution.valid&&live.target){retained=live;validAt=time;return live;}
+  if(retained.ready&&live.target==retained.target&&time-validAt<=.18){auto display=retained;display.at=live.at;display.balls=live.balls;display.cameraMatrix=live.cameraMatrix;display.client=live.client;display.origin=live.origin;return display;}
+  return live;
+ }
+};
 inline void worker(){
- using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;if(GdiplusStartup(&token,&startup,nullptr)!=Ok)return;PumpSurface overlay;ff3qb::CurveTracker curve;ViewReader view;FramePacer pacer;double epoch=now();unsigned frames=0;
+ using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;if(GdiplusStartup(&token,&startup,nullptr)!=Ok)return;PumpSurface overlay;ff3qb::CurveTracker curve;ViewReader view;FramePacer pacer;PreviewPlan preview;double epoch=now();unsigned frames=0;
  while(running){
   const double started=now();MSG message{};while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
   // Presentation may bridge a slow planner update; click eligibility retains
   // its separate 100 ms limit. Reproject the retained geometry with live camera.
   auto f=ff3Native::snapshot();bool live=(ff3Native::enabled||ff3Native::ballTrails)&&ff3Native::admitted()&&ff3Native::focused(f.pid)&&now()>=f.at&&now()-f.at<.30;
-  if(!live){overlay.hide();curve.reset();ff3Native::renderHz=0;epoch=now();frames=0;Sleep(30);continue;}
+  if(!live){overlay.hide();curve.reset();preview.clear();ff3Native::renderHz=0;epoch=now();frames=0;Sleep(30);continue;}
+  f=preview.select(f,now());
   if(f.client.right>8000||f.client.bottom>5000||!view.refresh(f)){overlay.hide();Sleep(16);continue;}
-  for(auto& ball:f.balls)if(ball.model.valid)ball.at=now();curve.update(f.solution,f.gravity,f.target,now());
+  for(auto& ball:f.balls)if(ball.model.valid)ball.at=now();curve.update(f.solution,f.gravity,f.target,now(),f.head);
   const bool field=ff3Native::enabled&&ff3Native::visuals&&f.ready&&f.target&&!f.textFocus&&f.revision==ff3Native::revision;
   const bool balls=ff3Native::ballTrails&&std::isfinite(f.groundY)&&std::any_of(f.balls.begin(),f.balls.end(),[](const auto& ball){return ball.model.valid;});
   if(!field&&!balls){overlay.hide();ff3Native::renderHz=0;epoch=now();frames=0;Sleep(16);continue;}
