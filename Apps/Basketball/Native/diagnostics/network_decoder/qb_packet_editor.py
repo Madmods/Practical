@@ -118,6 +118,9 @@ def validate_reach(d):
     if d.get('above',6)+d.get('below',8)<.2:raise DecodeError('Empty catcher vertical extent')
     if math.hypot(movement[0],movement[2])>45:raise DecodeError('Catcher speed outside model')
 
+def placement_limit(movement,flight):
+    return 3.0 if math.hypot(movement[0],movement[2])<.5 else 3.0+min(3.0,max(0,flight-.15)*4)
+
 def catch_path_margin(origin,launch,flight,power,gravity,latency,catchers):
     if not isinstance(catchers,list) or len(catchers)>128:raise DecodeError('Catcher coverage bounds')
     margin=1000.0;steps=max(32,min(400,math.ceil(flight/.02)))
@@ -149,6 +152,12 @@ def replacement(body,call,plan,tick):
         launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],float(plan['angle']),float(plan['gravity']),float(plan['latency']),spawn=5)
     else:
         launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],power,float(plan['gravity']),float(plan['latency']),bool(plan.get('lob')),spawn=5)
+    offset=None
+    anchor=plan.get('routePosition')
+    if anchor is None and isinstance(plan.get('receiver'),dict):anchor=plan['receiver'].get('position')
+    if anchor is not None:
+        offset=tuple(a-b for a,b in zip(vector(plan['targetPosition']),vector(anchor)))
+        if math.hypot(offset[0],offset[2])>placement_limit(vector(plan['targetVelocity']),flight)+1e-6:raise DecodeError('Placement leaves receiver route')
     margin=None
     if plan.get('smartFit') is True or plan.get('strictFit') is True:
         if plan.get('coverageKnown') is not True:raise DecodeError('Incomplete catcher coverage')
@@ -161,7 +170,7 @@ def replacement(body,call,plan,tick):
             landing=[origin[i]+launch[i]*(5/power+flight)-(.5*float(plan['gravity'])*flight*flight if i==1 else 0) for i in range(3)]
             if reach_gap(plan['receiver'],landing,flight+float(plan['latency']))>-.25:raise DecodeError('Receiver cannot reach updated throw')
     aim=tuple(origin[i]+launch[i]*(10000/power) for i in range(3))
-    return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],instance=call['instance'],clickAt=clicked,coverageMargin=margin,contested=margin is not None and margin<=1.0,coverageUnits='studs')
+    return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],routeOffset=offset,instance=call['instance'],clickAt=clicked,coverageMargin=margin,contested=margin is not None and margin<=1.0,coverageUnits='studs')
 
 class RecordTracker:
     def __init__(self,schema):self.schema=schema;self.streams={}

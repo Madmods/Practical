@@ -47,6 +47,14 @@ class Tests(unittest.TestCase):
         for key,value in (('radius',0),('above',float('nan')),('worldGravity',0)):
             p['receiver'].update(position=[70,5,0],radius=5.88,above=3.88,worldGravity=196.2);p['receiver'][key]=value
             self.assertEqual(editor().process_plain(payload(),p,1010),payload())
+    def test_sender_rejects_route_runaway_even_if_reachable(self):
+        for moving in ([0,0,0],[0,0,20]):
+            p=plan();p.update(routePosition=[70,5,0],targetVelocity=moving,targetPosition=[87,5,0])
+            self.assertEqual(editor().process_plain(payload(),p,1010),payload())
+            p['targetPosition']=[72,5,0]
+            e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.last['routeOffset'],(2.,0.,0.))
+        self.assertEqual(placement_limit([0,0,0],8),3)
+        self.assertLessEqual(placement_limit([0,0,20],8),6)
     def test_near_tangent_roots_are_not_lost_between_samples(self):
         origin,target,moving=[0,8,0],[100,8,0],[0,0,0]
         def required(angle):return angle_velocity(origin,target,moving,angle,28,.05,5)[2]

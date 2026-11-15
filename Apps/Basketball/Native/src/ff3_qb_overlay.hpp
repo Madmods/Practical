@@ -62,8 +62,7 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  const float tw=std::clamp(110.f+float(f.name.size())*5.f,170.f,230.f),tx=std::clamp(rx-tw*.5f,4.f,std::max(4.f,w-tw-4)),ty=std::clamp(ry+23,4.f,std::max(4.f,h-48.f));
  rounded(g,{tx,ty,tw,42},9,Color(232,12,20,29),Color(45,color.GetR(),color.GetG(),color.GetB()));
  SolidBrush dot(color);g.FillEllipse(&dot,tx+10,ty+12,4.f,4.f);text(g,basketballUi::widen(f.name),tx+21,ty+6,11,Color(255,230,239,246),true,tw-50);text(g,f.locked?L"Q":L"",tx+tw-20,ty+8,9,color,true,14);
- const double adjustment=std::hypot(f.fitOffset.x,f.fitOffset.z);
- std::wstring status=f.fitBlocked?L"NO CLEAR WINDOW":!f.ready?L"READING THROW":settling?L"UPDATING ARC":adjustment>8?L"FIT / WR ADJUST "+number(adjustment)+L" st":(f.guarded?L"OPEN ESTIMATE":L"ASSIST")+std::wstring(L"  /  ")+number(f.power)+L" P  /  "+number(f.solution.angle)+L" deg";
+ std::wstring status=f.fitBlocked?L"NO CLEAR WINDOW":!f.ready?L"READING THROW":settling?L"UPDATING ARC":(f.guarded?L"OPEN ESTIMATE":L"ASSIST")+std::wstring(L"  /  ")+number(f.power)+L" P  /  "+number(f.solution.angle)+L" deg";
  text(g,status,tx+11,ty+24,8,color,true,tw-20);
  if(!points.empty()&&points.back().valid){float cx=float(points.back().x),cy=float(points.back().y);g.DrawEllipse(&shadow,cx-4,cy-4,8.f,8.f);g.DrawEllipse(&line,cx-4,cy-4,8.f,8.f);}
  if(present)surface.present({f.origin.x+x,f.origin.y+y});

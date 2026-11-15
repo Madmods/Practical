@@ -21,7 +21,7 @@ inline constexpr bool packetMode=true;
 inline std::atomic<ULONGLONG> physicalClickAt{0};
 struct Frame {
  unsigned revision=0;
- double at=0,gravity=0,power=0,gamePower=0,ping=0,margin=0,distance=0;DWORD pid=0;addr model=0,own=0,tool=0,target=0;
+ double at=0,gravity=0,power=0,gamePower=0,ping=0,margin=0,distance=0,planningMs=0;DWORD pid=0;addr model=0,own=0,tool=0,target=0;
  HWND window=nullptr;RECT client{};POINT origin{},cursor{};float matrix[16]{};
  std::vector<ff3qb::BallFlight> balls;
  ff3qb::Solution solution;ff3qb::Screen aim,receiver;
@@ -212,6 +212,7 @@ struct Reader {
   const bool powerFirst=automaticAngle&&autoPower&&f.mode==0;
   const double desired=automaticAngle?ff3qb::presetAngle(f.mode,origin,targetPosition,targetVelocity):double(manualAngle.load());
   const double stableAngle=automaticAngle?angleHistory.update(desired,f.at):desired;
+  const double planningStart=now();
   auto planned=powerFirst?ff3qb::Plan{}:ff3qb::planThrow(origin,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),f.mode,automaticAngle,manualAngle,autoPower,f.gamePower,arc==1,smartFit,defenders,stableAngle,previousFit,powerFirst,5);
   if(powerFirst){
    auto receiverHum=child(h,f.target,"Humanoid");double world=rd<float>(h,ws+Offsets::Workspace::ReadOnlyGravity,NAN),jump=rd<float>(h,receiverHum+Offsets::Humanoid::JumpHeight,NAN);
@@ -226,6 +227,7 @@ struct Reader {
    planned=ff3qb::planCoverageThrow(origin,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,force95,jump,world,previousFit,previousPower,previousLob,previousAngle,f.at>=nextPlanSearch,f.at-lastSearch,measuredReceiver?&receiver:nullptr);
    if(f.at>=nextPlanSearch){lastSearch=f.at;nextPlanSearch=f.at+.10;}
   }
+  f.planningMs=(now()-planningStart)*1000;
   auto solution=planned.solution;
   if(!solution.valid){f.fitBlocked=smartFit;f.reason="No reachable throw at these settings";return f;}
   f.power=planned.power;f.fitOffset=planned.offset;f.targetPosition=targetPosition+planned.offset;f.margin=defenders.empty()?10:planned.margin;previousFit=planned.offset;previousPower=planned.power;previousLob=planned.lob;previousAngle=planned.solution.angle;f.selectedLob=planned.lob;f.distance=ff3qb::length(targetPosition-origin);
@@ -237,8 +239,7 @@ struct Reader {
   f.aim=ff3qb::project(origin+solution.velocity*(1000./f.power),f.matrix,width,height);
   if(!packetMode&&!f.aim.valid){f.reason="Turn the camera toward the throw arc";return f;}
   if(!descendant(h,f.tool,f.own)||rd<addr>(h,player+Offsets::Player::ModelInstance)!=f.own||rd<std::uint64_t>(h,root+Offsets::DataModel::GameId)!=gameModules::registry[1].universe){f.reason="Game state changed";return f;}
-  const double adjustment=std::hypot(f.fitOffset.x,f.fitOffset.z);
-  f.ready=true;f.reason=f.coverageKnown&&f.coverageCount>0&&f.margin<=ff3qb::catchSafetyMargin?"No clear window found: defender reach overlaps this path":adjustment>8?"WR must adjust "+std::to_string(int(std::lround(adjustment)))+" studs toward the catch":f.fitOffset.y>=3?"Elevated catch: "+f.name:"Ready: click to throw to "+f.name;return f;
+  f.ready=true;f.reason=f.coverageKnown&&f.coverageCount>0&&f.margin<=ff3qb::catchSafetyMargin?"No clear window found: defender reach overlaps this path":f.fitOffset.y>=3?"Elevated catch: "+f.name:"Ready: click to throw to "+f.name;return f;
  }
 };
 inline bool eligible(const Frame& f,double time){return enabled&&f.revision==revision&&f.ready&&time>=f.at&&time-f.at<.10&&admitted()&&focused(f.pid)&&(packetMode||freeCursor());}

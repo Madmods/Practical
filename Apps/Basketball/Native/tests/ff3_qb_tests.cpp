@@ -178,15 +178,38 @@ int main(){int count=0;
  Defender db=wr;db.position.z=-5.843841552735;Defender other=db;other.position={1.52346,7.48837,34.29739};
  std::vector<Defender> closeScene{db,other};
  auto window=planCoverageThrow(closeOrigin,closeTarget,{},28,.0624565,closeScene,true,true,actualJump,196.2,{},0,false,NAN,true,.1,&wr);
- assert(estimatedClear(window,true)&&window.power>94.9&&window.solution.angle<30);
- assert(std::hypot(window.offset.x,window.offset.z)>8&&reachGap(wr,window.solution.catchPoint,window.solution.time+.0624565)<-.25);
- CoverageTrace threat;assert(coverageMargin(window.solution,28,closeScene,.0624565,&threat)>catchSafetyMargin&&threat.catcher>=0&&threat.time>=0&&threat.time<=window.solution.time);
+ assert(window.solution.valid&&placementAllowed(window.offset,{},window.solution.time));
+ assert(std::hypot(window.offset.x,window.offset.z)<=3.000001&&reachGap(wr,window.solution.catchPoint,window.solution.time+.0624565)<-.25);
+ CoverageTrace threat;coverageMargin(window.solution,28,closeScene,.0624565,&threat);assert(threat.catcher>=0&&threat.time>=0&&threat.time<=window.solution.time);
  auto rebuilt=solve(closeOrigin,closeTarget+window.offset,{},window.power,28,.0624565,window.lob,5);
  assert(rebuilt.valid&&length(rebuilt.catchPoint-window.solution.catchPoint)<1e-5&&std::abs(rebuilt.time-window.solution.time)<1e-6);
  auto heldWindow=planCoverageThrow(closeOrigin,closeTarget,{},28,.0624565,closeScene,true,true,actualJump,196.2,window.offset,window.power,window.lob,window.solution.angle,true,.1,&wr);
  assert(length(heldWindow.offset-window.offset)<1e-6&&heldWindow.power==window.power);
  auto overlapping=planCoverageThrow(closeOrigin,closeTarget,{},28,.0624565,{wr},true,true,actualJump,196.2,{},0,false,NAN,true,.1,&wr);
  assert(!estimatedClear(overlapping,true));
+ // The former "clear" fit required an uncommanded 17-stud sprint/dive.
+ // It must not survive retention, even though it is theoretically reachable.
+ auto corrected=planCoverageThrow(closeOrigin,closeTarget,{},28,.0624565,closeScene,true,true,actualJump,196.2,{11.9801,6.33939,11.9801},95,false,14.553,true,.1,&wr);
+ assert(corrected.solution.valid&&placementAllowed(corrected.offset,{},corrected.solution.time));
+ assert(!placementAllowed({11.9801,6.33939,11.9801},{},.25));
+ for(Vec movement:{Vec{},Vec{0,0,20}})for(double distance:{20.,60.,150.}){
+  Defender receiver{{distance,8,0},movement,20,actualJump,12,geometry.radius,geometry.above,geometry.below,196.2};
+  auto defender=receiver;defender.position.z-=6;
+  auto bounded=planCoverageThrow({0,8,0},receiver.position,movement,28,.06,{defender},true,true,actualJump,196.2,{30,0,40},95,false,15,true,.1,&receiver);
+  if(bounded.solution.valid)assert(placementAllowed(bounded.offset,movement,bounded.solution.time)&&std::hypot(bounded.offset.x,bounded.offset.z)<=6.000001);
+ }
+ // Go-route sketch: two DBs to the right and one underneath-left. Adjust the
+ // landing slightly left/short while clearing every DB, not just the nearest.
+ Defender routeWr{{0,8,100},{0,0,20},20,actualJump,12,geometry.radius,geometry.above,geometry.below,196.2};
+ auto rightDb=routeWr,trailDb=routeWr,underDb=routeWr;
+ rightDb.position={40,8,100};trailDb.position={50,8,80};underDb.position={-35,8,45};
+ std::vector<Defender> routeCoverage{rightDb,trailDb,underDb};
+ auto originalLanding=solve({0,8,0},routeWr.position,routeWr.velocity,95,28,.06,false,5);
+ assert(coverageMargin(originalLanding,28,routeCoverage,.06)<=catchSafetyMargin);
+ auto sideFit=planCoverageThrow({0,8,0},routeWr.position,routeWr.velocity,28,.06,routeCoverage,true,true,actualJump,196.2,{},0,false,NAN,true,.1,&routeWr);
+ assert(estimatedClear(sideFit,true)&&sideFit.power==95&&sideFit.offset.x<0&&sideFit.offset.z<0);
+ assert(std::hypot(sideFit.offset.x,sideFit.offset.z)<=3.01&&sideFit.solution.angle<20);
+ assert(reachGap(routeWr,sideFit.solution.catchPoint,sideFit.solution.time+.06)<-.25);
  assert(select.update(2,true,.05)==1);assert(select.update(1,true,.1)==1);
  assert(select.update(2,true,.15)==1);assert(select.update(2,true,.32)==2);
  assert(select.update(3,true,.33,true)==3);assert(select.update(4,false,.34)==4);

@@ -44,6 +44,7 @@ public:
     plan.o[L"beam95"]=basketballUi::boolean(powerFirst&&ff3Native::force95);plan.o[L"smartFit"]=basketballUi::boolean(f.guarded);plan.o[L"coverageKnown"]=basketballUi::boolean(f.coverageKnown);
     plan.o[L"coverageDetail"]=basketballUi::string(basketballUi::widen(f.coverageDetail));plan.o[L"catchHeight"]=basketballUi::number(f.fitOffset.y);plan.o[L"fitOffset"]=vector(f.fitOffset);plan.o[L"flightTime"]=basketballUi::number(f.solution.time);plan.o[L"landing"]=vector(f.solution.catchPoint);
     plan.o[L"coverageModel"]=basketballUi::number(2);plan.o[L"clearanceStuds"]=basketballUi::number(f.margin);plan.o[L"limitingCatcher"]=basketballUi::number(f.coverageTrace.catcher);plan.o[L"limitingTime"]=basketballUi::number(f.coverageTrace.time);plan.o[L"limitingPoint"]=vector(f.coverageTrace.point);
+    plan.o[L"routePosition"]=vector(f.targetPosition-f.fitOffset);plan.o[L"planningMs"]=basketballUi::number(f.planningMs);
     auto flights=basketballUi::array();for(const auto& ball:f.balls){auto item=basketballUi::object();item.o[L"position"]=vector(ball.position);item.o[L"velocity"]=vector(ball.velocity);item.o[L"gravity"]=basketballUi::number(ball.gravity);item.o[L"samples"]=basketballUi::number(double(ball.trail.size()));flights.a.push_back(item);}plan.o[L"flights"]=flights;
     auto catchers=basketballUi::array();for(const auto& d:f.defenders)catchers.a.push_back(reach(d));plan.o[L"catchers"]=catchers;
     if(f.receiverReachKnown)plan.o[L"receiver"]=reach(f.receiverReach);

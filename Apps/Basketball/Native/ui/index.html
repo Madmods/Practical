@@ -1592,7 +1592,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         {type:'slider',id:'angle',label:'Manual angle · R / F',description:'R / F switch to manual angle with calculated power. Z or a pass button restores preset control.',value:35,min:5,max:75,step:1,unit:'°'},
         {type:'switch',id:'power',label:'Calculate power for the angle',description:'Recomputes continuously, up to 95. R/F automatically enable it.',value:true},
         {type:'switch',id:'force95',label:'Beam mode · adaptive power',description:'Searches both low and high arcs for the highest power with estimated clearance, up to 95. Can lower power and raise the arc to get over coverage.',value:false},
-        {type:'switch',id:'fit',label:'Smart fit',description:'Uses measured catch-part dimensions when available and the same timed jump/run/dive model for receiver and coverage. Searches placement the receiver can reach, including adjusting toward the ball. If no clear window is found, assistance is withheld and the status says so. Your manual click is not blocked; estimates cannot guarantee a catch.',value:true},
+        {type:'switch',id:'fit',label:'Smart fit',description:'Uses measured catch-part dimensions when available and timed jump/dive reach. Adjusts landing around the observed route: up to 3 studs when stationary or 6 while moving, in addition to normal route lead. If no clear window is found, assistance is withheld and the status says so. Your manual click is not blocked; estimates cannot guarantee a catch.',value:true},
         {type:'slider',id:'radius',label:'Mouse selection radius',value:260,min:40,max:700,step:10,unit:' px'},
         {type:'slider',id:'dive',label:'Estimated dive reach',description:'Extra reach allowed to other catchers. Conservative estimate, not a measured game limit.',value:12,min:0,max:24,step:1,unit:' studs',advanced:true},
         {type:'switch',id:'visuals',label:'Aim path, receiver and catch point',value:true},
@@ -3635,8 +3635,8 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       $('[data-ff3-dashboard]').innerHTML=ff3Dashboard();$('[data-ff3-dashboard]').scrollIntoView({block:'start'});await delay(200);
       check($('.qb-flight-view svg').querySelectorAll('path').length===3&&$('.qb-badge').textContent==='CONTESTED','Live profile renders measured samples and contested status');
       check((await hostAsk('testCapture',{name:'ff3-live'})).ok,'Redesigned throw dashboard captured');
-      ff3Live.margin=1.54;ff3Live.reason='WR must adjust 17 studs toward the catch';ff3Live.fitOffset=17;$('[data-ff3-dashboard]').innerHTML=ff3Dashboard();
-      check($('.qb-badge').textContent==='OPEN ESTIMATE'&&$('.qb-metrics').textContent.includes('st')&&$('.qb-status').textContent.includes('adjust 17'),'Spatial clearance and required receiver adjustment are visible');
+      ff3Live.margin=1.54;ff3Live.reason='Nearby catch placement';ff3Live.fitOffset=3;$('[data-ff3-dashboard]').innerHTML=ff3Dashboard();
+      check($('.qb-badge').textContent==='OPEN ESTIMATE'&&$('.qb-metrics').textContent.includes('st')&&$('.qb-status').textContent.includes('placement'),'Spatial clearance and nearby placement are visible');
       ff3Live.ready=false;ff3Live.fitBlocked=true;$('[data-ff3-dashboard]').innerHTML=ff3Dashboard();
       check($('.qb-badge').textContent==='NO CLEAR WINDOW','Unclear reach is not presented as a ready fit');ff3PreviewTest=false;ff3Live=previousLive;
       await hostAsk('testConnection',{scenario:'wrong'});await until(()=>BBS.reconnecting);
