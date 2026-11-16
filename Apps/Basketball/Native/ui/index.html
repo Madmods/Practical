@@ -1566,7 +1566,9 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   const HOME ={ title: 'Home', sub: 'Everything at a glance', icon: ICONS.home, navMeta: 'Stats and status' };
   // Backdrop preview colours: [top-left light, bottom-right light, base]
   const SCENES = { graphite: ['#3a4060', '#2c2f40', '#0c0d12'], midnight: ['#25366c', '#1a2446', '#070a12'], aurora: ['#6a4ff0', '#d0509a', '#0a0918'], court: ['#b06a2c', '#7a3f18', '#17100b'] };
-  if(BB)PAGES.settings.tabs[0].features.find(f=>f.id==='theme').rows.push({type:'switch',id:'topmost',label:'Always on top',value:true});
+  if(BB)PAGES.settings.tabs[0].features.find(f=>f.id==='theme').rows.push(
+    {type:'switch',id:'topmost',label:'Always on top',value:true},
+    {type:'switch',id:'capture',label:'Exclude Vanta from captures',value:true});
   if(BB)PAGES.network={title:'Network',sub:'Inspect remote paths and decoded call logs',group:'system',icon:ICONS.trend,navMeta:'Remote inspector',tabs:[{id:'inspector',label:'Inspector',features:[]}]};
   const DEFAULTS = clone(PAGES);
   const basketballPages=BB?Object.fromEntries(Object.entries(PAGES).filter(([,p])=>p.group==='workspace')):{};
@@ -2478,6 +2480,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     if (key === 'glass.tint') s.setProperty('--tint', v / 100);
     if (key === 'theme.accent') applyAccent(v);
     if (BB && key === 'theme.topmost') hostSend('setting',{key,value:!!v});
+    if (BB && key === 'theme.capture') hostSend('setting',{key,value:!!v});
     if (key === 'theme.scene') document.body.dataset.scene = v;
   }
   function applyAllSettings() { for (const f of PAGES.settings.tabs[0].features) for (const r of f.rows) if ('value' in r) onChange(`${f.id}.${r.id}`, r.value); }
@@ -3565,6 +3568,15 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       for(const [id,p]of Object.entries(PAGES)){for(const tab of p.tabs){state.page=id;state.tab[id]=tab.id;renderPage();await delay(10);}}
       check(true,'Every page and tab renders');
       state.page='settings';state.tab.settings='interface';renderPage();
+      const captureToggle=$('[data-key="theme.capture"][data-act="rowswitch"]');
+      if(!find('theme.capture').r.value){captureToggle.click();await delay(50);}
+      let captureState=await hostAsk('testCapturePrivacy');
+      check(captureState.requested&&captureState.windows>0&&captureState.failed===0,'Capture exclusion is applied to the native window');
+      captureToggle.click();await delay(50);captureState=await hostAsk('testCapturePrivacy');
+      check(!captureState.requested&&captureState.failed===0,'Capture exclusion can be disabled');
+      check(JSON.parse(localStorage.getItem('basketball.appearance'))['theme.capture']===false,'Capture exclusion preference is persisted');
+      captureToggle.click();await delay(50);captureState=await hostAsk('testCapturePrivacy');
+      check(captureState.requested&&captureState.failed===0,'Capture exclusion can be enabled again');
       const topToggle=$('[data-key="theme.topmost"][data-act="rowswitch"]');
       // Isolated test storage may retain a preference from an earlier run.
       if(!find('theme.topmost').r.value){topToggle.click();await delay(50);}

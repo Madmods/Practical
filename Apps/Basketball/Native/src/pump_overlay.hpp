@@ -1,4 +1,5 @@
 #pragma once
+#include "capture_privacy.hpp"
 #include <gdiplus.h>
 #pragma comment(lib,"gdiplus.lib")
 #include "court_occlusion.hpp"
@@ -9,9 +10,9 @@ struct PumpSurface {
  HWND window=nullptr;HDC dc=nullptr;HBITMAP bitmap=nullptr;HGDIOBJ old=nullptr;void*bits=nullptr;int width=0,height=0;bool visible=false;
  void hide(){if(visible){ShowWindow(window,SW_HIDE);visible=false;}}
  void freeBitmap(){if(dc){if(old)SelectObject(dc,old);if(bitmap)DeleteObject(bitmap);DeleteDC(dc);}dc=nullptr;bitmap=nullptr;old=nullptr;bits=nullptr;width=height=0;}
- void close(){if(window)DestroyWindow(window);window=nullptr;visible=false;freeBitmap();}
+ void close(){if(window){capturePrivacy::detach(window);DestroyWindow(window);}window=nullptr;visible=false;freeBitmap();}
  bool prepare(int w,int h){
-  if(!window){WNDCLASSW wc{};wc.lpfnWndProc=pumpOverlayProc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"VantaPumpVisual";RegisterClassW(&wc);window=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,wc.lpszClassName,L"",WS_POPUP,0,0,1,1,nullptr,nullptr,wc.hInstance,nullptr);if(!window)return false;}
+  if(!window){WNDCLASSW wc{};wc.lpfnWndProc=pumpOverlayProc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"VantaPumpVisual";RegisterClassW(&wc);window=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,wc.lpszClassName,L"",WS_POPUP,0,0,1,1,nullptr,nullptr,wc.hInstance,nullptr);if(!window)return false;capturePrivacy::attach(window);}
   w=(w+63)&~63;h=(h+63)&~63;
   // Keep capacity while moving; grow in blocks, shrink only on a large change.
   if(dc&&w<=width&&h<=height&&w*2>=width&&h*2>=height)return true;

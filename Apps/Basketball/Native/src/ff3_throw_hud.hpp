@@ -66,6 +66,7 @@ inline int test(HINSTANCE instance,const std::filesystem::path& folder){
   if(type==L"testTimeout")PostQuitMessage(0);
  };
  if(!view.Create(instance,info,cb))return 1;
+ DWORD affinity=0;if(!GetWindowDisplayAffinity(view.Window(),&affinity)||affinity!=capturePrivacy::Exclude){view.Shutdown();return 1;}
  RECT area{-3000,-1080,-1920,0};view.PlaceOverlay(&area,1000,110,0);
  const auto styles=GetWindowLongPtrW(view.Window(),GWL_EXSTYLE);if(!(styles&WS_EX_NOACTIVATE)||!(styles&WS_EX_TOOLWINDOW)){view.Shutdown();return 1;}
  view.Run();view.Shutdown();return result;

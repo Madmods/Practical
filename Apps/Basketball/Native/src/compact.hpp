@@ -1,8 +1,10 @@
 #pragma once
+#include "capture_privacy.hpp"
 #pragma comment(lib,"gdi32.lib")
 static HWND compact=nullptr;
 static COLORREF nativeColor(unsigned c){return RGB(c>>16,(c>>8)&255,c&255);}
 static LRESULT CALLBACK compactProc(HWND h,UINT msg,WPARAM w,LPARAM l){
+ if(msg==WM_NCDESTROY)capturePrivacy::detach(h);
  if(msg==WM_MOUSEACTIVATE)return MA_NOACTIVATE;
  if(msg==WM_LBUTTONUP){ShowWindow(h,SW_HIDE);ShowWindow(wnd,SW_RESTORE);SetForegroundWindow(wnd);return 0;}
  if(msg==WM_SETCURSOR){SetCursor(LoadCursor(nullptr,IDC_HAND));return TRUE;}
@@ -20,7 +22,7 @@ static LRESULT CALLBACK compactProc(HWND h,UINT msg,WPARAM w,LPARAM l){
 static void miniShow(HWND main){if(!compactBar)return;
  MONITORINFO mi{sizeof mi};GetMonitorInfoW(MonitorFromWindow(main,MONITOR_DEFAULTTONEAREST),&mi);
  if(!compact){WNDCLASSW c{};c.lpfnWndProc=compactProc;c.hInstance=GetModuleHandleW(nullptr);c.lpszClassName=L"VantaCompactHUD";RegisterClassW(&c);
- compact=CreateWindowExW(WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,c.lpszClassName,L"Vanta mini",WS_POPUP,0,0,1,1,nullptr,nullptr,c.hInstance,nullptr);}
+ compact=CreateWindowExW(WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,c.lpszClassName,L"Vanta mini",WS_POPUP,0,0,1,1,nullptr,nullptr,c.hInstance,nullptr);capturePrivacy::attach(compact);}
  int dpi=GetDpiForWindow(main),ww=MulDiv(320,dpi,96),hh=MulDiv(36,dpi,96);
  SetWindowRgn(compact,CreateRoundRectRgn(0,0,ww+1,hh+1,hh/2,hh/2),FALSE);
  SetWindowPos(compact,HWND_TOPMOST,(mi.rcWork.left+mi.rcWork.right-ww)/2,mi.rcWork.top+8,ww,hh,SWP_NOACTIVATE|SWP_SHOWWINDOW);

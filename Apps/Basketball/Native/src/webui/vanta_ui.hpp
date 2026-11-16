@@ -15,6 +15,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include "../capture_privacy.hpp"
 #include <dwmapi.h>
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -140,6 +141,7 @@ public:
         hwnd_ = CreateWindowExW(info_.overlay ? WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE|WS_EX_TRANSPARENT : WS_EX_APPWINDOW, wc.lpszClassName, info_.title.c_str(),
                                 info_.overlay ? WS_POPUP : WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU, 0, 0, 1, 1, nullptr, nullptr, inst, this);
         if (!hwnd_) return false;
+        capturePrivacy::attach(hwnd_);
         alwaysOnTop_ = info_.overlay || info_.product == L"basketball";
         SetWindowPos(hwnd_,alwaysOnTop_?HWND_TOPMOST:HWND_NOTOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
         if(!info_.overlay)FitToMonitor(true);
@@ -485,6 +487,9 @@ private:
             Reply(msg,L"\"ok\":true,\"width\":"+std::to_wstring(r.right-r.left)+L",\"height\":"+std::to_wstring(r.bottom-r.top)+L",\"top\":"+std::to_wstring(r.top)+L",\"workTop\":"+std::to_wstring(mi.rcWork.top)+L",\"notice\":"+(notice_?L"true":L"false")+L",\"island\":"+(island_?L"true":L"false")+L",\"topmost\":"+((GetWindowLongPtrW(hwnd_,GWL_EXSTYLE)&WS_EX_TOPMOST)?L"true":L"false"));
         } else if(type==L"testTopmost"&&info_.testMode){
             Reply(msg,std::wstring(L"\"desired\":")+(alwaysOnTop_?L"true":L"false")+L",\"style\":"+std::to_wstring(GetWindowLongPtrW(hwnd_,GWL_EXSTYLE)));
+        } else if(type==L"testCapturePrivacy"&&info_.testMode){
+            const auto state=capturePrivacy::status();
+            Reply(msg,std::wstring(L"\"requested\":")+(state.requested?L"true":L"false")+L",\"windows\":"+std::to_wstring(state.windows)+L",\"failed\":"+std::to_wstring(state.failed));
         } else if(type==L"testScale"&&info_.testMode){
             BeginScale(std::clamp(msg[L"scale"].num(1),.6,1.5)*dpi_/96.0);Reply(msg,L"\"ok\":true");
         } else if (type == L"minimize") {
@@ -526,6 +531,12 @@ private:
         } else if (type == L"feature") {
             if (cb_.featureChanged && msg[L"on"].type == json::Value::Bool) cb_.featureChanged(msg[L"feature"].str(), msg[L"on"].boolean());
         } else if (type == L"setting") {
+            if(info_.product==L"basketball"&&msg[L"key"].str()==L"theme.capture"){
+                if(msg[L"value"].type!=json::Value::Bool)return;
+                const auto state=capturePrivacy::set(msg[L"value"].boolean());
+                if(state.failed)Post(L"{\"type\":\"basketballError\",\"error\":\"Windows could not apply capture privacy to every Vanta window. Check your recording preview.\"}");
+                return;
+            }
             if(info_.product==L"basketball"&&msg[L"key"].str()==L"theme.topmost"){
                 if(msg[L"value"].type!=json::Value::Bool)return;
                 alwaysOnTop_=msg[L"value"].boolean();
@@ -650,6 +661,7 @@ private:
 
     // ---------------------------------------------------------------- window procedure
     static LRESULT CALLBACK StaticProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+        if(msg==WM_NCDESTROY)capturePrivacy::detach(hwnd);
         if (msg == WM_NCCREATE) {
             auto* self = static_cast<UiHost*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
