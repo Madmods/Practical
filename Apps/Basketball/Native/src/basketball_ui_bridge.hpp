@@ -44,7 +44,15 @@ inline json::Value shotReport(const TimingRelease& shot){
 inline json::Value windowReport(){
  const auto w=currentTimingWindow();auto out=object();out.o[L"valid"]=boolean(w.bounds.valid);
  out.o[L"minimum"]=number(w.bounds.minimum);out.o[L"maximum"]=number(w.bounds.maximum);out.o[L"ping"]=number(w.ping);
- out.o[L"detail"]=string(w.bounds.valid?L"Captured for this shot":w.bounds.outOfRange?L"Ping is outside the calibrated timing range; automatic release paused":L"Waiting for fresh ping and a rising meter");return out;
+ const wchar_t* detail=L"Measuring the rising shot meter";
+ if(w.bounds.valid)detail=L"Captured for this shot";
+ else if(w.bounds.outOfRange)detail=L"Ping is outside the calibrated timing range; automatic release paused";
+ else if(!meterFound)detail=L"Basketball shot meter not found";
+ else if(!livePing)detail=L"Waiting for a fresh numeric ping reading";
+ else if(statusCode==12)detail=L"Windows did not accept the shot-key release";
+ else if(!gameDown)detail=L"Hold a configured Shot input key in Roblox until release";
+ else if(!activeMeter)detail=L"Shot key detected; waiting for the meter to rise";
+ out.o[L"detail"]=string(detail);return out;
 }
 inline json::Value reviewReport(){
  const auto v=reviewerView();auto out=object();

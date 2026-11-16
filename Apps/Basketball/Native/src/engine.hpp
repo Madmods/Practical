@@ -195,7 +195,18 @@ inline void engine(){
    Sleep(10);continue;
   }
   if(!tracking&&t-lookup>1){root=rd<addr>(h,rd<addr>(h,base+Offsets::FakeDataModel::Pointer)+Offsets::FakeDataModel::RealDataModel);player=rd<addr>(h,child(h,root,"Players")+Offsets::Player::LocalPlayer);auto who=nm(h,player);linked=!who.empty();connectionState=linked?ConnectionState::Connected:ConnectionState::Loading;own=path(h,root,{"Workspace","Characters",who});m=path(h,own,{"HumanoidRootPart","BatMeter","Meter_Fill","FillGradient"});meterFound=m!=0;ping=path(h,root,{"Stats","PerformanceStats","Ping"});lookup=t;sceneRoot=root;sceneOwn=own;scenePlayer=player;sceneVisualEngine=rd<addr>(h,base+Offsets::VisualEngine::Pointer);}
-  if(t-net>.5){net=t;struct Stat{double value;char label[16];};auto s=rd<Stat>(h,ping+0x98);s.label[15]=0;double x;char unit[16]{};if(s.value>0&&s.value<1000&&sscanf_s(s.label,"%lf %15s",&x,unit,16u)==2&&!strcmp(unit,"msec")&&fabs(x-s.value)<.051){pingFilter.add(t,x);pingMs=pingFilter.value();lastPing=t;if(reviewActive){std::lock_guard<std::mutex> lock(reviewMutex);reviewer.ping(t,(int)std::lround(x));}}livePing=t-lastPing<5;if(!livePing){pingMs=30;pingFilter.reset();}}
+  if(t-net>.5){
+   net=t;
+   // Stats/PerformanceStats/Ping exposes milliseconds numerically. Its adjacent
+   // display label is presentation text and can vary with locale or formatting.
+   const double value=ping?rd<double>(h,ping+0x98,NAN):NAN;
+   if(pingFilter.add(t,value)){
+    pingMs=pingFilter.value();lastPing=t;
+    if(reviewActive){std::lock_guard<std::mutex> lock(reviewMutex);reviewer.ping(t,(int)std::lround(value));}
+   }
+   livePing=pingFilter.fresh(t);
+   if(!livePing){pingMs=30;pingFilter.reset();}
+  }
   if(pumpOwned&&(!pumpOn||!armed||!gameFocused()||!heldBall||heldBall!=pumpRequestBall||t-ownedSince>2.5)){stop(11);pumpStatus=pump::Expired;}
   if(seenPump!=pumpRequest.load()){seenPump=pumpRequest;bool ok=pumpOn&&armed&&gameFocused()&&heldBall&&heldBall==pumpRequestBall&&!physicalDown&&!gameDown&&m&&t-pumpRequestAt.load()<.15&&t-sceneAt.load()<.15;
    if(ok)activeShotKey=shootKey.load();

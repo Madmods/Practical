@@ -4,6 +4,12 @@
 #include <iostream>
 int main(){
  shooting::PingFilter ping;double t=1;
+ // Numeric StatsItem values do not need a formatted/English display label.
+ assert(ping.add(.1,24.75));assert(ping.value()==25);
+ assert(!ping.add(.2,0));assert(!ping.add(.2,-1));
+ assert(!ping.add(.2,INFINITY));assert(!ping.add(.2,NAN));
+ assert(!ping.add(.2,1000));assert(ping.fresh(2.1));assert(!ping.fresh(2.101));
+ ping.reset();
  for(int i=0;i<5;i++){assert(ping.add(t,25));t+=.5;}
  for(int next:{90,175,30,95,25}){assert(ping.add(t,next));assert(ping.value()==next);t+=.5;}
  assert(!ping.add(t,NAN));assert(!ping.add(t,1000));assert(!ping.add(t-1,30));assert(ping.value()==25);
