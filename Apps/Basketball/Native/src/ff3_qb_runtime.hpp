@@ -9,7 +9,7 @@ namespace ff3Native {
 using ff3qb::Vec;
 inline std::atomic<bool> enabled{false},autoPower{true},practice{true},visuals{true};
 inline std::atomic<int> arc{0};
-inline std::atomic<int> passMode{0},manualAngle{35},selectionRadius{260};
+inline std::atomic<int> passMode{0},manualAngle{35},selectionRadius{40};
 inline std::atomic<bool> automaticAngle{true},smartFit{true},showHud{false},showCandidates{true};
 inline std::atomic<unsigned> revision{0};
 inline std::atomic<addr> lockedTarget{0};
@@ -32,7 +32,7 @@ struct Frame {
  std::vector<ff3qb::BallFlight> balls;
  ff3qb::Solution solution;ff3qb::Screen aim,receiver;
  addr cameraMatrix=0;Vec gameMouse{NAN,NAN,NAN};
- Vec head{},targetPosition{},targetVelocity{},leadOffset{};double groundY=NAN;
+ Vec head{},targetPosition{},targetVelocity{},leadOffset{},selectedPosition{};addr selectedPrimitive=0;double groundY=NAN;
  ff3qb::CoverageTrace coverageTrace;ff3qb::RiskForecast risk;
  ff3qb::Defender receiverReach;bool receiverReachKnown=false;
  std::vector<ff3qb::Defender> defenders;bool guarded=false,fitBlocked=false;Vec fitOffset{};bool coverageKnown=false,wheelVisible=false,selectedLob=false;
@@ -107,16 +107,17 @@ struct Reader {
 
  HANDLE handle=nullptr;DWORD pid=0;addr model=0,moduleBase=0,retained=0;double scanAt=-10;
  addr routeTarget=0,routeTool=0;ff3qb::SelectionLatch selection;ff3qb::RouteHistory routeHistory;ff3qb::AngleTracker angleHistory;ff3qb::BeamMemory beamMemory;ff3qb::RoutePassLatch routePass;Vec previousFit{};double previousPower=0;bool previousLob=false;double previousAngle=NAN;unsigned plannerRevision=0;double nextPlanSearch=0,lastSearch=0,lastPlanAt=0;
- struct Actor{addr rig=0,player=0,team=0;bool npc=false;ff3qb::CatchGeometry shape;};std::vector<Actor> actors;
+ struct Actor{addr rig=0,player=0,team=0;bool npc=false;ff3qb::CatchGeometry shape;};std::vector<Actor> actors;std::map<addr,double> potentialSpeeds;
 
  std::shared_ptr<Frame> releaseVisual;ff3qb::ThrowTracker throwTracker;ULONGLONG seenThrowClick=0;double shapeBallRadius=.6;
  void refreshActors(HANDLE h,addr root,addr ws,addr players,bool practicePlace,double time){
   if(model==root&&time-scanAt<=.25)return;
-  actors.clear();if(model!=root){retained=0;lockedTarget=0;routeTarget=0;}model=root;scanAt=time;
+  actors.clear();if(model!=root){potentialSpeeds.clear();retained=0;lockedTarget=0;routeTarget=0;}model=root;scanAt=time;
   auto local=rd<addr>(h,players+Offsets::Player::LocalPlayer);
   for(auto p:children(h,players)){auto rig=rd<addr>(h,p+Offsets::Player::ModelInstance);if(p!=local&&rig)actors.push_back({rig,p,rd<addr>(h,p+Offsets::Player::Team),false});}
   if(practicePlace)for(auto group:children(h,child(h,ws,"npcwr")))for(auto rig:children(h,group))if(defense::classOf(h,rig)=="Model"&&child(h,rig,"WR"))actors.push_back({rig,0,0,true});
   for(auto& actor:actors)actor.shape=readCatchGeometry(h,actor.rig,shapeBallRadius);
+  for(auto it=potentialSpeeds.begin();it!=potentialSpeeds.end();){if(std::none_of(actors.begin(),actors.end(),[&](const Actor& a){return a.rig==it->first;}))it=potentialSpeeds.erase(it);else ++it;}
  }
  static addr possessedBall(HANDLE h,addr container){
   if(!container)return 0;int budget=0;
@@ -149,7 +150,7 @@ struct Reader {
   auto people=throwActors(h,ws,f);
   if(newClick){seenThrowClick=click;if(clicked.held&&clicked.own==f.own&&clicked.model==f.model&&captured>=clicked.at&&captured-clicked.at<.1&&observedAt>=captured&&observedAt-captured<.5){
    ff3qb::ThrowIntent intent{click,f.model,f.own,f.localPlayer,clicked.target,clicked.heldBall,captured,clicked.power,clicked.solution.angle,clicked.solution.time,clicked.distance,clicked.ready?clicked.solution.catchPoint.y:NAN,clicked.name,force95?"Beam":ff3qb::presetName(clicked.mode)};
-   auto forecast=predictedThrow(clicked,captured);if(!forecast.valid)forecast=clicked.solution;const auto risk=ff3qb::riskForecast(forecast,clicked.gravity,clicked.hudDefenders,std::clamp(clicked.ping*.0005+.05,0.,.25));intent.predictionKnown=clicked.ready&&clicked.hudCoverageKnown;intent.predictedIntable=intent.predictionKnown&&risk.intable;if(intent.predictedIntable)intent.predictedRiskAt=risk.projected.time;
+   auto forecast=predictedThrow(clicked,captured);if(!forecast.valid)forecast=clicked.solution;const auto risk=ff3qb::riskForecast(forecast,clicked.gravity,clicked.hudDefenders,std::clamp(clicked.ping*.0005+.05,0.,.25),clicked.groundY);intent.predictionKnown=clicked.ready&&clicked.hudCoverageKnown;intent.predictedIntable=intent.predictionKnown&&risk.intable;if(intent.predictedIntable)intent.predictedRiskAt=risk.projected.time;
    throwTracker.begin(intent,clicked.balls,people);
    releaseVisual.reset();if(clicked.ready&&forecast.valid){releaseVisual=std::make_shared<Frame>(clicked);releaseVisual->releaseVisual.reset();releaseVisual->solution=forecast;releaseVisual->risk=risk;releaseVisual->at=captured;releaseVisual->afterRelease=true;}
   }}
@@ -233,21 +234,21 @@ struct Reader {
    Vec p=position(h,child(h,a.rig,"Head")),v=velocity(h,hrp);if(!ff3qb::finite(p))p=position(h,hrp)+Vec{0,1.5,0};if(!ff3qb::finite(p)||!ff3qb::finite(v)||std::hypot(v.x,v.z)>45)continue;v.y=0;
    auto screen=ff3qb::project(p,f.matrix,width,height);if(!screen.valid&&!wanted)continue;
    auto top=ff3qb::project(p+Vec{0,2,0},f.matrix,width,height),bottom=ff3qb::project(p-Vec{0,3,0},f.matrix,width,height);
-   double distance=top.valid&&bottom.valid?ff3qb::selectionDistance(f.cursor.x-f.origin.x,f.cursor.y-f.origin.y,bottom.x,bottom.y,top.x,top.y,std::clamp(std::abs(top.y-bottom.y)*.3,18.,32.),a.rig==retained):std::hypot(screen.x-(f.cursor.x-f.origin.x),screen.y-(f.cursor.y-f.origin.y));
+   double distance=top.valid&&bottom.valid?ff3qb::selectionDistance(f.cursor.x-f.origin.x,f.cursor.y-f.origin.y,bottom.x,bottom.y,top.x,top.y,std::clamp(std::abs(top.y-bottom.y)*.2,5.,18.),false):std::hypot(screen.x-(f.cursor.x-f.origin.x),screen.y-(f.cursor.y-f.origin.y));
    f.candidates.push_back({screen,nm(h,a.rig),false});
    if(ff3qb::length(p-origin)<6||ff3qb::length(p-origin)>1000)continue;
-   if(a.rig==retained&&distance<std::min(double(selectionRadius.load()),std::min(width,height)*.35)+24){retainedAvailable=true;retainedFrame.target=a.rig;retainedFrame.name=nm(h,a.rig);retainedFrame.receiver=screen;retainedPosition=p;retainedVelocity=v;}
+   if(a.rig==retained&&distance<std::min(double(selectionRadius.load()),std::min(width,height)*.35)+6){retainedAvailable=true;retainedFrame.target=a.rig;retainedFrame.name=nm(h,a.rig);retainedFrame.receiver=screen;retainedPosition=p;retainedVelocity=v;}
    if(!wanted&&distance>=best)continue;
    best=distance;f.target=a.rig;f.name=nm(h,a.rig);f.receiver=screen;targetPosition=p;targetVelocity=v;
   }
   selection.current=retained;auto selected=selection.update(f.target,retainedAvailable,f.at,wanted!=0);
   if(selected&&selected!=f.target&&retainedAvailable){f.target=retainedFrame.target;f.name=retainedFrame.name;f.receiver=retainedFrame.receiver;targetPosition=retainedPosition;targetVelocity=retainedVelocity;}
   if(!f.target){retained=0;selection={};f.reason=pinned?"Locked receiver unavailable or off screen; Q unlocks":"Aim near a teammate or practice receiver";return f;}
-  retained=f.target;for(auto& c:f.candidates)c.selected=c.screen.x==f.receiver.x&&c.screen.y==f.receiver.y;
+  retained=f.target;f.selectedPosition=targetPosition;f.selectedPrimitive=rd<addr>(h,child(h,f.target,"Head")+Offsets::BasePart::Primitive);for(auto& c:f.candidates)c.selected=c.screen.x==f.receiver.x&&c.screen.y==f.receiver.y;
   if(routeTarget!=f.target||routeTool!=f.tool||plannerRevision!=f.revision){plannerRevision=f.revision;routeTarget=f.target;routeTool=f.tool;routeHistory.reset();angleHistory={};beamMemory={};routePass={};previousFit={};previousPower=0;previousLob=false;previousAngle=NAN;nextPlanSearch=0;}
   routeHistory.update(f.at,origin,position(h,child(h,f.target,"HumanoidRootPart")),targetVelocity);targetVelocity=routeHistory.movement;if(ff3qb::length(targetVelocity)<.5)targetVelocity={};
   f.route=routeHistory.route;
-  bool coverageComplete=true;f.hudCoverageKnown=true;int measuredShapes=0;const double worldGravity=rd<float>(h,ws+Offsets::Workspace::ReadOnlyGravity,NAN);
+  bool coverageComplete=std::isfinite(f.groundY);f.hudCoverageKnown=true;int measuredShapes=0;const double worldGravity=rd<float>(h,ws+Offsets::Workspace::ReadOnlyGravity,NAN);
   if(!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)coverageComplete=false;
   // All other live players and enabled practice bots can contest a catch.
   // Do not require a team assignment in the practice place.
@@ -263,7 +264,8 @@ struct Reader {
    if(!std::isfinite(jump)||jump<0||jump>40)jump=7;
    double walk=rd<float>(h,humanoid+Offsets::Humanoid::Walkspeed,NAN);if(!std::isfinite(walk)||walk<0||walk>45)walk=22;
    if(std::hypot(v.x,v.z)>45){coverageComplete=false;continue;}
-   defenders.push_back({p,v,std::max(walk,std::hypot(v.x,v.z)),jump,double(diveReach.load()),a.shape.radius,a.shape.above,a.shape.below,std::isfinite(worldGravity)?worldGravity:196.2});
+   const double potential=ff3qb::movementPotential(walk,v,potentialSpeeds.count(a.rig)?potentialSpeeds[a.rig]:22.);potentialSpeeds[a.rig]=potential;
+   defenders.push_back({p,v,potential,jump,double(diveReach.load()),a.shape.radius,a.shape.above,a.shape.below,std::isfinite(worldGravity)?worldGravity:196.2});
    const bool sideKnown=a.npc||(f.team&&a.team);
    if(!sideKnown||(a.npc?!rd<bool>(h,child(h,a.rig,"WR")+Offsets::Misc::Value):a.team!=f.team)){f.hudDefenders.push_back(defenders.back());f.hudShapeMeasured.push_back(a.shape.measured);if(!a.shape.measured)f.hudReachEstimated=true;}
    if(a.shape.measured)++measuredShapes;
@@ -298,20 +300,20 @@ struct Reader {
    ff3qb::Defender receiver{targetPosition,targetVelocity,20,jump,double(diveReach.load())};bool measuredReceiver=false;
    double walk=rd<float>(h,receiverHum+Offsets::Humanoid::Walkspeed,NAN);if(std::isfinite(walk)&&walk>=0&&walk<=45)receiver.speed=std::max(walk,std::hypot(targetVelocity.x,targetVelocity.z));
    for(const auto& actor:actors)if(actor.rig==f.target&&actor.shape.measured){receiver.radius=actor.shape.radius;receiver.above=actor.shape.above;receiver.below=actor.shape.below;receiver.worldGravity=world;measuredReceiver=true;break;}
-   f.receiverReach=receiver;f.receiverReachKnown=measuredReceiver;
-  auto planned=powerFirst?ff3qb::Plan{}:ff3qb::planThrow(origin,aimTarget,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),f.mode,automaticAngle,manualAngle,autoPower,f.gamePower,arc==1,smartFit,defenders,stableAngle,previousFit,powerFirst,5);
+   receiver.redirect=smartFit&&measuredReceiver&&receiver.speed>0;f.receiverReach=receiver;f.receiverReachKnown=measuredReceiver;
+  auto planned=powerFirst?ff3qb::Plan{}:ff3qb::planThrow(origin,aimTarget,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),f.mode,automaticAngle,manualAngle,autoPower,f.gamePower,arc==1,smartFit,defenders,stableAngle,previousFit,powerFirst,5,f.groundY);
   if(powerFirst){
    const bool searching=f.at>=nextPlanSearch;const double step=lastPlanAt?f.at-lastPlanAt:.1;
-   if(routeAuto)planned=ff3qb::planRoutePass(style,origin,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,measuredReceiver?&receiver:nullptr,previousAngle,step,&beamMemory.elevation,f.at);
-   if(planned.solution.valid){f.passLabel=ff3qb::routePassName(style);f.fixedPowerRoute=style!=ff3qb::RoutePass::Head;}
-   else planned=ff3qb::planCoverageThrow(origin,aimTarget,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,force95,jump,world,previousFit,previousPower,previousLob,previousAngle,searching,step,measuredReceiver?&receiver:nullptr,f.leadOffset.y,&beamMemory,f.at);lastPlanAt=f.at;
+   if(routeAuto)planned=ff3qb::planRoutePass(style,origin,targetPosition,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,measuredReceiver?&receiver:nullptr,previousAngle,step,&beamMemory.elevation,f.at,f.groundY);
+   if(planned.solution.valid&&(!smartFit||ff3qb::estimatedClear(planned,true))){f.passLabel=ff3qb::routePassName(style);f.fixedPowerRoute=style!=ff3qb::RoutePass::Head;}
+   else planned=ff3qb::planCoverageThrow(origin,aimTarget,targetVelocity,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),defenders,smartFit,force95,jump,world,previousFit,previousPower,previousLob,previousAngle,searching,step,measuredReceiver?&receiver:nullptr,f.leadOffset.y,&beamMemory,f.at,f.groundY);lastPlanAt=f.at;
    if(f.at>=nextPlanSearch){lastSearch=f.at;nextPlanSearch=f.at+.10;}
   }
   if(!powerFirst&&automaticAngle&&autoPower&&planned.solution.valid){
    const double angle=beamMemory.elevation.update(planned.solution.angle,f.at);
    if(std::abs(angle-planned.solution.angle)>.001){
     auto quiet=ff3qb::solveAngle(origin,aimTarget+planned.offset,targetVelocity,angle,f.gravity,std::clamp(f.ping*.0005+.05,0.,.25),5);
-    double margin=quiet.valid?ff3qb::coverageMargin(quiet,f.gravity,defenders,std::clamp(f.ping*.0005+.05,0.,.25)):-INFINITY;
+    double margin=quiet.valid?ff3qb::coverageMargin(quiet,f.gravity,defenders,std::clamp(f.ping*.0005+.05,0.,.25),nullptr,-INFINITY,f.groundY):-INFINITY;
     bool reachable=quiet.valid&&(!measuredReceiver||ff3qb::receiverGap(receiver,quiet.catchPoint,quiet.time+std::clamp(f.ping*.0005+.05,0.,.25))<=-.25);
     if(reachable&&(!smartFit||margin>=planned.margin-.25)){planned.solution=quiet;planned.power=ff3qb::length(quiet.velocity);planned.margin=margin;}
     else beamMemory.elevation.accept(planned.solution.angle,f.at);
@@ -321,8 +323,8 @@ struct Reader {
   auto solution=planned.solution;
   if(!solution.valid||((smartFit||selectedHeight()!=0)&&measuredReceiver&&ff3qb::receiverGap(receiver,solution.catchPoint,solution.time+std::clamp(f.ping*.0005+.05,0.,.25))>-.25)){f.fitBlocked=smartFit;f.reason="No reachable throw at these settings";return f;}
   f.power=planned.power;f.fitOffset=planned.offset;f.targetPosition=aimTarget+planned.offset;f.margin=defenders.empty()?10:planned.margin;previousFit=planned.offset;previousPower=planned.power;previousLob=planned.lob;previousAngle=planned.solution.angle;f.selectedLob=planned.lob;f.distance=ff3qb::length(targetPosition-origin);
-  f.solution=solution;f.risk=ff3qb::riskForecast(solution,f.gravity,f.hudDefenders,std::clamp(f.ping*.0005+.05,0.,.25));
-  if(!defenders.empty())f.margin=ff3qb::coverageMargin(solution,f.gravity,defenders,std::clamp(f.ping*.0005+.05,0.,.25),&f.coverageTrace);
+  f.solution=solution;f.risk=ff3qb::riskForecast(solution,f.gravity,f.hudDefenders,std::clamp(f.ping*.0005+.05,0.,.25),f.groundY);
+  if(!defenders.empty())f.margin=ff3qb::coverageMargin(solution,f.gravity,defenders,std::clamp(f.ping*.0005+.05,0.,.25),&f.coverageTrace,-INFINITY,f.groundY);
   // A distant point minimizes camera/head parallax. Normal mouse hit testing
   // still belongs to the game, so geometry can affect the actual throw.
   f.aim=ff3qb::project(origin+solution.velocity*(1000./f.power),f.matrix,width,height);
@@ -431,7 +433,7 @@ inline bool set(const std::wstring& key,const json::Value& v){
   else if(key==L"ff3_qb.height"||key==L"ff3_qb.beamHeight"){if(v.n< -3||v.n>8)return false;if(force95||key==L"ff3_qb.beamHeight")beamCatchHeight=int(v.n);else catchHeightAdjustment=int(v.n);}
   else if(key==L"ff3_qb.lead"||key==L"ff3_qb.beamLead"){if(v.n< -12||v.n>12)return false;if(force95||key==L"ff3_qb.beamLead")beamLeadDistance=int(v.n);else leadDistance=int(v.n);}
   else if(key==L"ff3_qb.dive"){if(v.n<0||v.n>24)return false;diveReach=int(v.n);}
-  else{if(v.n<40||v.n>700)return false;selectionRadius=int(v.n);}++revision;return true;
+  else{if(v.n<10||v.n>700)return false;selectionRadius=int(v.n);}++revision;return true;
  }
  if(v.type!=json::Value::Bool)return false;
  if(key==L"ff3_qb"){enabled=v.b;++revision;if(!v.b)stop();else{std::lock_guard<std::mutex> lock(mutex);current={};current.reason="Waiting for game data";}return true;}

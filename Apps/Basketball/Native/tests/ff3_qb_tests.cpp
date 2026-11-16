@@ -64,9 +64,44 @@ int main(){int count=0;
  }
  {Defender wr{{30,8,0},{},20,6.37,12,5.88,3.88,4.88};std::vector<Defender> overlapping{wr};
   auto p=planCoverageThrow({0,8,0},wr.position,{},28,.06,overlapping,true,true,6.37,196.2,{},35,true,80,true,.1,&wr);
-  assert(p.solution.valid&&p.power==95&&p.solution.angle<20&&!estimatedClear(p,true));
+  auto direct=solve({0,8,0},wr.position,{},95,28,.06,false,5);
+  assert(p.solution.valid&&!estimatedClear(p,true));
+  assert(p.margin>=coverageMargin(direct,28,overlapping,.06)-.25);
   auto open=planCoverageThrow({0,8,0},{100,8,0},{},28,.06,{},true,true,6.37,196.2,{},95,true,80,true,.1);
   assert(open.solution.valid&&open.power==95&&!open.lob&&open.solution.angle<20);
+ }
+ // A DB can resume running; a missed receiver catch does not end coverage.
+ assert(movementPotential(0,{})==22&&movementPotential(0,{},30)==30);
+ Defender stopped{{0,8,0},{},0,0,0,2,2,2};
+ assert(reachGap(stopped,{10,8,0},.5)>0);stopped.speed=movementPotential(0,{});
+ assert(reachGap(stopped,{10,8,0},.5)<0);
+ {
+  auto s=solve({0,8,0},{70,16,0},{},95,28,.05,false,5);
+  Defender db{{125,8,0},{},22,7,12,5.88,3.88,4.88};std::vector<Defender> ds{db};
+  CoverageTrace trace;
+  assert(coverageMargin(s,28,ds,.05)>1);
+  assert(coverageMargin(s,28,ds,.05,&trace,-INFINITY,0)<0&&trace.time>s.time);
+  auto risk=riskForecast(s,28,ds,.05,0);assert(risk.intable&&risk.projected.time>s.time);
+  Defender wr{{70,8,0},{},20,6.37,12,5.88,3.88,4.88,196.2,true};
+  assert(receiverGap(wr,{60,8,0},1)<0&&receiverGap(wr,{60,8,0},.1)>0);
+  auto offsets=fitOffsets({0,8,0},wr.position,{},ds,true);
+  assert(std::any_of(offsets.begin(),offsets.end(),[](Vec v){return v.x<-9&&std::abs(v.z)<.01;}));
+  auto fit=planCoverageThrow({0,8,0},wr.position,{},28,.05,ds,true,true,6.37,196.2,{},0,false,NAN,true,.1,&wr,0,nullptr,0,0);
+  assert(fit.solution.valid&&receiverGap(wr,fit.solution.catchPoint,fit.solution.time+.05)<=-.25);
+  assert(fit.margin>1&&std::abs(fit.margin-coverageMargin(fit.solution,28,ds,.05,nullptr,-INFINITY,0))<1e-8);
+  Plan unsafe=fit;unsafe.margin=-2;unsafe.coverageKnown=true;BeamMemory memory;memory.goal=unsafe;
+  auto safe=fit;safe.power=unsafe.power-10;safe.solution.angle=unsafe.solution.angle+10;
+  assert(!continuitySafe(unsafe,safe,true));assert(memory.accept(safe,unsafe,1,true).margin==safe.margin);
+  // A live search is split into bounded tiers; refinement is revalidated and
+  // restarts when the scene changes instead of carrying an old target over.
+  auto closeDb=wr;closeDb.redirect=false;closeDb.position.z=5;closeDb.speed=22;BeamMemory scan;
+  auto first=planCoverageThrow({0,8,0},wr.position,{},28,.05,{closeDb},true,true,6.37,196.2,{},0,false,NAN,true,.1,&wr,0,&scan,1,0);
+  assert(first.solution.valid&&scan.scanActive&&scan.nextPower==89);
+  auto next=planCoverageThrow({0,8,0},wr.position,{},28,.05,{closeDb},true,true,6.37,196.2,{},0,false,NAN,true,.1,&wr,0,&scan,1.1,0);
+  assert(next.solution.valid&&scan.scanActive&&scan.nextPower==83);
+  wr.position.x+=10;
+  auto changed=planCoverageThrow({0,8,0},wr.position,{},28,.05,{closeDb},true,true,6.37,196.2,{},0,false,NAN,true,.1,&wr,0,&scan,1.2,0);
+  assert(changed.solution.valid&&scan.nextPower==89);
  }
  auto divingReceiver=solve({0,8,0},{60,8,0},{0,0,43.5},95,28,.05,false,5);
  assert(divingReceiver.valid&&length(point(divingReceiver,28,divingReceiver.time)-divingReceiver.catchPoint)<1e-6);
@@ -96,6 +131,7 @@ int main(){int count=0;
  assert(presetAngle(0,{},{160,0,0},{10,0,0})>presetAngle(0,{},{30,0,0},{10,0,0}));
  assert(std::string(routeName({},{80,0,0},{0,0,10}))=="Crossing");
  assert(selectionDistance(100,100,100,120,100,80,8,false)==0);
+ assert(selectionDistance(150,100,100,120,100,80,8,false)>40);
  assert(selectionDistance(120,100,100,120,100,80,8,true)<selectionDistance(120,100,100,120,100,80,8,false));
  std::vector<Defender> defenders={{{62,7,3},{0,0,0}}};
  auto baseline=planThrow({0,8,0},{60,7,0},{},28,.05,0,true,35,true,95,false,false,defenders);
@@ -213,13 +249,17 @@ int main(){int count=0;
  for(int i=0;i<30;i++){double before=resetArc.solution.angle;resetArc=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,7,196.2,resetArc.offset,resetArc.power,resetArc.lob,resetArc.solution.angle);assert(resetArc.solution.valid&&std::abs(resetArc.solution.angle-before)<=4.01);}
  if(!(resetArc.power>=90&&resetArc.solution.angle<20))std::cerr<<"Reset arc: "<<resetArc.power<<" / "<<resetArc.solution.angle<<'\n';
  assert(resetArc.power>=90&&resetArc.solution.angle<20);
- // A coverage ranking change must not bypass the actual throw-angle limiter.
+ // Smooth comparable paths, but do not retain a worse/unsafe path solely to
+ // satisfy the angle limiter when the defender moves into it.
  auto switching=solveAngle({0,8,0},{150,8,0},{},35,28,.05,5);
  Plan smoothSwitch{switching,{},length(switching.velocity),0,true,false};
  for(int i=0;i<24;i++){
   const double before=smoothSwitch.solution.angle;
+  std::vector<Defender> movingCoverage{{{45,8,i%2?12.:30.},{},22,9,12}};
+  const double oldMargin=coverageMargin(smoothSwitch.solution,28,movingCoverage,.05);
   smoothSwitch=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,{{{45,8,i%2?12.:30.},{},22,9,12}},true,false,7,196.2,smoothSwitch.offset,smoothSwitch.power,smoothSwitch.lob,before,true,.05);
-  assert(smoothSwitch.solution.valid&&std::abs(smoothSwitch.solution.angle-before)<=1.201);
+  assert(smoothSwitch.solution.valid);
+  assert(std::abs(smoothSwitch.solution.angle-before)<=1.201||smoothSwitch.margin>oldMargin+.25||(oldMargin<=catchSafetyMargin&&estimatedClear(smoothSwitch,true)));
   assert(length(point(smoothSwitch.solution,28,smoothSwitch.solution.time)-smoothSwitch.solution.catchPoint)<1e-6);
  }
  // Beam selects power before visual continuity, even from a previous weak lob.

@@ -112,6 +112,7 @@ def reach_gap(d,p,horizon):
 
 def validate_reach(d):
     if not isinstance(d,dict):raise DecodeError('Catcher metadata')
+    if 'redirect' in d and not isinstance(d['redirect'],bool):raise DecodeError('Receiver redirect flag')
     vector(d['position']);movement=vector(d['velocity'])
     fields=((d['speed'],0,45),(d['jump'],0,42),(d['dive'],0,24),(d.get('radius',6),.1,12),(d.get('above',6),0,12),(d.get('below',8),0,12),(d.get('worldGravity',196.2),10,300))
     if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or not lo<=v<=hi for v,lo,hi in fields):raise DecodeError('Catcher reach bounds')
@@ -120,21 +121,36 @@ def validate_reach(d):
 
 def receiver_gap(receiver,point,horizon):
     pose=dict(receiver);movement=receiver['velocity']
+    if receiver.get('redirect') is True:
+        delay=.18+(.12 if math.hypot(movement[0],movement[2])>.5 else 0)
+        pose['position']=[receiver['position'][0]+movement[0]*min(horizon,delay),receiver['position'][1],receiver['position'][2]+movement[2]*min(horizon,delay)]
+        pose.update(velocity=[0,movement[1],0],speed=0,dive=0)
+        pose['radius']=pose.get('radius',6)+min(18,max(0,horizon-delay)*max(0,min(45,receiver['speed']))*.7)
+        return reach_gap(pose,point,max(0,horizon-.18))
     pose['position']=[receiver['position'][0]+movement[0]*horizon,receiver['position'][1],receiver['position'][2]+movement[2]*horizon]
     pose.update(velocity=[0,movement[1],0],speed=0,dive=0)
     if math.hypot(movement[0],movement[2])>.5:pose['radius']=pose.get('radius',6)+min(3.0,max(0,horizon-.15)*4)
     return reach_gap(pose,point,horizon)
 
-def placement_limit(movement,flight):
+def placement_limit(movement,flight,redirect=False):
+    if redirect:return min(24,6+max(0,flight-.18)*14)
     return 6.0 if math.hypot(movement[0],movement[2])<.5 else 3.0+min(3.0,max(0,flight-.15)*4)
 
-def catch_path_margin(origin,launch,flight,power,gravity,latency,catchers):
+def catch_path_margin(origin,launch,flight,power,gravity,latency,catchers,ground=None):
     if not isinstance(catchers,list) or len(catchers)>128:raise DecodeError('Catcher coverage bounds')
-    margin=1000.0;steps=max(32,min(400,math.ceil(flight/.02)))
+    end=flight
+    if ground is not None:
+        if isinstance(ground,bool) or not isinstance(ground,(int,float)) or not math.isfinite(ground) or not -10000<=ground<=100000:raise DecodeError('Field height bounds')
+        height=origin[1]+launch[1]*5/power-ground-.6
+        disc=launch[1]*launch[1]+2*gravity*height
+        if disc<0:raise DecodeError('No field intersection')
+        end=(launch[1]+math.sqrt(disc))/gravity
+        if not 0<end<=12:raise DecodeError('Field flight bounds')
+    margin=1000.0;steps=max(32,min(400,math.ceil(end/.02)))
     for d in catchers:
         validate_reach(d)
-        for i in range(steps+1):
-            t=flight*i/steps
+        if ground is not None:d={**d,'speed':max(22,d['speed'])}
+        for t in [flight]+[end*i/steps for i in range(steps+1)]:
             p=[origin[j]+launch[j]*(5/power+t)-(.5*gravity*t*t if j==1 else 0) for j in range(3)]
             margin=min(margin,reach_gap(d,p,t+latency))
     return margin
@@ -182,13 +198,15 @@ def replacement(body,call,plan,tick):
         if length(direction)<.5:direction=(base[0]-plan['head'][0],0,base[2]-plan['head'][2])
         norm=length(direction);bias=tuple(v*lead/norm for v in direction) if norm>.001 else (0,0,0)
         offset=tuple(a-b-c for a,b,c in zip(vector(plan['targetPosition']),base,bias))
-        if math.hypot(offset[0],offset[2])>placement_limit(vector(plan['targetVelocity']),flight)+1e-6:raise DecodeError('Placement leaves receiver route')
+        redirect=plan.get('smartFit') is True and isinstance(plan.get('receiver'),dict) and plan['receiver'].get('redirect') is True
+        if math.hypot(offset[0],offset[2])>placement_limit(vector(plan['targetVelocity']),flight,redirect)+1e-6:raise DecodeError('Placement leaves receiver route')
     margin=None
     if plan.get('smartFit') is True or plan.get('strictFit') is True:
         if plan.get('coverageKnown') is not True:raise DecodeError('Incomplete catcher coverage')
         # Recompute coverage at the actual origin. The app explicitly permits
         # contested fits; retain their measured risk instead of vetoing them.
-        margin=catch_path_margin(origin,launch,flight,power,float(plan['gravity']),float(plan['latency'])+sample_delay,plan.get('catchers'))
+        ground=plan['groundY'] if plan.get('checkMissedCatch') is True else None
+        margin=catch_path_margin(origin,launch,flight,power,float(plan['gravity']),float(plan['latency'])+sample_delay,plan.get('catchers'),ground)
         if margin<=1.0 and (plan.get('allowContested') is not True or plan.get('strictFit') is True):raise DecodeError('No clear window at actual throw origin')
         if 'receiver' in plan:
             validate_reach(plan['receiver'])

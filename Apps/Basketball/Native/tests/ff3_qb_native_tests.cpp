@@ -109,7 +109,12 @@ int main(){
   ff3qb::BallFlight owned;owned.id=77;owned.at=.8;owned.gravity=28;owned.model={true,0,28,0,sample.solution.origin,sample.solution.velocity+ff3qb::Vec{0,2,0}};owned.position=owned.model.pointAt(.8);sample.balls={owned};ff3Visual::renderBalls(field,sample,false,false);
   {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-release-preview.png",&png,nullptr)==Ok);}sample.afterRelease=false;
   sample.ready=false;sample.fitBlocked=true;sample.reason="Coverage incomplete: no assisted throw; normal click unchanged";
+  sample.selectedPosition={100,8,0};
   ff3Visual::renderField(field,sample,false);check(field.bits&&!field.visible);
+  {auto* pixels=static_cast<unsigned char*>(field.bits);std::vector<unsigned char> selected(pixels,pixels+size_t(field.width)*field.height*4);
+   check(std::any_of(selected.begin(),selected.end(),[](auto p){return p!=0;}));
+   sample.locked=false;ff3Visual::renderField(field,sample,false);check(!std::equal(selected.begin(),selected.end(),pixels));sample.locked=true;
+  }
   {
    bool wasReady=sample.ready;sample.ready=true;ff3Visual::renderField(field,sample,false);
    auto* data=static_cast<unsigned char*>(field.bits);size_t bytes=size_t(field.width)*field.height*4;

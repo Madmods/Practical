@@ -21,6 +21,36 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def test_missed_catch_checks_the_rest_of_the_flight(self):
+        origin=[0,8,0];launch,flight=velocity(origin,[70,16,0],[0,0,0],95,28,.05,False,5)
+        db=dict(position=[125,8,0],velocity=[0,0,0],speed=22,jump=7,dive=12,radius=5.88,above=3.88,below=4.88,worldGravity=196.2)
+        self.assertGreater(catch_path_margin(origin,launch,flight,95,28,.05,[db]),1)
+        self.assertLess(catch_path_margin(origin,launch,flight,95,28,.05,[db],0),0)
+        # Zero current speed cannot shrink the missed-catch envelope.
+        db['speed']=0
+        self.assertAlmostEqual(catch_path_margin(origin,launch,flight,95,28,.05,[db],0),-4.38)
+        with self.assertRaises(DecodeError):catch_path_margin(origin,launch,flight,95,28,.05,[db],float('nan'))
+
+    def test_comeback_requires_reaction_time_and_receiver_reach(self):
+        receiver=dict(position=[70,5,0],velocity=[0,0,0],speed=20,jump=6.37,dive=12,radius=5.88,above=3.88,below=4.88,worldGravity=196.2,redirect=True)
+        self.assertLess(receiver_gap(receiver,[60,5,0],1),0)
+        self.assertGreater(receiver_gap(receiver,[60,5,0],.1),0)
+        p=plan();p.update(targetPosition=[60,5,0],routePosition=[70,5,0],smartFit=True,coverageKnown=True,allowContested=True,catchers=[],receiver=receiver,groundY=0,checkMissedCatch=True)
+        e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload())
+        receiver['speed']=0;self.assertEqual(editor().process_plain(payload(),p,1010),payload())
+        receiver['redirect']='true'
+        with self.assertRaises(DecodeError):validate_reach(receiver)
+
+    def test_actual_dispatch_rechecks_missed_catch_risk(self):
+        db=dict(position=[125,5,0],velocity=[0,0,0],speed=22,jump=7,dive=12,radius=5.88,above=3.88,below=4.88,worldGravity=196.2)
+        p=plan();p.update(targetPosition=[70,13,0],plannedPower=95,smartFit=True,coverageKnown=True,allowContested=False,catchers=[db],groundY=-3)
+        self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
+        p['checkMissedCatch']=True
+        self.assertEqual(editor().process_plain(payload(),p,1010),payload())
+        p['allowContested']=True;e=editor()
+        self.assertNotEqual(e.process_plain(payload(),p,1010),payload())
+        self.assertTrue(e.last['contested']);self.assertLess(e.last['coverageMargin'],0)
+
     def test_auto_route_chest_pass_uses_fixed_power_below_five_degrees(self):
         p=plan();p.update(targetPosition=[65,3.5,0],targetVelocity=[0,0,20],plannedPower=95,anglePower=False,beam95=False,routePosition=[65,5,0],leadDistance=0)
         e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload())

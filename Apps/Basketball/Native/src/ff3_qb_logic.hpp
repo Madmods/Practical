@@ -158,7 +158,14 @@ struct AngleTracker {
   at=time;return value;
  }
 };
-struct Defender {Vec position,velocity;double speed=22,jumpHeight=7,diveReach=12;double radius=6,above=6,below=8,worldGravity=196.2;};
+struct Defender {Vec position,velocity;double speed=22,jumpHeight=7,diveReach=12;double radius=6,above=6,below=8,worldGravity=196.2;bool redirect=false;};
+// A temporary zero WalkSpeed does not prove future immobility.
+inline double movementPotential(double walk,Vec velocity,double previous=22){
+ double speed=std::max(22.,std::isfinite(previous)?previous:22.);
+ if(std::isfinite(walk)&&walk>=0&&walk<=45)speed=std::max(speed,walk);
+ if(finite(velocity))speed=std::max(speed,std::hypot(velocity.x,velocity.z));
+ return std::clamp(speed,22.,45.);
+}
 struct CatchGeometry {double radius=6,above=6,below=8;bool measured=false;};
 inline CatchGeometry catchGeometry(Vec torso,Vec head,Vec arm,Vec catcher,double ballRadius){
  auto valid=[](Vec v){return finite(v)&&v.x>.1&&v.y>.1&&v.z>.1&&v.x<8&&v.y<8&&v.z<8;};
@@ -207,6 +214,15 @@ inline double reachSectionRadius(const Defender& d,double y,double horizon){
 // receiver will sprint sideways simply because a defender could do so.
 inline double receiverGap(const Defender& receiver,Vec point,double horizon){
  auto pose=receiver;Vec movement{receiver.velocity.x,0,receiver.velocity.z};
+ if(receiver.redirect){
+  // Give the WR reaction/turning time and use 70% of measured running speed,
+  // not an instantaneous reversal or maximum-effort dive.
+  const double delay=.18+(length(movement)>.5?.12:0.);
+  pose.position=pose.position+movement*std::min(horizon,delay);
+  pose.velocity={0,receiver.velocity.y,0};pose.speed=0;pose.diveReach=0;
+  pose.radius+=std::min(18.,std::max(0.,horizon-delay)*std::clamp(receiver.speed,0.,45.)*.7);
+  return reachGap(pose,point,std::max(0.,horizon-.18));
+ }
  pose.position=pose.position+movement*horizon;pose.velocity={0,receiver.velocity.y,0};pose.speed=0;pose.diveReach=0;
  if(length(movement)>.5)pose.radius+=std::min(3.,std::max(0.,horizon-.15)*4.);
  return reachGap(pose,point,horizon);
@@ -220,7 +236,14 @@ inline Solution groundFlight(const Solution& catchFlight,double gravity,double g
 struct CoverageTrace {int catcher=-1;double time=0,gap=1000;Vec point;};
 // Signed distance in studs from the time-dependent reachable volume. Positive
 // means outside. Sample the whole flight, including the actual launch position.
-inline double coverageMargin(const Solution& s,double gravity,const std::vector<Defender>& defenders,double latency,CoverageTrace* trace=nullptr,double stopBelow=-INFINITY){
+inline double coverageMargin(const Solution& s,double gravity,const std::vector<Defender>& defenders,double latency,CoverageTrace* trace=nullptr,double stopBelow=-INFINITY,double ground=NAN){
+ if(std::isfinite(ground)){
+  auto full=groundFlight(s,gravity,ground);if(!full.valid)return -INFINITY;
+  CoverageTrace before,after;
+  double a=coverageMargin(s,gravity,defenders,latency,&before,stopBelow);
+  double b=coverageMargin(full,gravity,defenders,latency,&after,stopBelow);
+  if(trace)*trace=a<=b?before:after;return std::min(a,b);
+ }
  double margin=1000;const int steps=std::clamp(int(std::ceil(s.time/.02)),32,400);
  auto sample=[&](size_t n,double t){auto p=point(s,gravity,t);double gap=reachGap(defenders[n],p,t+latency);if(gap<margin){margin=gap;if(trace)*trace={int(n),t,gap,p};}};
  for(size_t n=0;n<defenders.size();++n){sample(n,0);sample(n,s.time);if(margin<=stopBelow)return margin;}
@@ -241,7 +264,14 @@ inline double coverageMargin(const Solution& s,double gravity,const std::vector<
 // Distinguish observed-route interception from a worst-case reach envelope.
 // The envelope still drives Smart fit; a possible turn/dive is not a certainty.
 struct RiskForecast {double margin=1000,projectedMargin=1000;CoverageTrace limit,projected;bool intable=false,possible=false;};
-inline RiskForecast riskForecast(const Solution& s,double gravity,const std::vector<Defender>& defenders,double latency){
+inline RiskForecast riskForecast(const Solution& s,double gravity,const std::vector<Defender>& defenders,double latency,double ground=NAN){
+ if(std::isfinite(ground)){
+  auto full=groundFlight(s,gravity,ground);if(!full.valid)return {};
+  auto before=riskForecast(s,gravity,defenders,latency),after=riskForecast(full,gravity,defenders,latency);
+  if(before.margin<after.margin){after.margin=before.margin;after.limit=before.limit;}
+  if(before.projectedMargin<after.projectedMargin){after.projectedMargin=before.projectedMargin;after.projected=before.projected;}
+  after.intable=after.projectedMargin<=0;after.possible=!after.intable&&after.margin<=0;return after;
+ }
  RiskForecast result;if(!s.valid)return result;
  result.margin=coverageMargin(s,gravity,defenders,latency,&result.limit);
  const int steps=std::clamp(int(std::ceil(s.time/.02)),32,400);
@@ -254,7 +284,7 @@ inline RiskForecast riskForecast(const Solution& s,double gravity,const std::vec
  }
  result.intable=result.projectedMargin<=0;result.possible=!result.intable&&result.margin<=0;return result;
 }
-inline std::vector<Vec> fitOffsets(Vec origin,Vec target,Vec movement,const std::vector<Defender>& defenders){
+inline std::vector<Vec> fitOffsets(Vec origin,Vec target,Vec movement,const std::vector<Defender>& defenders,bool redirect=false){
  std::vector<Vec> offsets{{}};for(int i=0;i<8;i++){double a=i*6.283185307179586/8;for(double r:{1.5,3.,6.})offsets.push_back({r*std::cos(a),0,r*std::sin(a)});}
  const double estimate=std::clamp(length(target-origin)/80.,.1,3.);
  Vec receiver=target+movement*estimate,away{};double nearest=1e9;
@@ -262,16 +292,17 @@ inline std::vector<Vec> fitOffsets(Vec origin,Vec target,Vec movement,const std:
  Vec forward=movement;forward.y=0;if(length(forward)<.5){forward=target-origin;forward.y=0;}
  if(length(away)<.1)away=forward;
  for(auto direction:{away,forward})if(length(direction)>.1){direction=direction*(1/length(direction));for(double reach:{3.,4.5,6.})offsets.push_back(direction*reach);}
+ if(redirect)for(int i=0;i<8;++i){double a=i*6.28318530718/8;for(double r:{10.,16.,22.})offsets.push_back({r*std::cos(a),0,r*std::sin(a)});}
  return offsets;
 }
 // Additional adjustment around observed route lead, not a hypothetical new
 // sprint. This bound is independently enforced again by the throw helper.
-inline double placementLimit(Vec movement,double flight){return std::hypot(movement.x,movement.z)<.5?6.:3.+std::min(3.,std::max(0.,flight-.15)*4.);}
+inline double placementLimit(Vec movement,double flight,bool redirect=false){if(redirect)return std::min(24.,6.+std::max(0.,flight-.18)*14.);return std::hypot(movement.x,movement.z)<.5?6.:3.+std::min(3.,std::max(0.,flight-.15)*4.);}
 inline Vec leadAdjustment(Vec origin,Vec target,Vec movement,double studs){
  Vec direction{movement.x,0,movement.z};if(length(direction)<.5)direction={target.x-origin.x,0,target.z-origin.z};
  return length(direction)>.001?direction*(std::clamp(studs,-12.,12.)/length(direction)):Vec{};
 }
-inline bool placementAllowed(Vec offset,Vec movement,double flight){return finite(offset)&&std::isfinite(flight)&&flight>=0&&std::hypot(offset.x,offset.z)<=placementLimit(movement,flight)+1e-6;}
+inline bool placementAllowed(Vec offset,Vec movement,double flight,bool redirect=false){return finite(offset)&&std::isfinite(flight)&&flight>=0&&std::hypot(offset.x,offset.z)<=placementLimit(movement,flight,redirect)+1e-6;}
 inline bool receiverCanReach(Vec offset,Vec movement,double flight,double jump){
  // Head target already includes route lead. Extra placement must fit a modest
  // catch radius plus time to adjust; high jump catches get less lateral reach.
@@ -280,7 +311,7 @@ inline bool receiverCanReach(Vec offset,Vec movement,double flight,double jump){
  const double jumpCost=jump>0?std::clamp(offset.y/jump,0.,1.)*2.:0.;
  return horizontal<=std::max(3.,reach-jumpCost)+.001;
 }
-inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,int mode,bool automaticAngle,double manualAngle,bool automaticPower,double gamePower,bool lob,bool fit,const std::vector<Defender>& defenders,double preferredAngle=NAN,Vec previousOffset={},bool powerFirst=false,double spawn=0){
+inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,int mode,bool automaticAngle,double manualAngle,bool automaticPower,double gamePower,bool lob,bool fit,const std::vector<Defender>& defenders,double preferredAngle=NAN,Vec previousOffset={},bool powerFirst=false,double spawn=0,double ground=NAN){
  Plan best;double bestScore=-1e9;
  const bool fixedPower=automaticPower&&automaticAngle&&powerFirst;
  const bool stationary=length(movement)<.5;if(stationary)movement={};
@@ -301,7 +332,7 @@ inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double l
    s=solveAngle(origin,target+offset,movement,angle,gravity,latency,spawn);
   }else s=solve(origin,target+offset,movement,gamePower,gravity,latency,lob||mode==2,spawn);
   if(!s.valid||!placementAllowed(offset,movement,s.time)||!receiverCanReach(offset,movement,s.time,0))continue;
-  const double margin=defenders.empty()?0:coverageMargin(s,gravity,defenders,latency);
+  const double margin=defenders.empty()?0:coverageMargin(s,gravity,defenders,latency,nullptr,-INFINITY,ground);
   double score=(defenders.empty()?0:std::min(margin,1.5))*10-length(offset)*.12-length(offset-previousOffset)*.15-s.time*.03-std::abs(s.angle-desired)*.012;
   if(score>bestScore){bestScore=score;best={s,offset,length(s.velocity),margin,!defenders.empty()};}
  }return best;
@@ -314,6 +345,11 @@ inline double fitScore(const Plan& p,bool fit){
 // Rank clearance before power. No amount of power makes overlapping catch
 // envelopes exclusive. Retain that result as a risk estimate, never as "safe".
 inline bool estimatedClear(const Plan& p,bool fit){return p.solution.valid&&(!fit||!p.coverageKnown||p.margin>catchSafetyMargin);}
+inline bool continuitySafe(const Plan& held,const Plan& desired,bool fit){
+ if(!held.solution.valid)return false;if(!fit)return true;
+ if(estimatedClear(desired,true)&&!estimatedClear(held,true))return false;
+ return held.margin>=desired.margin-.25;
+}
 // Solve a selected arrival time directly, including the forward launch offset.
 // This samples receiver-reachable placements without thousands of root searches.
 inline Solution solveTimed(Vec origin,Vec target,Vec movement,double time,double gravity,double latency){
@@ -338,34 +374,35 @@ struct ElevationIntent {
 };
 struct BeamMemory {
  Plan goal,pending;double since=0;bool transitioning=false;ElevationIntent elevation;
- Plan accept(Plan desired,const Plan& held,double time){
+ Plan scanBest;int nextPower=95;bool scanActive=false;Vec scanOrigin,scanTarget,scanMovement;double scanAt=0;
+ Plan accept(Plan desired,const Plan& held,double time,bool fit=false){
   if(!desired.solution.valid){goal={};pending={};return desired;}
   const bool change=goal.solution.valid&&(goal.lob!=desired.lob||std::abs(goal.power-desired.power)>4||std::abs(goal.solution.angle-desired.solution.angle)>6);
   if(change&&held.solution.valid){
    bool same=pending.solution.valid&&pending.lob==desired.lob&&std::abs(pending.power-desired.power)<=2&&length(pending.offset-desired.offset)<3;
    if(!same||time<since){pending=desired;since=time;}
-   if(time-since<.22)return held;
+   if(time-since<.22&&continuitySafe(held,desired,fit))return held;
   }
   pending={};goal=desired;return desired;
  }
 };
-inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool beam,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN,bool search=true,double elapsed=.1,const Defender* receiver=nullptr,double heightAdjustment=0,BeamMemory* memory=nullptr,double time=0){
+inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool beam,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN,bool search=true,double elapsed=.1,const Defender* receiver=nullptr,double heightAdjustment=0,BeamMemory* memory=nullptr,double time=0,double ground=NAN){
  if(!std::isfinite(receiverJump)||receiverJump<0||receiverJump>40||!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)return {};
  if(length(movement)<.5)movement={};
+ const bool redirect=fit&&receiver&&receiver->redirect;
  const double jump=std::max(0.,(receiver?std::max(0.,receiver->jumpHeight+receiver->above-.75):std::min(8.,receiverJump*.85))-heightAdjustment);
  auto better=[&](const Plan& a,const Plan& b){
   if(!a.solution.valid)return false;if(!b.solution.valid)return true;
   bool ac=estimatedClear(a,fit),bc=estimatedClear(b,fit);if(ac!=bc)return ac;
+  if(!ac&&std::abs(a.margin-b.margin)>.001)return a.margin>b.margin;
   if(beam&&std::abs(a.power-b.power)>.5)return a.power>b.power;
-  if(beam&&!ac&&std::abs(a.solution.angle-b.solution.angle)>2.)return a.solution.angle<b.solution.angle;
-  if(!ac){if(std::abs(a.margin-b.margin)>.25)return a.margin>b.margin;}
   if(beam&&ac&&std::abs(a.solution.angle-b.solution.angle)>.5)return a.solution.angle<b.solution.angle;
   auto cost=[&](const Plan& p){return (95-p.power)*.055+p.solution.time*.65+std::max(0.,p.solution.angle-30)*.012+length(p.offset-previousOffset)*.04;};
   return cost(a)<cost(b);
  };
  auto candidate=[&](const Solution& solution,Vec offset,bool lob,const Plan* incumbent=nullptr){
   Plan p;
-  if(!solution.valid||!placementAllowed(offset,movement,solution.time)||solution.angle<(beam?-30:5)||solution.angle>beamMaxAngle||offset.y<0||offset.y>jump+.001)return p;
+  if(!solution.valid||!placementAllowed(offset,movement,solution.time,redirect)||solution.angle<(beam?-30:5)||solution.angle>beamMaxAngle||offset.y<0||offset.y>jump+.001)return p;
   if(receiver){if(receiverGap(*receiver,solution.catchPoint,solution.time+latency)>-.25)return p;}
   else{if(!receiverCanReach(offset,movement,solution.time,jump))return p;
    if(offset.y>0){const double ascent=(std::sqrt(2*worldGravity*receiverJump)-std::sqrt(2*worldGravity*(receiverJump-offset.y)))/worldGravity;if(solution.time<.15+ascent)return p;}}
@@ -375,11 +412,12 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
    // If even this optimistic score loses, the full scan cannot win either.
    p.margin=1000;
    for(const auto& d:defenders)p.margin=std::min(p.margin,std::min(reachGap(d,solution.origin,latency),reachGap(d,point(solution,gravity,solution.time),solution.time+latency)));
+   if(std::isfinite(ground)){auto full=groundFlight(solution,gravity,ground);if(!full.valid)return Plan{};for(const auto& d:defenders)p.margin=std::min(p.margin,reachGap(d,full.catchPoint,full.time+latency));}
    if(!better(p,*incumbent))return Plan{};
   }
-  p.margin=defenders.empty()?10:coverageMargin(solution,gravity,defenders,latency);return p;
+  p.margin=defenders.empty()?10:coverageMargin(solution,gravity,defenders,latency,nullptr,-INFINITY,ground);return p;
  };
- auto replan=[&](double power,Vec offset,bool lob,const Plan* incumbent=nullptr){if(!placementAllowed(offset,movement,8))return Plan{};auto p=candidate(solve(origin,target+offset,movement,power,gravity,latency,lob,5),offset,lob,incumbent);if(p.solution.valid)p.power=power;return p;};
+ auto replan=[&](double power,Vec offset,bool lob,const Plan* incumbent=nullptr){if(!placementAllowed(offset,movement,8,redirect))return Plan{};auto p=candidate(solve(origin,target+offset,movement,power,gravity,latency,lob,5),offset,lob,incumbent);if(p.solution.valid)p.power=power;return p;};
  // Apply one time-based continuity constraint to every exit, including retained
  // roots and transitions from contested to clear. Coverage is recomputed for
  // the intermediate arc; it is never labelled clear merely because the goal is.
@@ -414,12 +452,12 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
     auto offset=previousOffset+delta*std::min(1.,step/std::max(.001,length(delta)));
     auto solved=solveAngle(origin,target+offset,movement,previousAngle+std::clamp(desired.solution.angle-previousAngle,-45*dt,45*dt),gravity,latency,5);
     if(solved.valid){auto high=solve(origin,target+offset,movement,length(solved.velocity),gravity,latency,true,5);auto intermediate=candidate(solved,offset,high.valid&&std::abs(high.time-solved.time)<1e-5);auto prior=replan(previousPower,previousOffset,previousLob);
-     if(intermediate.solution.valid&&(!estimatedClear(prior,fit)||estimatedClear(intermediate,fit)))return intermediate;
+     if(continuitySafe(intermediate,desired,fit))return intermediate;
     }
    }
    const double power=memory?previousPower+std::clamp(desired.power-previousPower,-100*dt,100*dt):desired.power;
    if(length(delta)>step||std::abs(power-desired.power)>.001){auto offset=previousOffset+delta*std::min(1.,step/std::max(.001,length(delta)));auto eased=replan(power,offset,desired.lob);
-    if(eased.solution.valid&&estimatedClear(eased,fit)==estimatedClear(desired,fit))return eased;
+    if(continuitySafe(eased,desired,fit))return eased;
    }return desired;
   }
   if(!desired.solution.valid||!std::isfinite(previousAngle)||previousPower<1)return desired;
@@ -436,7 +474,7 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
     auto high=solve(origin,target+offset,movement,power,gravity,latency,true,5);
     bool lob=high.valid&&(!low.valid||std::abs(high.time-solved.time)<std::abs(low.time-solved.time));
     auto intermediate=candidate(solved,offset,lob);
-    if(intermediate.solution.valid)return intermediate;
+    if(continuitySafe(intermediate,desired,fit))return intermediate;
    }
   }
   // A receiver can move beyond the reach of the old elevation. Never invent
@@ -447,18 +485,28 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  if(previousPower>=1&&previousPower<=95)held=replan(previousPower,previousOffset,previousLob);
  auto finish=[&](Plan desired){
   if(beam&&memory){
-   if(search||!memory->goal.solution.valid)desired=memory->accept(desired,held,time);
+   if(search||!memory->goal.solution.valid)desired=memory->accept(desired,held,time,fit);
    else{auto goal=replan(memory->goal.power,memory->goal.offset,memory->goal.lob);if(goal.solution.valid)desired=goal;else memory->goal={};}
   }return stable(desired);
  };
  if(!search&&held.solution.valid)return finish(held);
  if(!beam&&held.solution.valid&&held.power>=94.999&&estimatedClear(held,fit)&&held.margin>catchSafetyMargin+.25)return stable(held);
- Plan best;const auto offsets=fitOffsets(origin,target,movement,defenders);
- auto atPower=[&](double power){Plan tier;
+ Plan best;const auto offsets=fitOffsets(origin,target,movement,defenders,redirect);
+ // Refine integer power tiers over successive live updates. Revalidate the
+ // retained candidate against current actors instead of publishing a stale
+ // result after a long exhaustive sweep.
+ int firstPower=95;
+ if(memory){
+  bool reuse=memory->scanActive&&time>=memory->scanAt&&time-memory->scanAt<2&&length(origin-memory->scanOrigin)<3&&length(target-(memory->scanTarget+memory->scanMovement*(time-memory->scanAt)))<3&&length(movement-memory->scanMovement)<3;
+  if(reuse){firstPower=memory->nextPower;best=replan(memory->scanBest.power,memory->scanBest.offset,memory->scanBest.lob);}
+  else{memory->scanBest={};memory->scanOrigin=origin;memory->scanTarget=target;memory->scanMovement=movement;memory->scanAt=time;}
+  memory->scanActive=false;
+ }
+ auto atPower=[&](double power){Plan tier=best;
   for(double height:{0.,jump*.45,jump*.65,jump*.8,jump*.9,jump}){
    if(height>0&&(!fit||defenders.empty()))continue;
    for(size_t i=0;i<(fit&&!defenders.empty()?offsets.size():1);++i){
-    const Vec offset=offsets[i]+Vec{0,height,0};if(!placementAllowed(offset,movement,8))continue;
+    const Vec offset=offsets[i]+Vec{0,height,0};if(!placementAllowed(offset,movement,8,redirect))continue;
     Solution high;auto low=solve(origin,target+offset,movement,power,gravity,latency,false,5,&high);
     for(bool lob:{false,true}){auto p=candidate(lob?high:low,offset,lob,&tier);if(p.solution.valid)p.power=power;if(better(p,tier))tier=p;}
    }
@@ -467,11 +515,16 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  };
  // Beam checks every integer power from the top. A five-point sweep can skip
  // a narrow clear window above its first coarse success.
- for(double power=95;power>=(beam?1:15);power-=beam?1:5){
+ int tiers=0;
+ for(double power=firstPower;power>=(beam?1:15);power-=beam?1:5){
   auto tier=atPower(power);if(better(tier,best))best=tier;
   // A clear maximum-power low arc needs no slower/lower-power sweep.
   if(power==95&&estimatedClear(best,fit)&&best.solution.angle<=35)break;
   if(beam&&estimatedClear(best,fit))break;
+  if(memory&&++tiers>=(beam?6:3)){
+   memory->nextPower=int(power)-(beam?1:5);memory->scanBest=best;
+   memory->scanActive=memory->nextPower>=(beam?1:15);break;
+  }
  }
  if(!best.solution.valid)return finish(held);
  if(held.solution.valid){
@@ -497,13 +550,13 @@ struct RoutePassLatch {
 };
 // Auto-route candidates target the receiver's head/chest, not the ground.
 // A dive lead stays inside the same receiver envelope enforced at dispatch.
-inline Plan planRoutePass(RoutePass style,Vec origin,Vec head,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,const Defender* receiver,double previousAngle=NAN,double elapsed=.016,ElevationIntent* intent=nullptr,double time=0){
+inline Plan planRoutePass(RoutePass style,Vec origin,Vec head,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,const Defender* receiver,double previousAngle=NAN,double elapsed=.016,ElevationIntent* intent=nullptr,double time=0,double ground=NAN){
  Plan best;if(style==RoutePass::Fit)return best;
  const bool headPass=style==RoutePass::Head;Vec forward{movement.x,0,movement.z};if(length(forward)>.1)forward=forward*(1/length(forward));
  auto candidate=[&](Solution s,Vec offset)->Plan{
   if(!s.valid||!placementAllowed(offset,movement,s.time)||(receiver&&receiverGap(*receiver,s.catchPoint,s.time+latency)>-.25))return {};
   auto high=solve(origin,head+offset,movement,length(s.velocity),gravity,latency,true,5);
-  return {s,offset,length(s.velocity),defenders.empty()?10:coverageMargin(s,gravity,defenders,latency),!defenders.empty(),high.valid&&std::abs(high.time-s.time)<1e-5};
+  return {s,offset,length(s.velocity),defenders.empty()?10:coverageMargin(s,gravity,defenders,latency,nullptr,-INFINITY,ground),!defenders.empty(),high.valid&&std::abs(high.time-s.time)<1e-5};
  };
  if(headPass){
   // Descend onto the head with no extra distance beyond observed route lead.
