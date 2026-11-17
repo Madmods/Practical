@@ -8,12 +8,14 @@
 #include "network_inspector.hpp"
 #include "ff3_packet_bridge.hpp"
 #include "ff3_throw_hud.hpp"
+#include "studio_lab.hpp"
 #include <shellapi.h>
 
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
  SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
  CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
  const std::wstring args=GetCommandLineW();const bool test=args.find(L"--ui-test")!=std::wstring::npos;
+ if(args.find(L"--studio-lab")!=std::wstring::npos){wchar_t path[MAX_PATH]{};GetModuleFileNameW(nullptr,path,MAX_PATH);int result=studioLab::run(instance,std::filesystem::path(path).parent_path());CoUninitialize();return result;}
  HANDLE single=CreateMutexW(nullptr,FALSE,(test||args.find(L"--hud-test")!=std::wstring::npos)?L"Local\\VantaBasketballUITest":L"Local\\VantaNativeTiming");
  if(GetLastError()==ERROR_ALREADY_EXISTS){if(single)CloseHandle(single);CoUninitialize();return 0;}
  wchar_t exe[MAX_PATH]{};GetModuleFileNameW(nullptr,exe,MAX_PATH);
