@@ -8,13 +8,15 @@ This repository contains source, UI assets, build scripts, diagnostics and regre
 
 Extract the entire GitHub ZIP, then use these files in its top folder:
 
-1. **1 - Check Setup.bat** checks the required compiler and Python and shows download links for missing tools.
-2. **2 - Build Vanta.bat** prepares dependencies, builds/tests the app, builds the networking helper and installs both into `Apps/Basketball`. Close this copy of Vanta before rebuilding. Your settings are preserved.
+1. **1 - Setup Vanta.bat** automatically downloads and installs missing prerequisites, then prepares the SDK and Python build packages.
+2. **2 - Build Vanta.bat** also runs automatic setup, then builds/tests the app, builds the networking helper and installs both into `Apps/Basketball`. Close this copy of Vanta before rebuilding. Your settings are preserved.
 3. **3 - Start Vanta.bat** opens the built app. Local-preview login: **1 / 1**. Join the game, complete the checks, click Continue and enable the features you want.
 
-The batch files work when launched from another folder and leave the build window open so errors can be read. Visual Studio **2022 Build Tools** with the C++ desktop workload/Windows SDK and Python **3.12** are prerequisites; the scripts do not install these automatically. WebView2 Runtime is needed to open the app.
+The batch files work when launched from another folder and leave the build window open so errors can be read. Setup reuses existing dependencies. Missing Visual Studio **2022 Build Tools** with C++/Windows SDK, **64-bit Python 3.12**, **WebView2 Runtime**, and **WinDivert 2.2.2 x64 networking files** are downloaded from their official publishers. The SDK and Python packages are downloaded as needed too. Initial setup needs an internet connection and enough disk space for the C++ tools; installation can take several minutes.
 
-QBA also needs approved x64 `WinDivert.dll` and `WinDivert64.sys`. Put both in `Apps/Basketball/Native/third_party/windivert/bin` before building, or copy the entire `network_decoder` folder from the ready-made friend package into `Apps/Basketball` and rebuild. The build clearly reports when networking files are still missing; driver files are not downloaded automatically.
+Allow the normal Windows installer approval prompt if it appears. Setup verifies publisher signatures before running installers, checks the downloaded networking driver signature and x64 images, and never restarts Windows automatically. If a restart is required, restart when ready and run the same BAT file again. Cancelled installations or blocked downloads stop setup with a readable error. No security settings are changed. Downloads and installed dependencies stay out of Git.
+
+For a read-only prerequisite check, run `powershell -File Apps/Basketball/Native/scripts/build-easy.ps1 -CheckOnly`. You can also supply existing approved x64 `WinDivert.dll` and `WinDivert64.sys` in `Apps/Basketball/Native/third_party/windivert/bin`, or reuse a complete `Apps/Basketball/network_decoder/runtime` folder.
 
 ## Build with commands
 
@@ -34,7 +36,7 @@ scripts/build-network-decoder-lab.cmd
 .venv/Scripts/python.exe scripts/build-network-host.py
 ```
 
-The helper can be built without driver binaries. To supply an approved WinDivert 2.2 x64 runtime, use `--windivert-dir <folder>` containing `WinDivert.dll` and `WinDivert64.sys`, or place those files in `third_party/windivert/bin` before building. The packaged helper loads them from its own directory and reports a clear error if either file is missing. This repository does not download or distribute driver binaries. Dependency licenses must accompany any distribution.
+The helper can be built without driver binaries. To supply an approved WinDivert 2.2 x64 runtime, use `--windivert-dir <folder>` containing `WinDivert.dll` and `WinDivert64.sys`, or place those files in `third_party/windivert/bin` before building. The packaged helper loads them from its own directory and reports a clear error if either file is missing. The double-click setup downloads missing drivers from the official WinDivert release; driver binaries are not stored in this repository. Dependency licenses must accompany any distribution.
 
 Copy the complete `build/network_decoder/runtime` folder to `Apps/Basketball/network_decoder/runtime`. Python is bundled in that runtime; end users do not need Python. Keep `Vanta.exe`, its release catalog and the full networking folder together.
 
@@ -55,6 +57,7 @@ Use the controls and information tooltips in the app. Features and offsets depen
 From `Apps/Basketball/Native`:
 
 ```powershell
+powershell -File scripts/test-prerequisites.ps1
 scripts/test-ff3-qb.cmd
 scripts/test-ff3-qb-native.cmd
 scripts/test-ff3-ball-mags.cmd
