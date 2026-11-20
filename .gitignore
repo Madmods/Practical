@@ -30,6 +30,7 @@ Apps/Basketball/Native/diagnostics/network_decoder/__pycache__/
 Apps/Basketball/Native/diagnostics/network_decoder/*.pyc
 **/third_party/.downloads/
 **/third_party/webview2/
+**/third_party/python/
 **/third_party/windivert/bin/
 Share/
 Archives/

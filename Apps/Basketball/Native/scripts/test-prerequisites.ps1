@@ -13,7 +13,7 @@ function Assert-Throws([scriptblock]$Action,[string]$Pattern){
 }
 
 $originals=@{}
-foreach($name in @('Get-PrerequisiteState','Install-SetupProgram','Install-NetworkRuntime','Get-SetupDownload','Assert-SetupSignature','Start-SetupInstaller','Invoke-WebRequest','Get-AuthenticodeSignature')){
+foreach($name in @('Test-BuildPython','Get-RegisteredPython312','Get-PrerequisiteState','Install-BuildPython','Install-SetupProgram','Install-NetworkRuntime','Get-SetupDownload','Assert-SetupSignature','Start-SetupInstaller','Invoke-WebRequest','Get-AuthenticodeSignature')){
     $command=Get-Command $name -ErrorAction SilentlyContinue
     if($command -and $command.CommandType -eq 'Function'){$originals[$name]=$command.ScriptBlock}
 }
@@ -27,36 +27,36 @@ try{
         $script:installs+=,@($Url,$Name,$Publisher,$InstallerArguments)
         switch -Wildcard ($Name){
             'vs_*' {$script:state.Compiler=$true;$script:state.Sdk=$true}
-            'python-*' {$script:state.Python='python.exe'}
             'MicrosoftEdge*' {$script:state.WebView=$true}
         }
     }
+    function Install-BuildPython {$script:pythonPrepares++;$script:state.Python='python.exe'}
     function Install-NetworkRuntime {$script:networkInstalls++;$script:state.Driver='existing-runtime'}
     $script:state=[pscustomobject]@{VsRoot=(Join-Path $testRoot 'Build Tools');Compiler=$true;Sdk=$true;Python='python.exe';WebView=$true;Driver='existing-runtime'}
-    $script:installs=@();$script:networkInstalls=0
+    $script:installs=@();$script:networkInstalls=0;$script:pythonPrepares=0
     $result=Ensure-Prerequisites
-    Assert ($script:installs.Count -eq 0 -and $script:networkInstalls -eq 0) 'Existing prerequisites must skip all installers/downloads'
+    Assert ($script:installs.Count -eq 0 -and $script:networkInstalls -eq 0 -and $script:pythonPrepares -eq 0) 'Existing prerequisites must skip all installers/downloads'
     $script:state.Compiler=$false;$script:state.Sdk=$false;$script:state.Python=$null;$script:state.WebView=$false;$script:state.Driver=$null
     $result=Ensure-Prerequisites -CheckOnly
-    Assert ($script:installs.Count -eq 0 -and $script:networkInstalls -eq 0) 'CheckOnly must stay read-only even when everything is missing'
+    Assert ($script:installs.Count -eq 0 -and $script:networkInstalls -eq 0 -and $script:pythonPrepares -eq 0) 'CheckOnly must stay read-only even when everything is missing'
     $result=Ensure-Prerequisites
-    Assert ($script:installs.Count -eq 3 -and $script:networkInstalls -eq 1) 'Install each missing prerequisite once'
+    Assert ($script:installs.Count -eq 2 -and $script:networkInstalls -eq 1 -and $script:pythonPrepares -eq 1) 'Install each missing prerequisite once'
     Assert ($result.Compiler -and $result.Sdk -and $result.Python -and $result.WebView -and $result.Driver) 'Recheck installed state'
     Assert ($script:installs[0][3] -contains '--norestart') 'C++ installer cannot restart Windows automatically'
     Assert ($script:installs[0][3] -contains ('"'+$script:state.VsRoot+'"')) 'Quote installation paths containing spaces'
-    Assert ($script:installs[1][3] -contains 'InstallAllUsers=0') 'Python uses a per-user installation'
-    Assert ($script:installs[2][0] -eq 'https://go.microsoft.com/fwlink/p/?LinkId=2124703') 'WebView2 uses the official bootstrapper'
+    Assert (@($script:installs | Where-Object {$_[1] -like 'python-*'}).Count -eq 0) 'Python never launches a system installer'
+    Assert ($script:installs[1][0] -eq 'https://go.microsoft.com/fwlink/p/?LinkId=2124703') 'WebView2 uses the official bootstrapper'
 
     $devFolder=Join-Path $script:state.VsRoot 'Common7\Tools'
     New-Item -ItemType Directory -Path $devFolder -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $devFolder 'VsDevCmd.bat'),'fixture')
-    $script:state.Sdk=$false;$script:installs=@();$script:networkInstalls=0
+    $script:state.Sdk=$false;$script:installs=@();$script:networkInstalls=0;$script:pythonPrepares=0
     $result=Ensure-Prerequisites
     Assert ($script:installs.Count -eq 1 -and $script:installs[0][3][0] -eq 'modify') 'Modify an existing Build Tools installation when only its SDK is missing'
     Assert ($script:networkInstalls -eq 0) 'Keep existing networking files during an SDK installation'
 
     # A successful installer exit is insufficient unless detection succeeds too.
-    function Install-SetupProgram {}
+    function Install-BuildPython {}
     $script:state.Python=$null
     Assert-Throws {Ensure-Prerequisites | Out-Null} 'Python 3.12 is still unavailable'
     $script:state.Python='python.exe'
@@ -73,15 +73,37 @@ try{
     Assert-Throws {Install-SetupProgram 'https://example.test/setup.exe' 'setup.exe' 'Test' @()} 'Signature verification failed'
     Assert ($script:launches -eq 0) 'Reject signatures before executing anything'
     $script:rejectSignature=$false
-    foreach($exitCode in @(3010,1641,1602,42)){
+    foreach($exitCode in @(3010,1641,1602,1223,1603,42)){
         $script:installerExit=$exitCode
-        $pattern=if($exitCode -eq 3010 -or $exitCode -eq 1641){'Windows restart'}else{"exit $exitCode"}
+        $pattern=if($exitCode -eq 3010 -or $exitCode -eq 1641){'Windows restart'}elseif($exitCode -eq 1602 -or $exitCode -eq 1223){'was cancelled'}elseif($exitCode -eq 1603){'failed \(exit 1603\).*does not imply cancellation'}else{"exit $exitCode"}
         Assert-Throws {Install-SetupProgram 'https://example.test/setup.exe' 'setup.exe' 'Test' @()} $pattern
         Assert (!(Test-Path -LiteralPath (Join-Path $testRoot 'fake-installer.exe'))) 'Remove temporary installers after failure/restart'
     }
     $script:installerExit=0
     Install-SetupProgram 'https://example.test/setup.exe' 'setup.exe' 'Test' @()
-    Assert ($script:launches -eq 5) 'Only one execution per accepted installer'
+    Assert ($script:launches -eq 7) 'Only one execution per accepted installer'
+
+    Set-Item Function:Install-BuildPython $originals['Install-BuildPython']
+    Assert-Throws {Install-BuildPython} 'Python build package hash mismatch'
+    Assert (!(Test-Path -LiteralPath (Join-Path $native 'third_party\python'))) 'Reject altered packages before extracting or executing Python'
+
+    # Native exit codes must remain visible across the probe function's scope.
+    $probe=Join-Path $testRoot 'probe.ps1'
+    [IO.File]::WriteAllText($probe,'param([string]$c);$global:LASTEXITCODE=0')
+    Assert (Test-BuildPython $probe) 'Accept a successful interpreter probe'
+    [IO.File]::WriteAllText($probe,'param([string]$c);$global:LASTEXITCODE=7')
+    Assert (!(Test-BuildPython $probe)) 'Reject a failed interpreter probe without using an earlier exit code'
+
+    # Registered custom installations work without PATH or a launcher.
+    $registered=Join-Path $testRoot 'registered-python.exe'
+    [IO.File]::WriteAllText($registered,'fixture')
+    function Get-RegisteredPython312 {return $registered}
+    function Test-BuildPython($Path) {return ($Path -eq $registered)}
+    function Get-Command {}
+    try{Assert ((Get-Python312) -eq $registered) 'Reuse a compatible interpreter registered at a custom location'}
+    finally{Remove-Item Function:Get-Command}
+    Set-Item Function:Test-BuildPython $originals['Test-BuildPython']
+    Set-Item Function:Get-RegisteredPython312 $originals['Get-RegisteredPython312']
 
     Set-Item Function:Assert-SetupSignature $originals['Assert-SetupSignature']
     function Get-AuthenticodeSignature {return $script:signature}

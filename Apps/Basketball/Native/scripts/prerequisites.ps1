@@ -1,12 +1,36 @@
 # Dot-sourced by build-easy.ps1. Downloads use official publishers only.
 # Installer flags: learn.microsoft.com/visualstudio/install/use-command-line-parameters-to-install-visual-studio
-# Python flags: docs.python.org/3.12/using/windows.html
+# Python build package: docs.python.org/3.12/using/windows.html#the-nuget-org-packages
 # WebView2 detection: learn.microsoft.com/microsoft-edge/webview2/concepts/distribution
+
+function Test-BuildPython([string]$Path){
+    $ErrorActionPreference='Continue'
+    if(!(Test-Path -LiteralPath $Path -PathType Leaf)){return $false}
+    $global:LASTEXITCODE=$null
+    & $Path -c "import sys,struct,ssl,venv,ensurepip; raise SystemExit(sys.version_info[:2] != (3,12) or struct.calcsize('P') != 8)" 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Get-RegisteredPython312 {
+    # PEP 514: discover custom and all-user installations without requiring PATH.
+    foreach($root in @('HKCU:\Software\Python\PythonCore','HKLM:\Software\Python\PythonCore','HKLM:\Software\WOW6432Node\Python\PythonCore')){
+        foreach($tag in @('3.12','3.12-64')){
+            $key=Get-Item -LiteralPath "$root\$tag\InstallPath" -ErrorAction SilentlyContinue
+            if($key){
+                $exe=$key.GetValue('ExecutablePath')
+                if($exe){Write-Output $exe}
+                $folder=$key.GetValue('')
+                if($folder){Write-Output (Join-Path $folder 'python.exe')}
+            }
+        }
+    }
+}
 
 function Get-Python312 {
     $ErrorActionPreference='Continue'
     $venv=Join-Path $native '.venv\Scripts\python.exe'
-    $candidates=@($venv,(Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'))
+    $candidates=@($venv,(Join-Path $native 'third_party\python\3.12.10\tools\python.exe'),(Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'))
+    $candidates+=@(Get-RegisteredPython312)
     $launcher=Get-Command py.exe -ErrorAction SilentlyContinue
     if($launcher){
         $candidate=& $launcher.Source -3.12 -c "import sys; print(sys.executable)" 2>$null
@@ -16,9 +40,8 @@ function Get-Python312 {
     if($python -and $python.Source -notmatch '\\WindowsApps\\'){$candidates+=$python.Source}
     foreach($candidate in $candidates){
         if(Test-Path -LiteralPath $candidate){
-            & $candidate -c "import sys,struct; raise SystemExit(sys.version_info[:2] != (3,12) or struct.calcsize('P') != 8)" 2>$null
-            if($LASTEXITCODE -eq 0){return $candidate}
-            if($candidate -eq $venv){throw 'Native\.venv needs 64-bit Python 3.12. Rename that .venv folder and run setup again.'}
+            if(Test-BuildPython $candidate){return $candidate}
+            if($candidate -eq $venv){throw 'Native\.venv needs a working 64-bit Python 3.12 with SSL, venv and ensurepip. Rename that .venv folder and run setup again.'}
         }
     }
     return $null
@@ -92,7 +115,27 @@ function Install-SetupProgram([string]$Url,[string]$Name,[string]$Publisher,[str
         Assert-SetupSignature $download $Publisher
         $code=Start-SetupInstaller $download $InstallerArguments
         if($code -eq 3010 -or $code -eq 1641){throw 'Installation requires a Windows restart. Restart when ready, then run the same BAT file again.'}
-        if($code -ne 0){throw "$Name installation stopped (exit $code). If you cancelled it, run setup again when ready."}
+        if($code -eq 1602 -or $code -eq 1223){throw "$Name installation was cancelled (exit $code). Run setup again when ready."}
+        if($code -ne 0){throw "$Name installation failed (exit $code). Check the installer log; this code does not imply cancellation."}
+    }finally{
+        if(Test-Path -LiteralPath $download){Remove-Item -LiteralPath $download -Force}
+    }
+}
+
+function Install-BuildPython {
+    # CPython's official NuGet package supports build systems, venv and pip.
+    # It needs no MSI registration, launcher installation or administrator access.
+    $download=Get-SetupDownload 'https://api.nuget.org/v3-flatcontainer/python/3.12.10/python.3.12.10.nupkg' 'python-3.12.10.zip'
+    try{
+        $hash=(Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash
+        if($hash -ne '0EB85C2DFCCCCF1B17352DE4C397F69194035B7D37149EACC16F1147D93DE3B8'){throw 'Python build package hash mismatch. Setup stopped.'}
+        $destination=Join-Path $native 'third_party\python\3.12.10'
+        Expand-Archive -LiteralPath $download -DestinationPath $destination -Force
+        $python=Join-Path $destination 'tools\python.exe'
+        Assert-SetupSignature $python 'O=Python Software Foundation'
+        Assert-SetupSignature (Join-Path $destination 'tools\python312.dll') 'O=Python Software Foundation'
+        if(!(Test-BuildPython $python)){throw 'The local Python build package could not run with SSL, venv and ensurepip. Setup stopped.'}
+        Write-Host 'OK: Project-local Python 3.12 prepared (no system installation).'
     }finally{
         if(Test-Path -LiteralPath $download){Remove-Item -LiteralPath $download -Force}
     }
@@ -158,10 +201,9 @@ function Ensure-Prerequisites([switch]$CheckOnly){
         if(!$state.Compiler -or !$state.Sdk){throw 'C++ tools/SDK are still missing. Check Visual Studio Installer, then rerun setup.'}
     }
     if(!$state.Python){
-        $target=Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312'
-        Install-SetupProgram 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe' 'python-3.12.10-amd64.exe' 'O=Python Software Foundation' @('/passive','/norestart','InstallAllUsers=0',('TargetDir="'+$target+'"'),'Include_launcher=1','InstallLauncherAllUsers=0','Include_pip=1','Include_test=0','PrependPath=0','AssociateFiles=0')
+        Install-BuildPython
         $state=Get-PrerequisiteState
-        if(!$state.Python){throw 'Python 3.12 is still unavailable. Check the Python installer and rerun setup.'}
+        if(!$state.Python){throw 'Python 3.12 is still unavailable. Check the local build package and rerun setup.'}
     }
     if(!$state.WebView){
         Install-SetupProgram 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' 'MicrosoftEdgeWebview2Setup.exe' 'O=Microsoft Corporation' @('/silent','/install')
