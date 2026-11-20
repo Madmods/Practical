@@ -100,7 +100,29 @@ function Get-SetupDownload([string]$Url,[string]$Name){
 function Assert-SetupSignature([string]$Path,[string]$Publisher){
     $signature=Get-AuthenticodeSignature -LiteralPath $Path
     if($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Subject -notmatch $Publisher){
-        throw "Signature verification failed for $(Split-Path $Path -Leaf). Setup stopped."
+        throw "Signature verification failed for $(Split-Path $Path -Leaf). Windows status: $($signature.Status). Publisher: $($signature.SignerCertificate.Subject). $($signature.StatusMessage) Setup stopped."
+    }
+}
+
+function Assert-NetworkArchive([string]$Archive){
+    # Exact v2.2.2-A intake fingerprints are recorded in the upstream issue:
+    # https://github.com/basil00/WinDivert/issues/411
+    # They identify the release, not an antivirus verdict; Windows checks still apply.
+    if((Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash -ne '63CB41763BB4B20F600B6DE04E991A9C2BE73279E317D4D82F237B150C5F3F15'){
+        throw 'WinDivert 2.2.2-A archive hash mismatch. Setup stopped before extraction.'
+    }
+}
+
+function Assert-NetworkDriver([string]$Path){
+    # The current release uses a different signing sponsor from older builds.
+    # Pin the exact driver bytes and require Windows to validate the signature.
+    # Never treat a matching hash as permission to accept an invalid signature.
+    $signature=Get-AuthenticodeSignature -LiteralPath $Path
+    if($signature.Status -ne 'Valid' -or !$signature.SignerCertificate){
+        throw "Networking driver signature is not valid. Windows status: $($signature.Status). Publisher: $($signature.SignerCertificate.Subject). $($signature.StatusMessage) Setup stopped; review Windows Security Protection history."
+    }
+    if((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -ne '8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2'){
+        throw 'Networking driver does not match the pinned WinDivert 2.2.2-A driver. Setup stopped.'
     }
 }
 
@@ -153,6 +175,7 @@ function Assert-X64Image([string]$Path){
 }
 
 function Expand-NetworkRuntime([string]$Archive,[string]$Destination){
+    Assert-NetworkArchive $Archive
     Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip=[IO.Compression.ZipFile]::OpenRead($Archive)
@@ -164,7 +187,7 @@ function Expand-NetworkRuntime([string]$Archive,[string]$Destination){
             [IO.Compression.ZipFileExtensions]::ExtractToFile($entries[0],(Join-Path $Destination $name),$false)
             Assert-X64Image (Join-Path $Destination $name)
         }
-        Assert-SetupSignature (Join-Path $Destination 'WinDivert64.sys') 'O=Cloudveil Technology Inc\.'
+        Assert-NetworkDriver (Join-Path $Destination 'WinDivert64.sys')
     }finally{$zip.Dispose()}
 }
 
@@ -177,6 +200,8 @@ function Install-NetworkRuntime {
         $destination=Join-Path $native 'third_party\windivert\bin'
         New-Item -ItemType Directory -Path $destination -Force | Out-Null
         foreach($name in @('WinDivert.dll','WinDivert64.sys')){Copy-Item -LiteralPath (Join-Path $stage $name) -Destination (Join-Path $destination $name) -Force}
+    }catch{
+        throw "Networking setup stopped: $($_.Exception.Message) If Windows quarantined or blocked a file, leave it blocked; setup will not restore it, change security settings or try another download source."
     }finally{
         if(Test-Path -LiteralPath $download){Remove-Item -LiteralPath $download -Force}
         foreach($name in @('WinDivert.dll','WinDivert64.sys')){

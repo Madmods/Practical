@@ -13,7 +13,7 @@ function Assert-Throws([scriptblock]$Action,[string]$Pattern){
 }
 
 $originals=@{}
-foreach($name in @('Test-BuildPython','Get-RegisteredPython312','Get-PrerequisiteState','Install-BuildPython','Install-SetupProgram','Install-NetworkRuntime','Get-SetupDownload','Assert-SetupSignature','Start-SetupInstaller','Invoke-WebRequest','Get-AuthenticodeSignature')){
+foreach($name in @('Test-BuildPython','Get-RegisteredPython312','Get-PrerequisiteState','Install-BuildPython','Install-SetupProgram','Install-NetworkRuntime','Get-SetupDownload','Assert-SetupSignature','Assert-NetworkArchive','Assert-NetworkDriver','Expand-NetworkRuntime','Get-FileHash','Start-SetupInstaller','Invoke-WebRequest','Get-AuthenticodeSignature')){
     $command=Get-Command $name -ErrorAction SilentlyContinue
     if($command -and $command.CommandType -eq 'Function'){$originals[$name]=$command.ScriptBlock}
 }
@@ -114,6 +114,28 @@ try{
     $script:signature.Status='Valid'
     Assert-Throws {Assert-SetupSignature 'fixture.exe' 'O=Python Software Foundation'} 'Signature verification failed'
 
+    # Current release identity is pinned by bytes, independently of sponsor names.
+    function Get-FileHash {return [pscustomobject]@{Hash=$script:digest}}
+    $script:signature=[pscustomobject]@{Status='Valid';StatusMessage='Signature verified.';SignerCertificate=[pscustomobject]@{Subject='CN=Current signing sponsor'}}
+    $script:digest='8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2'
+    Assert-NetworkDriver 'fixture.sys'
+    Assert $true 'Accept the exact current driver with a valid Windows signature, without requiring the obsolete sponsor'
+    $script:digest='changed-file'
+    Assert-Throws {Assert-NetworkDriver 'fixture.sys'} 'does not match the pinned'
+    $script:digest='8DA085332782708D8767BCACE5327A6EC7283C17CFB85E40B03CD2323A90DDC2'
+    foreach($status in @('NotSigned','HashMismatch','NotTrusted','UnknownError')){
+        $script:signature.Status=$status
+        Assert-Throws {Assert-NetworkDriver 'fixture.sys'} ("Windows status: "+$status)
+    }
+    $script:signature.Status='Valid';$script:signature.SignerCertificate=$null
+    Assert-Throws {Assert-NetworkDriver 'fixture.sys'} 'signature is not valid'
+    $script:digest='63CB41763BB4B20F600B6DE04E991A9C2BE73279E317D4D82F237B150C5F3F15'
+    Assert-NetworkArchive 'fixture.zip'
+    Assert $true 'Accept only the pinned official-release archive bytes'
+    $script:digest='changed-archive'
+    Assert-Throws {Assert-NetworkArchive 'fixture.zip'} 'archive hash mismatch'
+    if($originals.ContainsKey('Get-FileHash')){Set-Item Function:Get-FileHash $originals['Get-FileHash']}else{Remove-Item Function:Get-FileHash}
+
     Set-Item Function:Get-SetupDownload $originals['Get-SetupDownload']
     $script:requests=0
     function Invoke-WebRequest {$script:requests++;throw 'Simulated blocked download'}
@@ -125,7 +147,8 @@ try{
     # Synthetic ZIPs prove only the expected x64 entries can be written.
     Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    function Assert-SetupSignature {} # Synthetic PE fixtures have no real publisher signature.
+    function Assert-NetworkArchive {} # These ZIPs exercise extraction, not release fingerprints.
+    function Assert-NetworkDriver {} # Synthetic PE fixtures have no real publisher signature.
     function New-TestZip([string]$Path,[string[]]$Entries,[int]$Machine=0x8664){
         $zip=[IO.Compression.ZipFile]::Open($Path,[IO.Compression.ZipArchiveMode]::Create)
         try{
@@ -156,10 +179,28 @@ try{
     New-Item -ItemType Directory -Path $dest | Out-Null
     New-TestZip $zip @($entries[0],$entries[0],$entries[1])
     Assert-Throws {Expand-NetworkRuntime $zip $dest} 'Invalid networking archive entry'
+
+    # Failed driver verification must never publish files to the dependency folder.
+    Set-Item Function:Install-NetworkRuntime $originals['Install-NetworkRuntime']
+    $script:networkRequests=0
+    function Get-SetupDownload {
+        $script:networkRequests++
+        $file=Join-Path $testRoot 'rejected-network.zip'
+        [IO.File]::WriteAllText($file,'fixture')
+        return $file
+    }
+    function Expand-NetworkRuntime($Archive,$Destination){
+        foreach($name in @('WinDivert.dll','WinDivert64.sys')){[IO.File]::WriteAllText((Join-Path $Destination $name),'fixture')}
+        throw 'Windows status: NotTrusted'
+    }
+    Assert-Throws {Install-NetworkRuntime} 'Windows status: NotTrusted.*leave it blocked'
+    Assert (!(Test-Path -LiteralPath (Join-Path $native 'third_party\windivert\bin'))) 'Do not install files after failed verification'
+    Assert (!(Test-Path -LiteralPath (Join-Path $testRoot 'runtime\WinDivert64.sys'))) 'Remove rejected staging files'
+    Assert ($script:networkRequests -eq 1) 'Never retry or switch download sources after a verification failure'
     Write-Host "PASS: $script:checks prerequisite checks; no downloads or installers executed." -ForegroundColor Green
 }finally{
     foreach($name in $originals.Keys){Set-Item "Function:$name" $originals[$name]}
-    foreach($name in @('Invoke-WebRequest','Get-AuthenticodeSignature')){
+    foreach($name in @('Invoke-WebRequest','Get-AuthenticodeSignature','Get-FileHash')){
         if(!$originals.ContainsKey($name)){Remove-Item "Function:$name" -ErrorAction SilentlyContinue}
     }
     $resolved=[IO.Path]::GetFullPath($testRoot)
