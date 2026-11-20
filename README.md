@@ -4,7 +4,19 @@ Windows x64 application with a C++ host and embedded WebView2 interface. Source 
 
 This repository contains source, UI assets, build scripts, diagnostics and regression tests. Generated programs, personal settings, browser/account data, captures, session credentials, archives and downloaded dependencies are excluded. The older project remains available in Git history.
 
-## Build
+## Double-click setup on Windows
+
+Extract the entire GitHub ZIP, then use these files in its top folder:
+
+1. **1 - Check Setup.bat** checks the required compiler and Python and shows download links for missing tools.
+2. **2 - Build Vanta.bat** prepares dependencies, builds/tests the app, builds the networking helper and installs both into `Apps/Basketball`. Close this copy of Vanta before rebuilding. Your settings are preserved.
+3. **3 - Start Vanta.bat** opens the built app. Local-preview login: **1 / 1**. Join the game, complete the checks, click Continue and enable the features you want.
+
+The batch files work when launched from another folder and leave the build window open so errors can be read. Visual Studio **2022 Build Tools** with the C++ desktop workload/Windows SDK and Python **3.12** are prerequisites; the scripts do not install these automatically. WebView2 Runtime is needed to open the app.
+
+QBA also needs approved x64 `WinDivert.dll` and `WinDivert64.sys`. Put both in `Apps/Basketball/Native/third_party/windivert/bin` before building, or copy the entire `network_decoder` folder from the ready-made friend package into `Apps/Basketball` and rebuild. The build clearly reports when networking files are still missing; driver files are not downloaded automatically.
+
+## Build with commands
 
 Requirements: Visual Studio 2022 Build Tools with Desktop development with C++ and the Windows SDK, Microsoft Edge WebView2 Runtime, and Python 3.12 for the optional networking helper.
 
