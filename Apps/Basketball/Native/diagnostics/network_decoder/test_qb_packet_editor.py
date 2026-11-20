@@ -21,6 +21,290 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def test_live_match_union_ack_does_not_hide_the_following_throw(self):
+        schema=Schema.from_packet(fixture_schema());schema.properties=[dict(name='CFrame',className='UnionOperation',kind=27)]
+        for versioned in (0,1):
+            ack=bytes([MAPS['4'].index(10)])+b'\x01'+(123).to_bytes(4,'little')+bytes(2)+bytes([versioned])+(v(658) if versioned else b'')+bytes(4)
+            raw=bytes([0xc3])+ack+bytes([MAPS['4'].index(7)])+body()[2:]
+            framed=(0x80000000+len(raw)).to_bytes(4,'big')+raw;before=stream(bytes.fromhex('06010400000001')+framed)
+            e=Editor(schema);after=e.process_plain(before,plan(),1010)
+            self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline);self.assertEqual(len(after),len(before))
+            self.assertEqual(frames(after)[0].data[12:12+len(ack)],ack)
+            self.assertEqual(e.stats['declinedRecords'],0)
+    def test_warmup_primes_cached_arguments_without_editing_or_claiming_click(self):
+        e=editor();event=body()[:9]
+        warm_body=event+v(1)+b'\x01\x87'+(6).to_bytes(4,'big')+b'Cached'
+        rec=lambda raw:(0x80000000+len(raw)).to_bytes(4,'big')+raw
+        warm_data=bytes.fromhex('06010400000001')+rec(warm_body)
+        before=stream(warm_data);self.assertEqual(e.process_plain(before,plan(),1010,False),before)
+        self.assertEqual(e.wire.cache[7],'Cached');self.assertFalse(e.claimed);self.assertFalse(e.ledger)
+        following=stream(rec(event+v(1)+b'\x01\x07'),len(warm_data));self.assertEqual(e.process_plain(following,plan(),1020),following)
+        self.assertEqual(e.stats['decodedCalls'],2);self.assertEqual(e.stats['declinedRecords'],0)
+
+    def test_parser_recovery_retains_accepted_edits_and_new_throw_ownership(self):
+        schema=Schema.from_packet(fixture_schema());schema.properties=[dict(name='CFrame',className='Part',kind=27)]
+        e=Editor(schema);first=payload();accepted=e.process_plain(first,plan(),1010);self.assertNotEqual(accepted,first)
+        bad=Schema.from_packet(fixture_schema());bad.properties=[dict(name='CFrame',className='Camera',kind=27)];e.wire.schema=bad
+        ack=bytes([MAPS['3'].index(10)])+b'\x01'+(123).to_bytes(4,'little')+bytes(2)+b'\x00'+bytes(4)
+        raw=body()[:1]+ack+body()[1:];record=(0x80000000+len(raw)).to_bytes(4,'big')+raw;offset=len(frames(first)[0].data)
+        for i in range(3):
+            current=stream(record,offset);offset+=len(record);self.assertEqual(e.process_plain(current,plan(),6000+i),current)
+        self.assertEqual(e.stats['parserRecoveries'],1);self.assertFalse(e.recovering);self.assertEqual(e.claimed,{990})
+        self.assertEqual(e.process_plain(first,{},7000,False),accepted)
+        next_plan=plan();next_plan.update(issued=10040,expires=10190,clickAt=10030)
+        current=stream(record,offset);self.assertNotEqual(e.process_plain(current,next_plan,10050),current)
+        self.assertEqual(e.stats['modifiedThrows'],2);self.assertEqual(e.claimed,{990,10030})
+
+    def test_new_join_schema_replaces_reader_without_discarding_ledger(self):
+        e=editor();first=payload();accepted=e.process_plain(first,plan(),1010);ledger=list(e.ledger)
+        fresh=Schema.from_packet(fixture_schema());e.update_schema(fresh,2000)
+        self.assertIs(e.schema,fresh);self.assertIs(e.tracker.schema,fresh);self.assertEqual(e.ledger,ledger);self.assertEqual(e.claimed,{990})
+        self.assertEqual(e.process_plain(first,{},2010,False),accepted);self.assertEqual(e.stats['schemaRefreshes'],1)
+
+    def test_every_validated_replication_profile_can_carry_a_throw(self):
+        for prefix,mode in REPLICATION_MODES.items():
+            with self.subTest(mode=mode):
+                raw=bytes([prefix,MAPS[mode].index(7)])+body()[2:];rec=(0x80000000+len(raw)).to_bytes(4,'big')+raw
+                before=stream(bytes.fromhex('06010400000001')+rec);e=editor();after=e.process_plain(before,plan(),1010)
+                self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline);self.assertEqual(len(after),len(before))
+                decoded=frames(after)[0].data[11:];call=Wire(e.schema,MAPS[mode]).events(b'\x83'+decoded[1:],'outgoing')[0]
+                self.assertEqual(call['args'][0],'Clicked');self.assertEqual(call['args'][3],95)
+
+    def test_recovery_plaintext_history_has_a_memory_bound(self):
+        e=editor()
+        for i in range(300):e.process_plain(stream(bytes(6000),i*6000),{},1000+i,False)
+        self.assertLessEqual(len(e.recent),256);self.assertLessEqual(e.recent_bytes,1024*1024);self.assertFalse(e.claimed)
+
+    def test_open_away_floor_survives_actual_origin_and_retained_plan(self):
+        for beam in (False,True):
+            for angle_power in (False,True):
+                p=plan();p.update(head=[1,5,0],targetPosition=[70,5,0],targetVelocity=[20,0,0],plannedPower=95,beam95=beam,anglePower=angle_power,angle=7,angleFallback=True,minAngle=25,maxAngle=50,sampleAgeMs=80)
+                e=editor();after=e.process_plain(payload(),p,1010)
+                self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline)
+                args=arguments(after);aim=args[2]['components'];origin=args[1]['components'];direction=[a-b for a,b in zip(aim,origin)];norm=length(direction);direction=[x/norm for x in direction]
+                elevation=math.degrees(math.atan2(direction[1],math.hypot(direction[0],direction[2])))
+                self.assertGreaterEqual(elevation,25-1e-4);self.assertLessEqual(elevation,50+1e-4)
+                target=[71.8,5,0] # Measured route advanced by 80ms sample + 10ms dispatch.
+                launch,t,power=angle_velocity(origin,target,[20,0,0],25,28,.05,5)
+                self.assertAlmostEqual(args[3],power,places=4)
+                end=[origin[i]+direction[i]*(5+args[3]*t)-(.5*28*t*t if i==1 else 0) for i in range(3)]
+                expected=[target[i]+[20,0,0][i]*(t+.05) for i in range(3)]
+                self.assertLess(length([a-b for a,b in zip(end,expected)]),.001)
+
+    def test_route_floor_does_not_force_invalid_or_manual_power_throw(self):
+        for floor in (True,None,math.nan,-31,51):
+            p=plan();p.update(minAngle=floor,maxAngle=50);e=editor()
+            self.assertEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.stats['modifiedThrows'],0)
+        p=plan();p.update(minAngle=25,maxAngle=50,autoPower=False);e=editor()
+        self.assertEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.stats['modifiedThrows'],0)
+        p=plan();p.update(targetPosition=[500,5,0],targetVelocity=[20,0,0],minAngle=25,maxAngle=50);e=editor()
+        self.assertEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.stats['modifiedThrows'],0)
+
+    def test_practice_and_match_keep_distinct_boundary_policies(self):
+        p=plan();p.update(environment='practice',boundaryRequired=False,field=dict(known=False))
+        practice=editor();after=practice.process_plain(payload(),p,1010)
+        self.assertEqual(practice.stats['modifiedThrows'],1,practice.last_decline)
+        self.assertNotEqual(after,payload())
+        p.update(environment='match',boundaryRequired=True)
+        match=editor();self.assertEqual(match.process_plain(payload(),p,1010),payload())
+        self.assertEqual(match.stats['modifiedThrows'],0)
+        self.assertEqual(match.last_decline['reason'],'Field boundaries unavailable')
+
+    def test_boundary_guard_at_actual_release_without_smart_fit(self):
+        field=dict(known=True,center=[0,3,0],right=[1,0,0],forward=[0,0,1],halfWidth=80,halfLength=180)
+        receiver=dict(position=[78,5,0],velocity=[0,0,0],speed=0,jump=0,dive=0,radius=6,above=6,below=8)
+        for target,accepted in (([70,5,0],False),([78,5,0],True),([81,5,0],True),([85,5,0],False),([300,5,0],False),([78,40,0],False)):
+            p=plan();p.update(boundaryRequired=True,field=field,receiver=receiver,targetPosition=target,smartFit=False)
+            e=editor();after=e.process_plain(payload(),p,1010)
+            self.assertEqual(e.stats['modifiedThrows'],int(accepted),(target,e.last_decline))
+            if not accepted:self.assertEqual(after,payload())
+        for bad in (None,{},dict(field,known=False),dict(field,halfWidth=math.nan),dict(field,right=[2,0,0])):
+            p=plan();p.update(boundaryRequired=True,field=bad,receiver=receiver,targetPosition=[78,5,0]);e=editor()
+            self.assertEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.stats['modifiedThrows'],0)
+
+    def test_boundary_rechecks_route_after_sample_delay(self):
+        field=dict(known=True,center=[0,3,0],right=[1,0,0],forward=[0,0,1],halfWidth=80,halfLength=180)
+        receiver=dict(position=[78,5,0],velocity=[20,0,0],speed=20,jump=7,dive=12,radius=6,above=6,below=8)
+        p=plan();p.update(boundaryRequired=True,field=field,receiver=receiver,targetPosition=[78,5,0],targetVelocity=[20,0,0],sampleAgeMs=80)
+        e=editor();self.assertEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.stats['modifiedThrows'],0)
+
+    def test_live_match_decodes_origin_but_preserves_wire_origin(self):
+        raw=body();raw=raw[:9]+v(6)+raw[10:-1]+b'\x0c'+struct.pack('<d',60)+b'\x0c'+struct.pack('<d',1)+raw[-1:]
+        raw=raw.replace(struct.pack('<fff',0,5,0),struct.pack('<fff',-6000000,5,0),1)
+        before=stream(bytes.fromhex('06010400000001')+(0x80000000+len(raw)).to_bytes(4,'big')+raw)
+        e=editor();after=e.process_plain(before,plan(),1010);args=arguments(after)
+        self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline)
+        self.assertEqual(args[1]['components'],[-6000000,5,0])
+        self.assertEqual(e.last['origin'],(0,5,0));self.assertEqual(args[4:],[60,1])
+        direction=[args[2]['components'][i]-e.last['origin'][i] for i in range(3)]
+        norm=length(direction);flight=e.last['flight'];power=args[3]
+        landing=[e.last['origin'][i]+direction[i]/norm*(5+power*flight)-(.5*28*flight*flight if i==1 else 0) for i in range(3)]
+        self.assertLess(length(tuple(a-b for a,b in zip(landing,[70,5,0]))),.001)
+        invalid=plan();invalid['head']=[1000,5,0]
+        rejected=editor();self.assertEqual(rejected.process_plain(before,invalid,1010),before)
+        self.assertEqual(rejected.last_decline['reason'],'Unrecognized live-match origin encoding')
+
+    def test_live_match_preserves_two_additional_arguments(self):
+        raw=body();count_at=9
+        self.assertEqual(raw[count_at],4)
+        raw=raw[:count_at]+v(6)+raw[count_at+1:-1]+b'\x0c'+struct.pack('<d',60)+b'\x0c'+struct.pack('<d',1)+raw[-1:]
+        before=stream(bytes.fromhex('06010400000001')+(0x80000000+len(raw)).to_bytes(4,'big')+raw)
+        e=editor();after=e.process_plain(before,plan(),1010)
+        self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline)
+        self.assertEqual(len(before),len(after))
+        self.assertEqual(arguments(after)[4:],[60,1])
+        self.assertEqual(after[-19:],before[-19:])
+        self.assertEqual(e.process_plain(before,{},9000,allow=False),after)
+
+    def test_physical_hold_uses_fresh_plan_after_old_click_deadline(self):
+        p=plan();p.update(issued=5000,expires=5150,clickAt=1000,physicalHeld=True,releasedAt=0)
+        e=editor();self.assertNotEqual(e.process_plain(payload(),p,5010),payload());self.assertEqual(e.stats['modifiedThrows'],1)
+        p.update(physicalHeld=False,releasedAt=4990)
+        e=editor();self.assertNotEqual(e.process_plain(payload(),p,5010),payload())
+        for changes in (dict(physicalHeld=False,releasedAt=4500),dict(physicalHeld=True,releasedAt=4990),dict(physicalHeld=True,releasedAt=0,clickAt=0),dict(physicalHeld=True,releasedAt=0,issued=4800),dict(physicalHeld=True,releasedAt=0,clickAt=-1)):
+            invalid={**p,**changes};self.assertEqual(editor().process_plain(payload(),invalid,5010),payload())
+
+    def test_retained_beam_recalculates_power_when_receiver_leaves_selected_tier(self):
+        launch,t=velocity([0,5,0],[71,5,0],[20,0,0],59,28,.05,spawn=5)
+        angle=math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2])))
+        with self.assertRaises(DecodeError):velocity([0,5,0],[74.28,5,0],[20,0,0],59,28,.05,spawn=5)
+        p=plan();p.update(beam95=True,plannedPower=59,targetPosition=[71,5,0],targetVelocity=[20,0,0],angle=angle,sampleAgeMs=154,clickPlanRetained=True)
+        e=editor();args=arguments(e.process_plain(payload(),p,1010));self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline)
+        self.assertGreater(args[3],59);self.assertLessEqual(args[3],95)
+        origin=args[1]['components'];aim=args[2]['components'];direction=tuple(a-b for a,b in zip(aim,origin));norm=length(direction);direction=tuple(v/norm for v in direction)
+        self.assertAlmostEqual(math.degrees(math.atan2(direction[1],math.hypot(direction[0],direction[2]))),angle,places=4)
+        flight=e.last['flight'];landing=[origin[i]+direction[i]*(5+args[3]*flight)-(.5*28*flight*flight if i==1 else 0) for i in range(3)]
+        self.assertLess(length(tuple(a-b for a,b in zip(landing,[74.28+20*(flight+.05),5,0]))),.001)
+        p.update(targetPosition=[500,5,0]);self.assertEqual(editor().process_plain(payload(),p,1010),payload())
+
+    def test_fit_preserves_catch_height_but_can_adjust_lead(self):
+        p=plan();p.update(targetPosition=[70,8,3],routePosition=[70,5,0],targetVelocity=[0,0,20],leadDistance=3,preserveCatchHeight=True,heightAdjustment=3)
+        e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.last['routeOffset'],(0,3,0))
+        for target in ([70,7.5,3],):
+            p['targetPosition']=target;e=editor()
+            self.assertEqual(e.process_plain(payload(),p,1010),payload())
+            self.assertEqual(e.last_decline['reason'],'Fit lowers configured catch height')
+        p['targetPosition']=[70,8,2];self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
+        p['targetPosition']=[73,9,3];self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
+        p.update(leadDistance=-3,targetPosition=[70,8,-4]);self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
+        p['targetPosition']=[70,8,-2];self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
+
+    def test_declined_raw_press_keeps_input_diagnostics(self):
+        p=plan();p.update(clickAt=0,input=dict(action='physical-down-held',blocked=True,owned=True))
+        e=editor();self.assertEqual(e.process_plain(payload(),p,1010),payload())
+        self.assertEqual(e.last_decline['input'],p['input'])
+
+    def test_widening_stays_relative_to_the_running_route(self):
+        wr=dict(position=[80,8,0],velocity=[0,0,20],speed=20,jump=6.37,dive=12,radius=5.88,above=3.88,below=4.88,worldGravity=196.2,redirect=True)
+        self.assertLess(receiver_gap(wr,[92,8,40],2),-.25)
+        self.assertLess(receiver_gap(wr,[68,8,40],2),-.25)
+        self.assertGreater(receiver_gap(wr,[80,8,-20],2),0)
+        self.assertGreater(receiver_gap(wr,[120,8,40],2),0)
+        slowing={**wr,'velocity':[0,0,5]}
+        self.assertGreater(receiver_gap(slowing,[96,8,10],2),0)
+        wr.update(position=[70,5,0])
+        p=plan();p.update(targetPosition=[80,5,0],targetVelocity=[0,0,20],routePosition=[70,5,0],leadDistance=0,plannedPower=95,smartFit=True,coverageKnown=True,allowContested=True,catchers=[],receiver=wr,anglePower=False)
+        e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload())
+        self.assertEqual(e.stats['modifiedThrows'],1)
+        self.assertEqual(e.last['routeOffset'],(10,0,0))
+        p['targetPosition']=[82,5,0]
+        self.assertEqual(editor().process_plain(payload(),p,1010),payload())
+
+    def current_profile_record(self):
+        schema=Schema.from_packet(fixture_schema())
+        schema.properties=[dict(name='CFrame',className='Part',kind=27)]
+        prefix=b'\x45'+bytes(4)+b'\xfe\x01'+(123).to_bytes(4,'little')+bytes(2)+b'\x01'+v(658)+bytes(4)
+        data=b'\xc3'+prefix+b'\x4f'+body()[2:]
+        return schema,data
+
+    def test_current_client_profile_preserves_original_throw_math(self):
+        schema,data=self.current_profile_record()
+        raw=stream(bytes.fromhex('06010400000001')+(0x80000000+len(data)).to_bytes(4,'big')+data)
+        for selected in (60,75,95):
+            with self.subTest(power=selected):
+                p=plan();p['plannedPower']=selected
+                old=editor();old.process_plain(payload(),p,1010)
+                new=Editor(schema);changed=new.process_plain(raw,p,1010)
+                self.assertNotEqual(changed,raw)
+                self.assertEqual(new.stats['modifiedThrows'],1)
+                for key in ('newPower','aim','origin','flight','target','movement'):
+                    self.assertEqual(new.last[key],old.last[key])
+                self.assertEqual(new.process_plain(raw,{},5000,False),changed)
+                self.assertEqual(Editor(schema).process_plain(raw,{},1010),raw)
+
+    def test_current_profile_midstream_requires_validated_record_boundaries(self):
+        schema,data=self.current_profile_record()
+        framed=(0x80000000+len(data)).to_bytes(4,'big')+data
+        from live_network_decoder import record_alignment
+        self.assertIsNone(record_alignment(framed*2,schema,MAPS['3'],'outgoing'))
+        self.assertEqual(record_alignment(b'junk'+framed*3,schema,MAPS['3'],'outgoing'),4)
+        raw=stream(framed*3,10000);e=Editor(schema)
+        self.assertNotEqual(e.process_plain(raw,plan(),1010),raw)
+        self.assertEqual(e.stats['modifiedThrows'],1)
+        # Unverified opcodes and incorrect acknowledgement schemas fail closed.
+        unknown=data[:1]+b'\x01'+data[2:]
+        self.assertEqual(Wire(schema,MAPS['4']).events(b'\x83'+unknown[1:],'outgoing'),[])
+        schema.properties[0]['className']='Camera'
+        with self.assertRaises(DecodeError):Wire(schema,MAPS['4']).events(b'\x83'+data[1:],'outgoing')
+
+    def test_moving_qb_recalculates_regular_power_at_release(self):
+        _,_,power=angle_velocity([0,5,0],[50,5,0],[0,0,0],40,28,.05,5)
+        with self.assertRaises(DecodeError):velocity([-8,5,0],[50,5,0],[0,0,0],power,28,.05,False,5)
+        p=plan();p.update(head=[0,5,0],targetPosition=[50,5,0],plannedPower=power,angle=40,anglePower=True,angleFallback=True,maxAngle=50)
+        raw=body().replace(struct.pack('<fff',0,5,0),struct.pack('<fff',-8,5,0),1)
+        plain=stream(bytes.fromhex('06010400000001')+(0x80000000+len(raw)).to_bytes(4,'big')+raw)
+        e=editor();self.assertNotEqual(e.process_plain(plain,p,1010),plain)
+        self.assertGreater(e.last['newPower'],power);self.assertLessEqual(e.last['newPower'],95)
+        self.assertEqual(e.last['target'],[50,5,0])
+
+    def test_regular_power_ceiling_falls_back_without_disappearing(self):
+        launch,_=velocity([0,5,0],[100,5,0],[0,0,0],95,28,.05,False,5)
+        angle=math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2])))
+        p=plan();p.update(targetPosition=[100,5,0],plannedPower=95,angle=angle,anglePower=True,angleFallback=True,maxAngle=50)
+        raw=body().replace(struct.pack('<fff',0,5,0),struct.pack('<fff',-.1,5,0),1)
+        plain=stream(bytes.fromhex('06010400000001')+(0x80000000+len(raw)).to_bytes(4,'big')+raw)
+        e=editor();self.assertNotEqual(e.process_plain(plain,p,1010),plain);self.assertAlmostEqual(e.last['newPower'],95)
+    def test_non_beam_angle_cap_resolves_power_and_preserves_endpoint(self):
+        _,_,power=angle_velocity([0,5,0],[70,5,0],[0,0,0],55,28,.05,5)
+        p=plan();p.update(plannedPower=power,lob=True,anglePower=False,maxAngle=50)
+        e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload())
+        launch=[a-b for a,b in zip(e.last['aim'],e.last['origin'])]
+        self.assertAlmostEqual(math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2]))),50)
+        self.assertEqual(e.last['target'],[70,5,0])
+        for bad in (True,0,90,float('nan')):
+            p['maxAngle']=bad;self.assertEqual(editor().process_plain(payload(),p,1010),payload())
+    def test_redirect_keeps_running_route_and_delayed_release(self):
+        origin=[36.6445732116699,7.48977041244507,86.8559722900391]
+        receiver=dict(position=[31.4579086303711,7.48992252349854,201.211013793945],velocity=[0,0,20.0915598076771],speed=20.0915598076771,jump=6.37105004812896,dive=12,radius=5.88186461588846,above=3.88186461588846,below=4.88186461588846,worldGravity=196.199996948242,redirect=True)
+        for horizon in (.5,1,2,3):
+            on_route=[p+v*horizon for p,v in zip(receiver['position'],receiver['velocity'])]
+            self.assertLess(receiver_gap(receiver,on_route,horizon),0)
+        p=plan();p.update(head=origin,targetPosition=[31.3662753479695,15.6968909162813,198.248969542281],targetVelocity=receiver['velocity'],routePosition=receiver['position'],receiver=receiver,leadDistance=3,beam95=True,plannedPower=94.9106000879478,smartFit=True,coverageKnown=True,allowContested=True,catchers=[],latency=.0654540004730225,sampleAgeMs=210,clickPlanRetained=True)
+        raw=body().replace(struct.pack('<fff',0,5,0),struct.pack('<fff',*origin),1)
+        plain=stream(bytes.fromhex('06010400000001')+(0x80000000+len(raw)).to_bytes(4,'big')+raw)
+        e=editor();self.assertNotEqual(e.process_plain(plain,p,1010),plain)
+        # Advance the observed route, but never pull the planned placement back.
+        expected=[x+v*.22 for x,v in zip(p['targetPosition'],p['targetVelocity'])]
+        for a,b in zip(e.last['target'],expected):self.assertAlmostEqual(a,b)
+        self.assertAlmostEqual(e.last['newPower'],p['plannedPower'])
+
+    def test_auto_fixed_power_survives_origin_change_at_95(self):
+        launch,t=velocity([0,5,0],[100,5,0],[0,0,0],95,28,.05,False,5)
+        angle=math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2])))
+        with self.assertRaises(DecodeError):angle_velocity([-.1,5,0],[100,5,0],[0,0,0],angle,28,.05,5)
+        p=plan();p.update(head=[-.1,5,0],targetPosition=[100,5,0],plannedPower=95,angle=angle,anglePower=False)
+        raw=body().replace(struct.pack('<fff',0,5,0),struct.pack('<fff',-.1,5,0),1)
+        plain=stream(bytes.fromhex('06010400000001')+(0x80000000+len(raw)).to_bytes(4,'big')+raw)
+        e=editor();self.assertNotEqual(e.process_plain(plain,p,1010),plain)
+        self.assertAlmostEqual(e.last['newPower'],95)
+
+    def test_dive_burst_does_not_become_permanent_running_speed(self):
+        d=dict(position=[0,8,0],velocity=[43,0,0],speed=22,jump=7,dive=12,radius=5.88,above=3.88,below=4.88,worldGravity=196.2)
+        self.assertAlmostEqual(horizontal_travel(d,.1),4.3)
+        self.assertAlmostEqual(horizontal_travel(d,2),56)
+        d['velocity']=[0,0,0]
+        self.assertAlmostEqual(horizontal_travel(d,2),56)
+
     def test_missed_catch_checks_the_rest_of_the_flight(self):
         origin=[0,8,0];launch,flight=velocity(origin,[70,16,0],[0,0,0],95,28,.05,False,5)
         db=dict(position=[125,8,0],velocity=[0,0,0],speed=22,jump=7,dive=12,radius=5.88,above=3.88,below=4.88,worldGravity=196.2)
@@ -36,10 +320,19 @@ class Tests(unittest.TestCase):
         self.assertLess(receiver_gap(receiver,[60,5,0],1),0)
         self.assertGreater(receiver_gap(receiver,[60,5,0],.1),0)
         p=plan();p.update(targetPosition=[60,5,0],routePosition=[70,5,0],smartFit=True,coverageKnown=True,allowContested=True,catchers=[],receiver=receiver,groundY=0,checkMissedCatch=True)
+        self.assertEqual(editor().process_plain(payload(),p,1010),payload()) # Too far to redirect in this short flight.
+        p['targetPosition']=[64,5,0]
         e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload())
         receiver['speed']=0;self.assertEqual(editor().process_plain(payload(),p,1010),payload())
         receiver['redirect']='true'
         with self.assertRaises(DecodeError):validate_reach(receiver)
+
+    def test_receiver_has_jump_reaction_and_comfort_margin(self):
+        wr=dict(position=[0,8,0],velocity=[0,0,0],speed=20,jump=6.37,dive=12,radius=5.88,above=3.88,below=4.88,worldGravity=196.2,redirect=True)
+        self.assertGreater(receiver_gap(wr,[0,14,0],.1),0)
+        self.assertGreater(receiver_gap(wr,[0,17.5,0],1),0)
+        self.assertLess(receiver_gap(wr,[0,13,0],.6),0)
+        self.assertGreater(receiver_gap(wr,[20,8,0],3),0)
 
     def test_actual_dispatch_rechecks_missed_catch_risk(self):
         db=dict(position=[125,5,0],velocity=[0,0,0],speed=22,jump=7,dive=12,radius=5.88,above=3.88,below=4.88,worldGravity=196.2)

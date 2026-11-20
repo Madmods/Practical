@@ -1,5 +1,6 @@
 import ctypes, pathlib, unittest
 P=pathlib.Path(__file__).parent
+if not (P/'scan_aes_schedules.dll').exists():P=P.parents[1]/'build'/'network_decoder'
 SBOX=[]
 def mul(a,b):
     v=0

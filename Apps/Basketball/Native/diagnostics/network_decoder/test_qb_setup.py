@@ -6,6 +6,25 @@ from network_wire_lab import Schema
 import qb_packet_host as host
 
 class SetupTests(unittest.TestCase):
+    def test_scan_can_resume_where_previous_round_stopped(self):
+        import threading
+        result={}
+        with patch.object(host,'candidates',return_value=([],dict(bytesRead=200,limitReached=0,nextAddress=2345,error=0))) as scan:
+            host.scan_incrementally(10,[],result,threading.Event(),pathlib.Path('unused-stop-marker'),start_address=1234)
+        self.assertEqual(scan.call_args.kwargs['start_address'],1234)
+        self.assertEqual(result['bytesRead'],200)
+
+    def test_failure_distinguishes_keys_authentication_and_schema(self):
+        connection=(('10.0.0.1',1000),('10.0.0.2',2000));cid=bytes(20)
+        rows=[dict(connection=connection,direction=d,cid=cid) for d in ('outgoing','incoming')]
+        live=SimpleNamespace(groups={},schemas={})
+        self.assertIn('No supported traffic',host.setup_failure(live,rows,set(),0,{}))
+        self.assertIn('No supported transport keys',host.setup_failure(live,rows,{1000},0,{}))
+        self.assertIn('authentication failed',host.setup_failure(live,rows,{1000},3,{}))
+        live.groups={(connection,d,cid):{'context':True} for d in ('outgoing','incoming')}
+        self.assertIn('Join schema missing',host.setup_failure(live,rows,{1000},3,{}))
+        self.assertIn('cannot read',host.setup_failure(live,rows,{1000},3,{'error':5}))
+
     def test_incremental_scan_exposes_keys_and_keeps_total_budget(self):
         import threading
         keys=[];result={};cancel=threading.Event();calls=[]
@@ -31,14 +50,17 @@ class SetupTests(unittest.TestCase):
             def start(self):
                 if self.target.__name__=='scan':self.target()
             def join(self):pass
-        for cancel in (False,True):
+        for cancel,resume,delay in ((False,True,0),(True,True,0),(False,False,21000),(True,False,0)):
             with tempfile.TemporaryDirectory() as folder:
-                session=pathlib.Path(folder)/'session';session.mkdir();(session/'setup-only').touch();(session/'resume-after-join').touch();continued=[False];opened=[];halt=[False]
+                session=pathlib.Path(folder)/'session';session.mkdir();(session/'setup-only').touch();continued=[False];opened=[];halt=[False];ready_packets=[0]
+                if resume:(session/'resume-after-join').touch()
                 def open_handle(filter,sniff=False):opened.append(sniff);return 1 if sniff else 2
                 def receive(handle):
                     if halt[0] or handle==2:return None
                     state=json.loads((session/'state.json').read_text())
-                    if state['status'].startswith('Setup ready.'):
+                    if state['ready']:
+                        self.assertEqual(state['phase'],'ready');self.assertFalse(state['requiresRejoin']);ready_packets[0]+=1
+                        if ready_packets[0]<=delay:return b'packet',None
                         self.assertEqual(opened,[True]);continued[0]=True
                         if cancel:(session/'stop').touch()
                         else:(session/'setup-only').unlink()
@@ -54,9 +76,9 @@ class SetupTests(unittest.TestCase):
         c=(('10.0.0.1',1000),('10.0.0.2',2000));cid=bytes(20)
         rows=[dict(connection=c,direction=d,cid=cid) for d in ('outgoing','incoming')]
         live=SimpleNamespace(schemas={c:True},groups={})
-        self.assertIn('Preparing keys',host.setup_status(live,rows,{1000}))
+        self.assertIn('Preparing keys',host.setup_status(live,rows,{1000}));self.assertNotEqual(host.setup_phase(live,rows,{1000}),'rejoin')
         live.groups={(c,d,cid):{'context':True} for d in ('outgoing','incoming')}
-        live.schemas.clear();self.assertIn('Rejoin once',host.setup_status(live,rows,{1000}))
+        live.schemas.clear();self.assertEqual(host.setup_phase(live,rows,{1000}),'rejoin');self.assertIn('without holding a football',host.setup_status(live,rows,{1000}))
     def test_new_socket_gets_fresh_retries_after_old_socket_exhausts_them(self):
         old=(('10.0.0.1',1000),('10.0.0.2',2000));new=(('10.0.0.1',3000),('10.0.0.3',4000));cid=bytes(20);scans=[];joined=[False];created=[]
         class Live:
@@ -78,7 +100,13 @@ class SetupTests(unittest.TestCase):
             return dict(frame=index,payload=b'',connection=new if joined[0] else old,cid=cid,direction='outgoing' if index%2 else 'incoming')
         tick=[0.]
         def clock():tick[0]+=.2;return tick[0]
-        driver=Mock();driver.recv.return_value=(b'packet',None);driver.open.return_value=123
+        driver=Mock();driver.open.return_value=123
+        prepared=[]
+        def receive(handle):
+            state=json.loads((session/'state.json').read_text())
+            if state['ready']:prepared.append(state);(session/'stop').touch()
+            return b'packet',None
+        driver.recv.side_effect=receive
         kernel=Mock();kernel.GetTickCount64=Mock(return_value=1000)
         with tempfile.TemporaryDirectory() as folder:
             session=pathlib.Path(folder)/'session';session.mkdir();(session/'setup-only').touch()
@@ -143,7 +171,13 @@ class SetupTests(unittest.TestCase):
                 if len(self.keys)<2:return
                 self.schemas[connection]=Schema.from_packet(fixture_schema());self.schema_packets[connection]=fixture_schema()
                 self.groups={(connection,d,cid):{'context':{'cid':cid}} for d in ('incoming','outgoing')}
-        driver=Mock();driver.recv.return_value=(b'packet',None);driver.open.return_value=123
+        driver=Mock();driver.open.return_value=123
+        prepared=[]
+        def receive(handle):
+            state=json.loads((session/'state.json').read_text())
+            if state['ready']:prepared.append(state);(session/'stop').touch()
+            return b'packet',None
+        driver.recv.side_effect=receive
         class Thread:
             def __init__(self,target):self.target=target
             def start(self):
@@ -160,7 +194,7 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(scan.call_count,2)
             driver.open.assert_called_once_with(host.GAME_FILTER,True)
             self.assertEqual(len(host.network_schema_cache.load(pathlib.Path(folder)/'schema-cache.json',owner)),1)
-            state=json.loads((session/'state.json').read_text());self.assertFalse(state['ready']);self.assertIn('setup saved',state['status'])
+            state=json.loads((session/'state.json').read_text());self.assertFalse(state['ready']);self.assertTrue(prepared);self.assertEqual(prepared[-1]['phase'],'ready');self.assertIn('QBA is off',prepared[-1]['status'])
             self.assertNotIn('aaaaaaaa',json.dumps(state))
 
 if __name__=='__main__':unittest.main()

@@ -8,4 +8,4 @@ $report=Join-Path $native 'build\qb-html-test.json'
 if(!(Test-Path -LiteralPath $report) -or (Get-Item -LiteralPath $report).LastWriteTimeUtc -lt $started){throw 'HUD test did not produce a fresh report.'}
 $result=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
 if($process.ExitCode -ne 0 -or !$result.ok){throw 'QB HUD test failed.'}
-Write-Output "$(@($result.checks).Count) HTML HUD checks passed; aim/result previews saved in build."
+Write-Output "$(@($result.checks).Count) HTML HUD checks and $($result.nativeOwnershipChecks) native ownership checks passed; aim/flight/result previews saved in build."

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 // Process discovery has one version source: the offset header used by the reader.
 enum class ConnectionState { Waiting, VersionMismatch, AccessDenied, ModuleUnavailable, Loading, Connected };
 inline std::atomic<ConnectionState> connectionState{ConnectionState::Waiting};
@@ -20,13 +21,24 @@ inline bool supportedClientPath(const std::wstring& file){
  std::wstring expected(Offsets::ClientVersion.begin(),Offsets::ClientVersion.end());
  return !_wcsicmp(folder.c_str(),expected.c_str());
 }
-inline bool connectRoblox(HANDLE& handle,DWORD& pid,addr& base){
+inline std::array<int,3> robloxClientPriority(bool pinned,int compatibility,bool foreground){return {int(pinned),compatibility,int(foreground)};}
+inline bool connectRoblox(HANDLE& handle,DWORD& pid,addr& base,int(*rank)(HANDLE,addr,DWORD)=nullptr){
  bool present=false,versionMatches=false;
  ConnectionState result=ConnectionState::Waiting;
  HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);
  if(snapshot==INVALID_HANDLE_VALUE){connectionProcessPresent=false;connectionVersionMatches=false;connectionState=ConnectionState::ModuleUnavailable;return false;}
  PROCESSENTRY32W process{sizeof process};
+ std::vector<PROCESSENTRY32W> clients;
  if(Process32FirstW(snapshot,&process))do{
+  if(!_wcsicmp(process.szExeFile,L"RobloxPlayerBeta.exe"))clients.push_back(process);
+ }while(Process32NextW(snapshot,&process));
+ DWORD foregroundPid=0;GetWindowThreadProcessId(GetForegroundWindow(),&foregroundPid);
+ wchar_t preferredText[16]{};GetEnvironmentVariableW(L"VANTA_ROBLOX_PID",preferredText,16);
+ const DWORD preferredPid=wcstoul(preferredText,nullptr,10);
+ auto priority=[&](DWORD value){return preferredPid&&value==preferredPid?2:value==foregroundPid?1:0;};
+ std::stable_sort(clients.begin(),clients.end(),[&](const PROCESSENTRY32W& a,const PROCESSENTRY32W& b){return priority(a.th32ProcessID)>priority(b.th32ProcessID);});
+ HANDLE bestHandle=nullptr;DWORD bestPid=0;addr bestBase=0;std::array<int,3> bestPriority{-1,-1,-1};
+ for(const auto& process:clients){
   if(_wcsicmp(process.szExeFile,L"RobloxPlayerBeta.exe"))continue;
   present=true;
   HANDLE candidate=OpenProcess(PROCESS_VM_READ|PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,process.th32ProcessID);
@@ -44,8 +56,12 @@ inline bool connectRoblox(HANDLE& handle,DWORD& pid,addr& base){
    CloseHandle(modules);
   }
   if(!found){CloseHandle(candidate);result=ConnectionState::ModuleUnavailable;continue;}
-  handle=candidate;pid=process.th32ProcessID;base=(addr)module.modBaseAddr;
-  CloseHandle(snapshot);connectionProcessPresent=true;connectionVersionMatches=true;connectionState=ConnectionState::Loading;return true;
- }while(Process32NextW(snapshot,&process));
- CloseHandle(snapshot);connectionProcessPresent=present;connectionVersionMatches=versionMatches;connectionState=result;return false;
+  const addr candidateBase=(addr)module.modBaseAddr;
+  auto priority=robloxClientPriority(preferredPid&&process.th32ProcessID==preferredPid,rank?rank(candidate,candidateBase,process.th32ProcessID):0,process.th32ProcessID==foregroundPid);
+  if(priority>bestPriority){if(bestHandle)CloseHandle(bestHandle);bestHandle=candidate;bestPid=process.th32ProcessID;bestBase=candidateBase;bestPriority=priority;}
+  else CloseHandle(candidate);
+ }
+ CloseHandle(snapshot);
+ if(bestHandle){handle=bestHandle;pid=bestPid;base=bestBase;connectionProcessPresent=true;connectionVersionMatches=true;connectionState=ConnectionState::Loading;return true;}
+ connectionProcessPresent=present;connectionVersionMatches=versionMatches;connectionState=result;return false;
 }

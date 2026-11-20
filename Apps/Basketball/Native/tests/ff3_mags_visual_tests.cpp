@@ -1,0 +1,88 @@
+#define NOMINMAX
+#include "../src/ff3_mags_overlay.hpp"
+#include <iostream>
+int main(){
+ using namespace ff3MagsVisual;using namespace Gdiplus;winrt::init_apartment();unsigned checks=0;
+ auto check=[&](bool ok,const char* why){++checks;if(!ok){std::cerr<<"FAIL "<<checks<<": "<<why<<'\n';std::exit(1);}};
+ {ff3Play::Scene scene;scene.pid=7;scene.model=8;ff3Play::ReachEdits edits;edits.edits={{{1,3,4,{1,2,1},false},{7,7,7}},{{2,3,5,{1,2,1},false},{7,7,7}},{{6,8,9,{1,1,1},true},{7,7,7}}};
+  ff3Play::publishVolumes(scene,edits,true);auto live=ff3Play::volumeSnapshot();check(live.parts.size()==3&&!live.parts[0].ball&&live.parts[2].ball,"applied hand volumes and balls both reach the live renderer");
+  ff3Play::publishVolumes(scene,edits,false);check(ff3Play::volumeSnapshot().parts.empty(),"disabling Mags clears every published volume");}
+ {ff3Play::Scene scene;scene.pid=7;scene.model=8;ff3Play::BallEdits edits;ff3Play::BallPart part{{6,8,9,{.85,1.2,.85},true,10},{1,1,1}};edits.edits.push_back({part,{20,20,20},{20,20,20},true,true,true});ff3Play::publishVolumes(scene,edits,true);auto live=ff3Play::volumeSnapshot();check(live.parts.size()==1&&live.parts[0].ball&&live.parts[0].mesh==10,"ball-only runtime publishes one ball without inventing hand volumes");ff3Play::publishVolumes(scene,edits,false);}
+ float matrix[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0};
+ Box box;box.center={0,0,15};box.size={10,8,10};box.applied=true;check(valid(box),"valid measured box");auto points=corners(box);
+ check(ff3Play::sameSize(points[0],{-5,-4,10})&&ff3Play::sameSize(points[7],{5,4,20}),"corners use full measured dimensions");
+ auto rotated=box;rotated.rotation={0,-1,0,1,0,0,0,0,1};check(valid(rotated),"measured rotation accepted");auto r=corners(rotated);check(ff3Play::sameSize(r[0],{4,-5,10}),"part rotation moves the outline correctly");rotated.rotation[0]=NAN;check(!valid(rotated),"unreadable rotations cannot render invented bounds");
+ ff3qb::Screen a,b;check(segment({-100,0,10},{100,0,10},matrix,1000,700,a,b)&&std::abs(a.x)<.001&&std::abs(b.x-1000)<.001,"offscreen endpoints clip to viewport instead of disappearing");
+ check(!segment({-1,0,-2},{1,0,-1},matrix,1000,700,a,b),"fully behind-camera edge is hidden");check(segment({0,0,-2},{0,0,10},matrix,1000,700,a,b)&&a.valid&&b.valid,"edge crossing the near plane stays finite");check(!segment({NAN,0,0},{0,0,1},matrix,1000,700,a,b),"invalid coordinates rejected");
+ auto fill=polygon({{-100,-100,5},{100,-100,5},{100,100,5},{-100,100,5}},matrix,1000,700);check(fill.size()>=4,"large face remains visible with every original corner outside the screen");for(auto p:fill)check(p.valid&&p.x>=0&&p.x<=1000&&p.y>=0&&p.y<=700,"clipped face stays within raster bounds");
+ check(polygon({{-1,-1,-5},{1,-1,-5},{1,1,-5},{-1,1,-5}},matrix,1000,700).empty(),"behind-camera face does not fill the screen");
+ auto ground=footprint(box,-4);check(ground.size()==4,"axis-aligned box has a rectangular field footprint");for(auto p:ground)check(p.y==-4&&std::abs(p.x)<=5.001&&p.z>=9.999&&p.z<=20.001,"footprint follows actual box extent");
+ Box large=box;large.center.z=3;large.size={50,50,50};check(valid(large),"50-stud test box accepted");check(footprint(large,-4).size()==4,"50-stud footprint remains finite with the camera inside the volume");check(footprint(large,NAN).empty(),"unknown field plane does not invent a footprint");
+ auto invalid=large;invalid.size.x=51;check(!valid(invalid),"dimensions above the new cap rejected");
+ {Box reach;reach.size={20,20,20};Box hand;hand.size={1.4,1.65,1.4};hand.center={10.6,0,0};check(overlaps(reach,hand),"catch-part edges count as overlap with the measured ball volume");hand.center.x=10.8;check(!overlaps(reach,hand),"gap outside the box does not claim in-range");hand.center={7.5,7.5,7.5};check(overlaps(reach,hand),"cube corners are not incorrectly replaced by an inscribed sphere");
+  const double c=std::sqrt(.5);reach.size={20,4,4};reach.rotation={c,0,-c,0,1,0,c,0,c};hand.center={7,0,7};check(overlaps(reach,hand),"rotated long axis reaches the rotated hand position");hand.center={7,0,-7};check(!overlaps(reach,hand),"rotated box rejects an AABB-only false contact");auto point=closestPoint(reach,{30,0,30});check(std::abs(ff3qb::length(point)-10)<.001,"nearest point lies on the rotated volume surface");
+  reach.rotation={1,0,0,0,1,0,0,0,1};reach.size={20,20,20};check(floorSection(reach,0).size()==4&&floorSection(reach,11).empty(),"ground section exists only where the actual volume intersects the field");check(floorSection(reach,-10).size()==4,"volume tangent to field keeps its measured footprint");check(floorSection(reach,NAN).empty(),"unknown field plane never invents a ground reach");}
+ ULONG_PTR token=0;GdiplusStartupInput startup;check(GdiplusStartup(&token,&startup,nullptr)==Ok,"rasterizer initializes");
+ {PumpSurface surface;ff3Native::Frame f;f.client={0,0,1000,700};f.groundY=-4;std::copy(matrix,matrix+16,f.matrix);
+  check(draw(surface,f,{box},true)&&!surface.visible,"Mags renderer produces pixels without showing a test window");auto* pixels=static_cast<unsigned char*>(surface.bits);size_t bytes=size_t(surface.width)*surface.height*4;std::vector<unsigned char> before(pixels,pixels+bytes);check(std::any_of(before.begin(),before.end(),[](unsigned char p){return p!=0;}),"wireframe is visibly populated");
+  f.matrix[3]=2;check(draw(surface,f,{box},true)&&!std::equal(before.begin(),before.end(),pixels),"camera motion reprojects the same world-space box");f.matrix[3]=0;
+  check(draw(surface,f,{large},true),"oversized enclosing box still draws its clipped faces and footprint");
+  {Bitmap image(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-mags-50-preview.png",&png,nullptr)==Ok,"50-stud preview saved");}
+  check(!draw(surface,f,{invalid},true)&&std::all_of(pixels,pixels+bytes,[](unsigned char p){return p==0;}),"invalid frame clears old bounds without ghosts");
+  pixels[0]=17;pixels[1]=19;pixels[2]=23;pixels[3]=255;check(draw(surface,f,{box},false)&&pixels[0]==17&&pixels[1]==19&&pixels[2]==23&&pixels[3]==255,"Mags compositing preserves unrelated QB pixels");
+  auto right=box;box.center.x=-3;right.center.x=3;right.rotation={0,-1,0,1,0,0,0,0,1};check(draw(surface,f,{box,right},true),"both oriented hand volumes draw together");
+  {Bitmap image(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-mags-preview.png",&png,nullptr)==Ok,"two-hand preview saved");}
+  BallRange ball;ball.center={0,0,30};ball.size={20,20,20};auto circle=ring(ball,{1,0,0},{0,1,0});check(circle.size()==73&&ff3Play::sameSize(circle.front(),{10,0,30}),"ball halo uses half the measured full size as its radius");check(ff3Play::sameSize(circle.front(),circle.back()),"ball halo is a closed world-space ring");
+  check(ring(ball,{0,0,0},{0,1,0}).empty(),"invalid camera basis cannot invent a halo");
+  {Vec eye;check(cameraEye(matrix,eye)&&ff3Play::sameSize(eye,{0,0,0}),"sphere recovers the camera from the projection matrix");auto contour=sphereContour(ball,eye);check(contour.size()==73,"sphere has a complete projected silhouette");bool surface=true,tangent=true;for(auto p:contour){surface=surface&&std::abs(ff3qb::length(p-ball.center)-10)<1e-5;tangent=tangent&&std::abs(ff3qb::dot(p-ball.center,eye-ball.center)-100)<1e-4;}check(surface&&tangent,"silhouette points lie on the sphere at its true tangent contour");check(sphereContour(ball,ball.center).empty(),"camera inside sphere does not fabricate a tangent silhouette");auto globe=sphereCircle(ball.center,10,{0,1,0},{0,0,1});check(globe.size()==73&&std::abs(ff3qb::length(globe[9]-ball.center)-10)<1e-5,"3D meridians stay on the spherical surface");}
+  check(drawBalls(surface,f,{ball},true),"ball halo draws without hand boxes");before.assign(pixels,pixels+bytes);
+  unsigned rimLit=0;for(auto v:sphereContour(ball,{0,0,0})){auto p=ff3qb::project(v,f.matrix,1000,700);bool lit=false;for(int y=int(p.y)-2;y<=int(p.y)+2;++y)for(int x=int(p.x)-2;x<=int(p.x)+2;++x)if(x>=0&&y>=0&&x<1000&&y<700&&pixels[(size_t(y)*surface.width+x)*4+3]>60)lit=true;if(lit)++rimLit;}check(rimLit>60,"thin outline follows the true spherical tangent contour");
+  unsigned transparent=0,samples=0,alphaSum=0;for(int y=280;y<420;y+=3)for(int x=380;x<620;x+=3){++samples;auto alpha=pixels[(size_t(y)*surface.width+x)*4+3];alphaSum+=alpha;if(alpha<24)++transparent;}std::cout<<"Interior: "<<transparent<<"/"<<samples<<" clear, average alpha "<<double(alphaSum)/samples<<"\n";check(transparent>samples*.6&&alphaSum<samples*64,"volume interior remains mostly clear so gameplay stays visible");
+  ball.applied=false;check(drawBalls(surface,f,{ball},true)&&!std::equal(before.begin(),before.end(),pixels),"unapplied guide uses a distinct amber sphere and status badge");ball.applied=true;
+  f.at=4;check(drawBalls(surface,f,{ball},true)&&std::equal(before.begin(),before.end(),pixels),"quiet sphere has no decorative motion when the ball is still");f.at=0;
+  check(drawBalls(surface,f,{ball},true)&&std::equal(before.begin(),before.end(),pixels),"same scene and timestamp produce a stable deterministic image");
+  f.at=NAN;check(drawBalls(surface,f,{ball},true)&&std::equal(before.begin(),before.end(),pixels),"invalid animation time safely falls back to the static frame");f.at=0;
+  ball.inRange=true;check(drawBalls(surface,f,{ball},true)&&!std::equal(before.begin(),before.end(),pixels),"measured contact switches the frame and badge to mint");ball.inRange=false;
+  ball.rotation={.8660254,0,-.5,0,1,0,.5,0,.8660254};check(drawBalls(surface,f,{ball},true)&&std::equal(before.begin(),before.end(),pixels),"sphere remains round and stable while the football spins");ball.rotation={1,0,0,0,1,0,0,0,1};drawBalls(surface,f,{ball},true);before.assign(pixels,pixels+bytes);
+  {Bitmap image(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-ball-mags-preview.png",&png,nullptr)==Ok,"ball halo preview saved");}
+  ball.center.x=4;check(drawBalls(surface,f,{ball},true)&&!std::equal(before.begin(),before.end(),pixels),"halo follows the current ball position");
+  check(!drawBalls(surface,f,{},true)&&std::all_of(pixels,pixels+bytes,[](unsigned char p){return p==0;}),"ball removal clears the halo without leaving a trail");
+  ball.center={0,0,3};ball.size={50,50,50};check(drawBalls(surface,f,{ball},true),"nearby oversized range retains a visible center cue");
+  ball.center={0,0,-100};ball.size={20,20,20};check(!drawBalls(surface,f,{ball},true),"fully behind-camera volume cannot draw a badge");ball.center={0,0,30};ball.rotation[0]=NAN;check(!drawBalls(surface,f,{ball},true),"unknown rotation hides the visual instead of guessing its reach");
+  {BallRange first{{-8,0,30},{2,2,2},true},second{{8,0,30},{2,2,2},true};check(drawBalls(surface,f,{first,second},true),"multiple balls draw simultaneously");auto tags=[&](Vec center){auto c=ff3qb::project(center,f.matrix,1000,700);unsigned n=0;auto* bytes=static_cast<unsigned char*>(surface.bits);for(int y=int(c.y)-17;y<int(c.y)+3;++y)for(int x=int(c.x)+15;x<int(c.x)+65;++x)if(bytes[(size_t(y)*surface.width+x)*4+3]>32)++n;return n;};check(tags(first.center)>250&&tags(second.center)>250,"every visible ball gets its own compact tag");}
+  ball.rotation={1,0,0,0,1,0,0,0,1};f.client={0,0,240,1440};check(drawBalls(surface,f,{ball},true),"badge remains bounded in a narrow tall viewport");
+  f.client={0,0,1000,700};ball.center={0,0,30};ball.size={20,20,20};drawBalls(surface,f,{ball},true);pixels=static_cast<unsigned char*>(surface.bits);bytes=size_t(surface.width)*surface.height*4;
+  {std::vector<unsigned char> primitive(0x300);auto address=reinterpret_cast<addr>(primitive.data());
+   float rotation[9]={1,0,0,0,1,0,0,0,1};shooting::Vec current{8,1,30};
+   memcpy(primitive.data()+Offsets::Primitive::Rotation,rotation,sizeof rotation);memcpy(primitive.data()+Offsets::Primitive::Position,&current,sizeof current);
+   BallRange latest=ball;check(sampleBallTransform(GetCurrentProcess(),address,latest)&&ff3Play::sameSize(latest.center,{8,1,30}),"native transform sample reads the current center and rotation in one transaction");
+   unsigned samplesTaken=0;auto late=[&](size_t,BallRange& value,float* projection){++samplesTaken;std::copy(std::begin(f.matrix),std::end(f.matrix),projection);projection[3]=.2f;return sampleBallTransform(GetCurrentProcess(),address,value);};
+   check(drawBalls(surface,f,{ball},true,late)&&samplesTaken==1,"target is resampled immediately before its geometry is rasterized");
+   std::vector<unsigned char> lateImage(pixels,pixels+bytes);f.matrix[3]=.2f;
+   check(drawBalls(surface,f,{latest},true)&&std::equal(lateImage.begin(),lateImage.end(),pixels),"late ball and camera changes match a direct current-position render without easing");f.matrix[3]=0;
+   current={-9,-2,35};memcpy(primitive.data()+Offsets::Primitive::Position,&current,sizeof current);
+   check(sampleBallTransform(GetCurrentProcess(),address,latest)&&ff3Play::sameSize(latest.center,{-9,-2,35}),"a second sample immediately follows a fast direction change without retained position");
+   rotation[0]=NAN;memcpy(primitive.data()+Offsets::Primitive::Rotation,rotation,sizeof rotation);
+   check(!sampleBallTransform(GetCurrentProcess(),address,latest),"unreadable or invalid live transforms are rejected");
+   check(!drawBalls(surface,f,{ball},true,[](size_t,BallRange&,float*){return false;})&&std::all_of(pixels,pixels+bytes,[](unsigned char value){return value==0;}),"a failed late sample clears the old target instead of drawing stale geometry");
+  }
+  surface.close();
+ }
+ {std::vector<unsigned char> part(0x800),primitive(0x400);addr rig=0x100000,id=reinterpret_cast<addr>(part.data()),pr=reinterpret_cast<addr>(primitive.data());
+  memcpy(part.data()+Offsets::Instance::Parent,&rig,sizeof rig);memcpy(part.data()+Offsets::BasePart::Primitive,&pr,sizeof pr);
+  primitive[ff3Play::physicsGroupOffset]=2;primitive[Offsets::Primitive::Flags]=Offsets::PrimitiveFlags::CanTouch|Offsets::PrimitiveFlags::CanQuery;
+  shooting::Vec size{1.4f,1.65f,1.4f};memcpy(primitive.data()+Offsets::Primitive::Size,&size,sizeof size);auto before=primitive;
+  ff3Play::CatchGroupLease::Entry e{id,rig,pr,2};
+  const auto saved=ff3Play::recoveryPath;ff3Play::recoveryPath=std::filesystem::temp_directory_path()/(L"vanta-catch-lease-test-"+std::to_wstring(GetCurrentProcessId()));
+  ff3Play::CatchGroupLease lease;lease.pid=GetCurrentProcessId();lease.stamp=ff3Play::LegacyMags::created(GetCurrentProcess());lease.entries={e};
+  check(lease.save()&&std::filesystem::exists(lease.path())&&primitive==before,"catch group recovery is persisted before any character field changes");
+  check(ff3Play::CatchGroupLease::write(GetCurrentProcess(),e,0)&&primitive[ff3Play::physicsGroupOffset]==0,"practice catch group can change in a self-process fixture");
+  before[ff3Play::physicsGroupOffset]=0;check(primitive==before,"catch group write preserves every other primitive byte including hand size and flags");
+  auto bad=e;bad.rig++;check(!ff3Play::CatchGroupLease::write(GetCurrentProcess(),bad,2),"changed catch identity rejects a group write");
+  primitive[Offsets::Primitive::Flags]|=Offsets::PrimitiveFlags::CanCollide;check(!ff3Play::CatchGroupLease::write(GetCurrentProcess(),e,2),"solid body parts cannot be passed to the catch-group writer");
+  primitive[Offsets::Primitive::Flags]&=~Offsets::PrimitiveFlags::CanCollide;check(ff3Play::CatchGroupLease::write(GetCurrentProcess(),e,2),"catch group restores without changing hand dimensions");
+  rig=0;memcpy(part.data()+Offsets::Instance::Parent,&rig,sizeof rig);check(ff3Play::CatchGroupLease::recover()&&!std::filesystem::exists(lease.path()),"recovery retires a destroyed catch identity without writing to a replacement");
+  ff3Play::recoveryPath=saved;
+ }
+ GdiplusShutdown(token);winrt::uninit_apartment();std::cout<<checks<<" Mags geometry, clipping and compositing checks passed (no game inputs or game writes)\n";
+}

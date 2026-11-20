@@ -15,13 +15,13 @@ inline json::Value connection(const gameModules::Snapshot& s,bool workspace,cons
  else if(!gameModules::compatible(s))detail=L"Waiting for Football Fusion 3 and your player to load.";
  else if(!ready)detail=L"Confirming the connection remains stable.";
  else if(!release.current)detail=release.detail;
- else detail=L"Connected to Football Fusion 3";
+ else detail=s.studio?L"Connected to Roblox Studio":L"Connected to Football Fusion 3";
  auto out=object();out.o[L"type"]=string(L"basketballConnection");out.o[L"ready"]=basketballUi::boolean(ready&&release.current);out.o[L"workspaceOpen"]=basketballUi::boolean(workspace);
  out.o[L"detail"]=string(detail);out.o[L"moduleId"]=string(m?m->key:L"");out.o[L"gameName"]=string(m?m->name:L"Supported game");
  out.o[L"placeId"]=string(std::to_wstring(s.placeId));out.o[L"universeId"]=string(std::to_wstring(s.universeId));out.o[L"checks"]=array();
  auto row=[&](const wchar_t* id,bool ok,const wchar_t* status,const std::wstring& note){auto v=object();v.o[L"id"]=string(id);v.o[L"ok"]=basketballUi::boolean(ok);v.o[L"result"]=string(ok?L"Verified":status);v.o[L"detail"]=string(note);out.o[L"checks"].a.push_back(v);};
- row(L"client",live&&s.process,L"Waiting",L"Find the running Roblox player");
- row(L"version",live&&s.version&&s.opened,L"Not ready",s.version&&s.opened?L"Supported Roblox build":connectionLabel());
+ row(L"client",live&&s.process,L"Waiting",s.studio?L"Find the running Roblox Studio":L"Find the running Roblox player");
+ row(L"version",live&&s.version&&s.opened,L"Not ready",s.studio?L"Local Studio connection protocol":s.version&&s.opened?L"Supported Roblox build":connectionLabel());
  row(L"place",ready,!m&&s.universeId?L"Wrong game":L"Loading",detail);
  row(L"release",release.current,release.status.c_str(),release.detail);return out;
 }

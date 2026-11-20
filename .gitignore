@@ -37,3 +37,40 @@ Archives/
 *-settings.json
 vanta-release.json
 
+
+# Runtime diagnostics, local Studio connection credentials and experimental output.
+*.jsonl
+*.etl
+*.dmp
+out/
+**/third_party/windivert/distribution/
+**/.dev-secrets/
+**/vanta-lab-connection.json
+**/studio-status.json
+**/last-capture.json
+**/schema-cache.json
+**/ff3-play-state.json
+**/ff3-qb-last-release.json
+**/ff3-reach-recovery.json*
+**/ff3-play-stop*
+**/studio_lab/Connection.luau
+**/studio_lab/VantaLabConnection.luau
+
+# Reassert artifact exclusions after the decoder source-directory exceptions.
+*.exe
+*.dll
+*.sys
+*.lib
+*.zip
+*.pcap
+*.pcapng
+*.bin
+*.csv
+*.log
+*.tmp
+*.pem
+*.key
+*.pfx
+*.p12
+*.sqlite
+*.db

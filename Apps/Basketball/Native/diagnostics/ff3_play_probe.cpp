@@ -1,0 +1,17 @@
+#define NOMINMAX
+#include "../src/ff3_play_runtime.hpp"
+#include <iostream>
+// One read-only snapshot. No hooks, capture, inputs, or memory writes.
+int main(int argc,char**){
+ HANDLE h=nullptr;DWORD pid=0;addr base=0;if(!connectRoblox(h,pid,base))return 2;
+ auto session=inspectBasketball(h,base,pid);auto module=gameModules::identify(session);if(!module||module->id!=gameModules::Id::FootballFusion3){CloseHandle(h);return 3;}
+ auto root=session.model,ws=child(h,root,"Workspace"),players=child(h,root,"Players"),player=rd<addr>(h,players+Offsets::Player::LocalPlayer),rig=rd<addr>(h,player+Offsets::Player::ModelInstance),hum=child(h,rig,"Humanoid");
+ auto input=rd<addr>(h,child(h,root,"UserInputService")+Offsets::UserInputService::WindowInputState);
+ auto shape=ff3Native::readCatchGeometry(h,rig,.6);auto r=rd<defense::Matrix3>(h,rd<addr>(h,ws+Offsets::Workspace::CurrentCamera)+Offsets::Camera::Rotation);
+ std::cout<<"health="<<rd<float>(h,hum+Offsets::Humanoid::Health,NAN)<<" walk="<<rd<float>(h,hum+Offsets::Humanoid::Walkspeed,NAN)<<" floor="<<rd<int>(h,hum+Offsets::Humanoid::FloorMaterial,-1)<<" gravity="<<rd<float>(h,ws+Offsets::Workspace::ReadOnlyGravity,NAN)<<" jumpPower="<<rd<float>(h,hum+Offsets::Humanoid::JumpPower,NAN)<<" useJumpPower="<<rd<bool>(h,hum+Offsets::Humanoid::UseJumpPower)<<'\n';
+ std::cout<<"menu="<<int(rd<unsigned char>(h,child(h,root,"GuiService")+Offsets::GuiService::MenuIsOpen,255))<<" textFocus="<<(!input||rd<addr>(h,input+Offsets::WindowInputState::CurrentTextBox)!=0)<<" catchGeometry="<<shape.measured<<" radius="<<shape.radius<<" above="<<shape.above<<" below="<<shape.below<<" cameraHorizontal="<<std::hypot(r.m[2],r.m[8])<<'\n';
+ for(const auto* name:{"CatchLeft","CatchRight"}){auto part=child(h,rig,name);auto size=ff3Native::partSize(h,part);auto delta=ff3Native::position(h,part)-ff3Native::position(h,child(h,rig,"Head"));auto flags=rd<unsigned char>(h,rd<addr>(h,part+Offsets::BasePart::Primitive)+Offsets::Primitive::Flags);std::cout<<name<<" present="<<(part!=0)<<" class="<<defense::classOf(h,part)<<" dimensions="<<size.x<<','<<size.y<<','<<size.z<<" relativeToHead="<<delta.x<<','<<delta.y<<','<<delta.z<<" canTouch="<<((flags&Offsets::PrimitiveFlags::CanTouch)!=0)<<'\n';}
+ {ff3Native::Reader balls;ff3Native::Frame sample;sample.at=now();balls.collectBalls(h,ws,sample,true);int count=0;for(auto part:balls.flightParts){if(++count>4)break;auto size=ff3Native::partSize(h,part);std::cout<<"ball class="<<defense::classOf(h,part)<<" size="<<size.x<<','<<size.y<<','<<size.z;for(auto mesh:children(h,part)){auto cls=defense::classOf(h,mesh);if(cls=="SpecialMesh"||cls=="BlockMesh"||cls=="CylinderMesh"){auto scale=rd<shooting::Vec>(h,mesh+Offsets::DataModelMesh::Scale);std::cout<<" mesh="<<cls<<" scale="<<scale.x<<','<<scale.y<<','<<scale.z;std::cout<<" fileMeshContent="<<!defense::textAt(h,mesh+Offsets::FileMesh::MeshId).empty();}}std::cout<<'\n';}}
+ if(argc>1){std::cout<<"Read-only hand observation started"<<std::endl;double start=now();for(int i=0;i<300;i++){auto head=ff3Native::position(h,child(h,rig,"Head")),left=ff3Native::position(h,child(h,rig,"CatchLeft"))-head,right=ff3Native::position(h,child(h,rig,"CatchRight"))-head;std::cout<<now()-start<<','<<ff3Native::focused(pid)<<','<<((GetAsyncKeyState(VK_LBUTTON)&0x8000)!=0)<<','<<left.x<<','<<left.y<<','<<left.z<<','<<right.x<<','<<right.y<<','<<right.z<<'\n';Sleep(50);}}
+ CloseHandle(h);
+}

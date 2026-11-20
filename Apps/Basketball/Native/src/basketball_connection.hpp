@@ -21,9 +21,10 @@ struct Snapshot {
  unsigned pid=0;
  bool process=false,version=false,opened=false,loaded=false,player=false;
  bool characterReady=false,world=false,meter=false,renderer=false;
+ bool studio=false;
 };
 inline bool targetGame(const Snapshot& s){return s.placeId!=0&&s.universeId==UniverseId;}
-inline bool sameSession(const Snapshot& a,const Snapshot& b){return a.pid==b.pid&&a.model==b.model&&a.character==b.character&&a.placeId==b.placeId&&a.universeId==b.universeId;}
+inline bool sameSession(const Snapshot& a,const Snapshot& b){return a.studio==b.studio&&a.pid==b.pid&&a.model==b.model&&a.character==b.character&&a.placeId==b.placeId&&a.universeId==b.universeId;}
 inline bool compatible(const Snapshot& s){return s.process&&s.version&&s.opened&&s.loaded&&s.model&&targetGame(s)&&s.player&&s.characterReady&&s.character&&s.world&&s.meter&&s.renderer;}
 inline bool fresh(const Snapshot& s,double now){return std::isfinite(now)&&std::isfinite(s.sampledAt)&&now>=s.sampledAt&&now-s.sampledAt<=FreshSeconds;}
 inline bool ready(const Snapshot& s,double now){return fresh(s,now)&&compatible(s)&&s.stableSince>=0&&s.sampledAt-s.stableSince>=StableSeconds;}

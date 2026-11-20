@@ -3,12 +3,16 @@
 #include "pump_overlay.hpp"
 
 namespace ff3Visual {
-inline Gdiplus::Color accent(const ff3Native::Frame& f){return (!f.hudCoverageKnown||f.hudReachEstimated)?Gdiplus::Color(255,229,184,108):f.risk.intable?Gdiplus::Color(255,255,125,143):f.risk.possible?Gdiplus::Color(255,255,191,115):Gdiplus::Color(255,115,232,186);}
+inline std::function<bool(PumpSurface&,const ff3Native::Frame&,HANDLE,bool)> extraRenderer;
+inline Gdiplus::Color accent(const ff3Native::Frame& f){switch(ff3qb::throwCheck(f.hudCoverageKnown,f.hudReachEstimated,f.risk)){case ff3qb::ThrowCheck::Clear:return Gdiplus::Color(255,115,232,186);case ff3qb::ThrowCheck::Tight:return Gdiplus::Color(255,255,191,115);case ff3qb::ThrowCheck::Intercept:return Gdiplus::Color(255,255,125,143);default:return Gdiplus::Color(255,151,160,180);}}
 
-inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool present=true){
+inline const wchar_t* clearanceLabel(const ff3Native::Frame& f){
+ return ff3qb::throwCheckLabel(ff3qb::throwCheck(f.hudCoverageKnown,f.hudReachEstimated,f.risk));
+}
+inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool present=true,const std::vector<ff3qb::Vec>* eased=nullptr){
  using namespace Gdiplus;const int w=f.client.right,h=f.client.bottom;if(!surface.prepare(w,h)){surface.hide();return;}
  Bitmap canvas(surface.width,surface.height,surface.width*4,PixelFormat32bppPARGB,(BYTE*)surface.bits);Graphics g(&canvas);g.Clear(Color(0,0,0,0));g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);g.SetClip(Rect(0,0,w,h));
- const auto riskColor=accent(f);const Color violet(255,192,178,255),mint(255,105,244,186),amber(255,255,191,95);const double ground=f.groundY+.08;
+ const auto riskColor=accent(f);const Color violet(255,156,196,255),mint(255,105,244,186),amber(255,255,191,95);const double ground=f.groundY+.08;
  auto world=[&](ff3qb::Vec p){return ff3qb::project(p,f.matrix,w,h);};auto floor=[&](ff3qb::Vec p){p.y=ground;return world(p);};
  auto line=[&](ff3qb::Screen a,ff3qb::Screen b,Color c,float width,bool dash=false){if(!a.valid||!b.valid)return;Pen shadow(Color(170,7,11,19),width+2),pen(c,width);pen.SetStartCap(LineCapRound);pen.SetEndCap(LineCapRound);if(dash)pen.SetDashStyle(DashStyleDash);g.DrawLine(&shadow,REAL(a.x),REAL(a.y),REAL(b.x),REAL(b.y));g.DrawLine(&pen,REAL(a.x),REAL(a.y),REAL(b.x),REAL(b.y));};
  auto ring=[&](ff3qb::Vec center,double radius,Color c,float width,bool fill=false){GraphicsPath path;ff3qb::Screen last;bool complete=true;for(int i=0;i<=64;++i){double a=i*6.28318530718/64;auto q=floor(center+ff3qb::Vec{radius*std::cos(a),0,radius*std::sin(a)});if(!q.valid)complete=false;if(i&&last.valid&&q.valid)path.AddLine(REAL(last.x),REAL(last.y),REAL(q.x),REAL(q.y));else path.StartFigure();last=q;}if(fill&&complete){path.CloseFigure();PathGradientBrush brush(&path);brush.SetCenterColor(Color(65,c.GetR(),c.GetG(),c.GetB()));Color edge(5,c.GetR(),c.GetG(),c.GetB());int count=1;brush.SetSurroundColors(&edge,&count);g.FillPath(&brush,&path);}Pen shadow(Color(75,7,11,19),width+1.5f),pen(c,width);g.DrawPath(&shadow,&path);g.DrawPath(&pen,&path);};
@@ -16,15 +20,16 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  // A compact body marker distinguishes the actual selected WR from the catch
  // point, even while the planner is searching. No extra text/card is needed.
  if(f.target&&!f.afterRelease){
-  const Color selected=f.locked?Color(255,207,184,255):Color(255,111,234,255);
+  const Color selected=f.locked?Color(255,105,244,186):Color(255,132,215,255);
+  if(std::isfinite(ground))ring(f.selectedPosition,1.8,Color(170,selected.GetR(),selected.GetG(),selected.GetB()),1.6f);
   auto top=world(f.selectedPosition+ff3qb::Vec{0,1.5,0}),bottom=world(f.selectedPosition-ff3qb::Vec{0,4.5,0});
   if(top.valid&&bottom.valid){
    double height=std::max(14.,std::abs(bottom.y-top.y)),half=std::clamp(height*.28,8.,42.),cx=(top.x+bottom.x)*.5;
    double y0=std::min(top.y,bottom.y)-3,y1=std::max(top.y,bottom.y)+3,arm=std::clamp(height*.18,6.,14.);
    for(int xsign:{-1,1})for(int ysign:{-1,1}){
     ff3qb::Screen corner{cx+xsign*half,ysign<0?y0:y1,true};
-    line(corner,{corner.x-xsign*arm,corner.y,true},selected,2.8f);
-    line(corner,{corner.x,corner.y-ysign*arm,true},selected,2.8f);
+    line(corner,{corner.x-xsign*arm,corner.y,true},selected,2.0f);
+    line(corner,{corner.x,corner.y-ysign*arm,true},selected,2.0f);
    }
    PointF diamond[4]={{REAL(cx),REAL(y0-17)},{REAL(cx+5),REAL(y0-11)},{REAL(cx),REAL(y0-5)},{REAL(cx-5),REAL(y0-11)}};
    Pen edge(selected,2);if(f.locked){SolidBrush fill(selected);g.FillPolygon(&fill,diamond,4);}g.DrawPolygon(&edge,diamond,4);
@@ -32,16 +37,29 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
  }
  if(f.ready){
   auto flight=ff3qb::groundFlight(f.solution,f.gravity,f.groundY);if(!flight.valid)flight=f.solution;
-  GraphicsPath beam;ff3qb::Screen last;for(int i=0;i<=112;++i){auto q=world(ff3qb::point(flight,f.gravity,flight.time*i/112.));if(i&&last.valid&&q.valid)beam.AddLine(REAL(last.x),REAL(last.y),REAL(q.x),REAL(q.y));else beam.StartFigure();last=q;}
-  Pen glow(Color(f.afterRelease?25:45,175,151,255),11),shadow(Color(100,8,11,21),4.8f),core(f.afterRelease?Color(170,192,178,255):Color(245,236,225,255),f.afterRelease?2.f:2.8f);core.SetLineJoin(LineJoinRound);core.SetStartCap(LineCapRound);core.SetEndCap(LineCapRound);if(f.afterRelease)core.SetDashStyle(DashStyleDash);g.DrawPath(&glow,&beam);g.DrawPath(&shadow,&beam);g.DrawPath(&core,&beam);
-  // Unlabelled trajectory beads and geometric markers only.
-  for(double u:{.25,.5,.75}){auto q=world(ff3qb::point(f.solution,f.gravity,f.solution.time*u));if(!q.valid)continue;SolidBrush dot(Color(255,236,225,255));g.FillEllipse(&dot,REAL(q.x-3),REAL(q.y-3),6.f,6.f);}
-  auto catchSpot=f.solution.catchPoint;auto catchScreen=world(catchSpot),catchGround=floor(catchSpot);
+  auto curvePoint=[&](double u){if(eased&&eased->size()==65){double index=std::clamp(u,0.,1.)*64;size_t i=std::min<size_t>(63,size_t(index));return (*eased)[i]+((*eased)[i+1]-(*eased)[i])*(index-i);}return ff3qb::point(f.solution,f.gravity,f.solution.time*u);};
+  GraphicsPath beam;ff3qb::Screen last;for(int i=0;i<=96;++i){auto q=world(curvePoint(i/96.));if(i&&last.valid&&q.valid)beam.AddLine(REAL(last.x),REAL(last.y),REAL(q.x),REAL(q.y));else beam.StartFigure();last=q;}
+  Pen glow(Color(f.afterRelease?20:52,riskColor.GetR(),riskColor.GetG(),riskColor.GetB()),8),shadow(Color(140,8,11,21),4.2f),core(Color(f.afterRelease?155:248,riskColor.GetR(),riskColor.GetG(),riskColor.GetB()),f.afterRelease?1.7f:2.5f);core.SetLineJoin(LineJoinRound);core.SetStartCap(LineCapRound);core.SetEndCap(LineCapRound);if(f.afterRelease)core.SetDashStyle(DashStyleDash);g.DrawPath(&glow,&beam);g.DrawPath(&shadow,&beam);g.DrawPath(&core,&beam);
+  auto catchSpot=curvePoint(1);auto catchScreen=world(catchSpot),catchGround=floor(catchSpot);
+  // A missed-catch continuation has a different weight from the intended pass.
+  if(flight.time>f.solution.time){GraphicsPath tail;ff3qb::Screen prev;for(int i=0;i<=40;++i){double u=i/40.;auto p=ff3qb::point(flight,f.gravity,f.solution.time+(flight.time-f.solution.time)*u)+(catchSpot-f.solution.catchPoint)*(1-u);auto q=world(p);if(i&&prev.valid&&q.valid)tail.AddLine(REAL(prev.x),REAL(prev.y),REAL(q.x),REAL(q.y));prev=q;}Pen fade(Color(90,156,196,255),1.3f);fade.SetDashStyle(DashStyleDash);g.DrawPath(&fade,&tail);}
+  for(double u:{.25,.5,.75}){auto q=world(curvePoint(u));if(!q.valid)continue;SolidBrush dot(Color(235,223,250,255));g.FillEllipse(&dot,REAL(q.x-2),REAL(q.y-2),4.f,4.f);}
   if(std::isfinite(ground)){
-   ring(catchSpot,2.5,mint,2.8f,true);ring(catchSpot,3.2,Color(145,105,244,186),1.3f);line(catchGround,catchScreen,Color(210,105,244,186),2,true);
+   ring(catchSpot,2.5,mint,2.2f,true);ring(catchSpot,3.2,Color(100,105,244,186),1.f);line(catchGround,catchScreen,Color(150,105,244,186),1.2f,true);
    ring(flight.catchPoint,2.2,Color(170,192,178,255),1.5f);auto landing=floor(flight.catchPoint);
   }
-  if(catchScreen.valid){Pen marker(mint,3);g.DrawEllipse(&marker,REAL(catchScreen.x-11),REAL(catchScreen.y-11),22.f,22.f);for(int sign:{-1,1}){line({catchScreen.x+sign*15,catchScreen.y,true},{catchScreen.x+sign*21,catchScreen.y,true},mint,2);line({catchScreen.x,catchScreen.y+sign*15,true},{catchScreen.x,catchScreen.y+sign*21,true},mint,2);}}
+  if(catchScreen.valid){Pen halo(Color(65,105,244,186),5),marker(mint,2);g.DrawEllipse(&halo,REAL(catchScreen.x-7),REAL(catchScreen.y-7),14.f,14.f);g.DrawEllipse(&marker,REAL(catchScreen.x-7),REAL(catchScreen.y-7),14.f,14.f);SolidBrush center(Color(245,225,255,245));g.FillEllipse(&center,REAL(catchScreen.x-2),REAL(catchScreen.y-2),4.f,4.f);}
+  if(!f.afterRelease){
+   const auto label=clearanceLabel(f);const bool clear=std::wstring(label)==L"CLEAR";
+   Color cue=riskColor;
+   // Always visible even when the intended catch is off screen. This cue
+   // follows Aim beam independently of the optional bottom Throw HUD.
+   const float x=REAL(std::clamp(catchScreen.valid?catchScreen.x-57.:w*.5-57.,3.,std::max(3.,double(w)-117))),y=REAL(std::clamp(catchScreen.valid?catchScreen.y-38.:h*.72,3.,std::max(3.,double(h)-27)));
+   GraphicsPath badge;badge.AddArc(x,y,12.f,12.f,180.f,90.f);badge.AddArc(x+102,y,12.f,12.f,270.f,90.f);badge.AddArc(x+102,y+12,12.f,12.f,0.f,90.f);badge.AddArc(x,y+12,12.f,12.f,90.f,90.f);badge.CloseFigure();
+   SolidBrush bg(Color(224,12,22,29)),ink(cue);Pen border(Color(120,cue.GetR(),cue.GetG(),cue.GetB()),1);g.FillPath(&bg,&badge);g.DrawPath(&border,&badge);
+   if(clear){Pen tick(cue,1.8f);g.DrawLine(&tick,x+9,y+12,x+12,y+15);g.DrawLine(&tick,x+12,y+15,x+18,y+8);}else g.FillEllipse(&ink,x+11,y+9,5.f,5.f);
+   Font font(L"Segoe UI",11,FontStyleBold,UnitPixel);StringFormat format;format.SetLineAlignment(StringAlignmentCenter);g.DrawString(label,-1,&font,RectF(x+24,y,88,24),&format,&ink);
+  }
   if(ff3Native::showCandidates&&std::isfinite(ground)){
    auto baseline=catchSpot-f.fitOffset;auto from=floor(baseline);
    if(ff3qb::length(f.fitOffset)>.5){ring(baseline,1.4,Color(200,180,190,212),1.5f);arrow(from,catchGround,violet);}
@@ -50,18 +68,13 @@ inline void renderField(PumpSurface& surface,const ff3Native::Frame& f,bool pres
    if(trace.catcher>=0&&trace.catcher<int(f.hudDefenders.size())){
     const auto& db=f.hudDefenders[trace.catcher];auto at=ff3qb::point(f.solution,f.gravity,trace.time);double horizon=trace.time+std::clamp(f.ping*.0005+.05,0.,.25);double reach=ff3qb::reachSectionRadius(db,at.y,horizon);
     const bool measured=trace.catcher<int(f.hudShapeMeasured.size())&&f.hudShapeMeasured[trace.catcher];
-    auto dbGround=floor(db.position),cross=world(at);ring(db.position,db.radius,Color(150,255,191,95),1.7f,true);
-    // A local jump/catch silhouette stays visible even when the future sprint
-    // boundary lies off screen. This uses the same height model as reach tests.
-    double top=db.position.y+db.above+ff3qb::jumpRise(db.jumpHeight,db.worldGravity,horizon,db.velocity.y);
-    double bottom=db.position.y-db.below,center=(top+bottom)*.5;
-    for(int plane=0;plane<2;++plane){GraphicsPath hoop;ff3qb::Screen prev;for(int i=0;i<=48;++i){double a=i*6.28318530718/48;auto q=world(db.position+ff3qb::Vec{plane?0:db.radius*std::cos(a),center-db.position.y+(top-bottom)*.5*std::sin(a),plane?db.radius*std::cos(a):0});if(i&&prev.valid&&q.valid)hoop.AddLine(REAL(prev.x),REAL(prev.y),REAL(q.x),REAL(q.y));else hoop.StartFigure();prev=q;}Pen pen(Color(165,255,191,95),1.5f);if(!measured)pen.SetDashStyle(DashStyleDash);g.DrawPath(&pen,&hoop);}
-    auto cap=world({db.position.x,top,db.position.z});if(cap.valid){Pen pen(amber,2);g.DrawEllipse(&pen,REAL(cap.x-4),REAL(cap.y-4),8.f,8.f);}
-
-
-    if(reach>=0){double direction=std::atan2(at.z-db.position.z,at.x-db.position.x);GraphicsPath boundary;ff3qb::Screen last;for(int i=0;i<=40;++i){double a=direction-.45+.9*i/40;auto q=floor(db.position+ff3qb::Vec{std::cos(a)*reach,0,std::sin(a)*reach});if(i&&last.valid&&q.valid)boundary.AddLine(REAL(last.x),REAL(last.y),REAL(q.x),REAL(q.y));else boundary.StartFigure();last=q;}Pen glowReach(Color(30,255,191,95),7),edge(amber,2.3f);if(!measured)edge.SetDashStyle(DashStyleDash);g.DrawPath(&glowReach,&boundary);g.DrawPath(&edge,&boundary);}
-    line(dbGround,floor(at),Color(200,255,191,95),2,true);line(floor(at),cross,riskColor,2,true);
-    GraphicsPath segment;ff3qb::Screen last;for(int i=0;i<=18;++i){double t=std::clamp(trace.time-.12+.24*i/18,0.,flight.time);auto q=world(ff3qb::point(f.solution,f.gravity,t));if(i&&last.valid&&q.valid)segment.AddLine(REAL(last.x),REAL(last.y),REAL(q.x),REAL(q.y));last=q;}Pen threat(riskColor,5);g.DrawPath(&threat,&segment);
+    auto dbGround=floor(db.position),cross=world(at);ring(db.position,db.radius,Color(105,255,191,95),1.3f,false);
+    // Compact clearance cue at the critical time, without giant world cages.
+    auto dbTop=world(db.position+ff3qb::Vec{0,db.above+ff3qb::jumpRise(db.jumpHeight,db.worldGravity,horizon,db.velocity.y),0});
+    auto dbBase=world(db.position-ff3qb::Vec{0,db.below,0});line(dbBase,dbTop,Color(135,255,191,95),1.5f,!measured);
+    if(reach>=0){double direction=std::atan2(at.z-db.position.z,at.x-db.position.x);auto edgePoint=db.position+ff3qb::Vec{std::cos(direction)*reach,0,std::sin(direction)*reach};auto delta=edgePoint-at;delta.y=0;auto nearEdge=at+delta*std::min(1.,8./std::max(.001,ff3qb::length(delta)));line(floor(nearEdge),floor(at),riskColor,1.6f,true);}
+    line(floor(at),cross,Color(125,riskColor.GetR(),riskColor.GetG(),riskColor.GetB()),1.2f,true);
+    GraphicsPath segment;ff3qb::Screen last;for(int i=0;i<=18;++i){double t=std::clamp(trace.time-.12+.24*i/18,0.,flight.time);auto visible=t<=f.solution.time?curvePoint(t/std::max(.001,f.solution.time)):ff3qb::point(f.solution,f.gravity,t)+(catchSpot-f.solution.catchPoint)*std::clamp(1-(t-f.solution.time)/std::max(.001,flight.time-f.solution.time),0.,1.);auto q=world(visible);if(i&&last.valid&&q.valid)segment.AddLine(REAL(last.x),REAL(last.y),REAL(q.x),REAL(q.y));last=q;}Pen threat(riskColor,3.5f);g.DrawPath(&threat,&segment);
 
    }
   }
@@ -92,6 +105,7 @@ struct ViewReader {
   std::copy(std::begin(m.v),std::end(m.v),out);return true;
  }
  bool refresh(ff3Native::Frame& f){
+  if(f.studio)return ff3Native::studioView&&ff3Native::studioView(f);
   if(pid!=f.pid){if(handle)CloseHandle(handle);pid=f.pid;handle=OpenProcess(PROCESS_VM_READ|SYNCHRONIZE,FALSE,pid);}
   if(!handle||!f.cameraMatrix||WaitForSingleObject(handle,0)!=WAIT_TIMEOUT)return false;
   if(!matrix(handle,f.cameraMatrix,f.matrix))return false;
@@ -122,31 +136,56 @@ struct PreviewPlan {
 };
 // Freeze the clicked plan in world coordinates. Never attach it to the QB's
 // new head position or silently turn a release prediction into a measured arc.
-inline bool releasedFrame(const ff3Native::Frame& live,ff3Native::Frame& display,double time){
- const auto& saved=live.releaseVisual;
- if(!saved||live.held||live.throwView.phase==ff3qb::ThrowView::Hidden||live.pid!=saved->pid||live.model!=saved->model||live.own!=saved->own||live.revision!=saved->revision||time<saved->at||time-saved->at>15)return false;
+inline bool releasedFrame(const ff3Native::Frame& live,ff3Native::Frame& display,double time,const std::shared_ptr<ff3Native::Frame>& retained={}){
+ const auto& saved=live.releaseVisual?live.releaseVisual:retained;
+ if(!saved||live.held||live.pid!=saved->pid||live.model!=saved->model||live.own!=saved->own||time<saved->at||time-saved->at>15)return false;
  display=*saved;display.releaseVisual.reset();display.afterRelease=true;display.balls=live.balls;display.throwView=live.throwView;display.cameraMatrix=live.cameraMatrix;display.client=live.client;display.origin=live.origin;std::copy(std::begin(live.matrix),std::end(live.matrix),display.matrix);return true;
 }
+struct ReleaseBeam {
+ std::shared_ptr<ff3Native::Frame> saved,finished;std::uint64_t ball=0;double landingAt=0;
+ void clear(){saved.reset();ball=0;landingAt=0;}
+ void finish(){finished=saved;clear();}
+ bool select(const ff3Native::Frame& live,ff3Native::Frame& display,double time){
+  if(live.releaseVisual&&live.releaseVisual==finished)return false;
+  if(live.releaseVisual&&live.releaseVisual!=saved){finished.reset();saved=live.releaseVisual;ball=0;auto ground=ff3qb::groundFlight(saved->solution,saved->gravity,saved->groundY);landingAt=saved->at+(ground.valid?ground.time:15);}
+  if(!saved||live.held||live.pid!=saved->pid||live.model!=saved->model||live.own!=saved->own||time<saved->at||time-saved->at>15){clear();return false;}
+  const auto& shot=live.throwView;bool sameThrow=shot.releasedAt>=saved->at-.02&&shot.releasedAt<=saved->at+.2;
+  if(sameThrow&&shot.ballVerified)ball=shot.ball;
+  if(sameThrow&&shot.phase==ff3qb::ThrowView::Done&&shot.result!="Result unavailable"){finish();return false;}
+  for(const auto& candidate:live.balls)if(ball&&candidate.id==ball){
+   if(candidate.landed||candidate.ended||(candidate.thrower&&candidate.thrower!=live.localPlayer&&candidate.thrower!=live.own)){finish();return false;}
+   auto observed=candidate;if(observed.model.valid)observed.at=observed.model.observedTime(observed.position);auto ground=ff3qb::forecast(observed,live.groundY);
+   if(ground.valid)landingAt=time+ground.remaining;
+  }
+  if(time>landingAt+.25){finish();return false;}
+  return releasedFrame(live,display,time,saved);
+ }
+};
 inline void worker(){
- using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;if(GdiplusStartup(&token,&startup,nullptr)!=Ok)return;PumpSurface overlay;ViewReader view;FramePacer pacer;PreviewPlan preview;double epoch=now();unsigned frames=0;
+ using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;if(GdiplusStartup(&token,&startup,nullptr)!=Ok)return;PumpSurface overlay;ViewReader view;FramePacer pacer;PreviewPlan preview;ReleaseBeam releaseBeam;ff3qb::CurveTracker curve;unsigned curveRevision=0;addr curveTool=0,curveModel=0;double epoch=now();unsigned frames=0;
  while(running){
   const double started=now();MSG message{};while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
   // Presentation may bridge a slow planner update; click eligibility retains
   // its separate 100 ms limit. Reproject the retained geometry with live camera.
-  auto f=ff3Native::snapshot();bool live=(ff3Native::enabled||ff3Native::ballTrails)&&ff3Native::admitted()&&ff3Native::focused(f.pid)&&now()>=f.at&&now()-f.at<.30;
-  if(!live){overlay.hide();preview.clear();ff3Native::renderHz=0;epoch=now();frames=0;Sleep(30);continue;}
-  ff3Native::Frame released;if(ff3Native::enabled&&ff3Native::visuals&&releasedFrame(f,released,now())){f=std::move(released);preview.clear();}else f=preview.select(f,now());
+  auto f=ff3Native::snapshot();const bool extras=ff3Native::extraVisuals&&ff3Native::extraVisuals();bool live=(ff3Native::enabled||ff3Native::ballTrails||extras)&&ff3Native::admitted()&&ff3Native::focused(f.pid)&&now()>=f.at&&now()-f.at<.30;
+  if(!live){overlay.hide();preview.clear();curve.reset();ff3Native::renderHz=0;epoch=now();frames=0;Sleep(30);continue;}
+  if(!ff3Native::enabled||!ff3Native::visuals)releaseBeam.clear();
+  ff3Native::Frame released;if(ff3Native::enabled&&ff3Native::visuals&&releaseBeam.select(f,released,now())){f=std::move(released);preview.clear();}else f=preview.select(f,now());
   if(f.client.right>8000||f.client.bottom>5000||!view.refresh(f)){overlay.hide();Sleep(16);continue;}
   for(auto& ball:f.balls)if(ball.model.valid)ball.at=now();
   if(f.ready&&!f.afterRelease){if(f.headPrimitive){auto head=ff3Native::vector(rd<shooting::Vec>(view.handle,f.headPrimitive+Offsets::Primitive::Position,{NAN,NAN,NAN}));if(ff3qb::finite(head))f.head=head;}auto predicted=projectedThrow(f,now());if(predicted.valid)f.solution=predicted;else f.ready=false;}
   if(f.selectedPrimitive&&!f.afterRelease){auto selected=ff3Native::vector(rd<shooting::Vec>(view.handle,f.selectedPrimitive+Offsets::Primitive::Position,{NAN,NAN,NAN}));if(ff3qb::finite(selected))f.selectedPosition=selected;}
-  const bool field=ff3Native::enabled&&ff3Native::visuals&&f.target&&!f.textFocus&&f.revision==ff3Native::revision;
+  const bool field=ff3Native::enabled&&ff3Native::visuals&&f.target&&!f.textFocus&&(f.afterRelease||f.revision==ff3Native::revision);
   if(!ff3Native::ballTrails)f.balls.erase(std::remove_if(f.balls.begin(),f.balls.end(),[&](const auto& ball){return !f.afterRelease||ball.id!=f.throwView.ball;}),f.balls.end());
   const bool balls=(ff3Native::ballTrails||f.afterRelease)&&std::isfinite(f.groundY)&&std::any_of(f.balls.begin(),f.balls.end(),[](const auto& ball){return ball.model.valid;});
-  if(!field&&!balls){overlay.hide();ff3Native::renderHz=0;epoch=now();frames=0;Sleep(16);continue;}
-  if(field)renderField(overlay,f,false);
+  if(!field&&!balls&&!extras){overlay.hide();ff3Native::renderHz=0;epoch=now();frames=0;Sleep(16);continue;}
+  if(f.afterRelease||f.revision!=curveRevision||f.tool!=curveTool||f.model!=curveModel){curve.reset();curveRevision=f.revision;curveTool=f.tool;curveModel=f.model;}
+  if(field&&f.ready&&!f.afterRelease)curve.update(f.solution,f.gravity,f.target,now(),f.head);
+  else if(!field||!f.ready)curve.reset();
+  if(field)renderField(overlay,f,false,!f.afterRelease&&curve.target==f.target?&curve.points:nullptr);
   if(balls)renderBalls(overlay,f,false,!field);
-  if(field||balls)overlay.present(f.origin);else overlay.hide();
+  const bool extraDrawn=extras&&extraRenderer&&extraRenderer(overlay,f,view.handle,!field&&!balls);
+  if(field||balls||extraDrawn)overlay.present(f.origin);else overlay.hide();
   ff3Native::renderMs=(now()-started)*1000;++frames;if(now()-epoch>=.5){ff3Native::renderHz=frames/(now()-epoch);frames=0;epoch=now();}
   pacer.wait(started);
  }

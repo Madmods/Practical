@@ -9,12 +9,14 @@ struct ThrowIntent {
  double at=0,power=0,angle=0,air=0,distance=0,catchHeight=NAN;std::string name,mode;
  bool predictionKnown=false,predictedIntable=false;
  double predictedRiskAt=NAN;
+ std::uint32_t pid=0;
 };
 struct ThrowView {
  enum Phase{Hidden,Pending,Flight,Done};Phase phase=Hidden;
  std::uint64_t ball=0;
  double eta=NAN,toSpot=NAN,nearD=NAN,margin=NAN,air=0,power=0,angle=0,distance=0;
- bool coverageKnown=false,intable=false;double riskAt=NAN;Vec spot;std::string name,mode,result,resultBy,detail;
+ bool coverageKnown=false,intable=false;double riskAt=NAN;Vec spot;std::string name,mode,result,resultBy,detail;double ballBorn=NAN;
+ std::uint32_t pid=0;std::uint64_t click=0,model=0,own=0,player=0,heldBall=0;double releasedAt=0;bool ballVerified=false;
 };
 inline void flightMetrics(ThrowView& view,const BallFlight& ball,double ground,const std::vector<ThrowActor>& actors,std::uint64_t target,bool complete,double catchHeight=NAN){
  view.eta=view.toSpot=view.nearD=view.margin=NAN;view.coverageKnown=false;view.intable=false;
@@ -43,6 +45,7 @@ struct ThrowTracker {
  void clear(){*this={};}
  void begin(const ThrowIntent& next,const std::vector<BallFlight>& existing,const std::vector<ThrowActor>& actors){
   clear();intent=next;view.phase=ThrowView::Pending;view.name=next.name;view.mode=next.mode;view.power=next.power;view.angle=next.angle;view.air=next.air;view.distance=next.distance;view.coverageKnown=next.predictionKnown;view.intable=next.predictedIntable;view.riskAt=next.predictedRiskAt;
+  view.pid=next.pid;view.click=next.click;view.model=next.model;view.own=next.own;view.player=next.player;view.heldBall=next.heldBall;view.releasedAt=next.at;
   for(const auto& f:existing)priorBalls.push_back(f.id);for(const auto& a:actors)priorHeld.push_back({a.id,a.ball});
  }
  void finish(const std::string& result,double time,const std::string& by={}){view.phase=ThrowView::Done;view.result=result;view.resultBy=by;view.air=std::max(0.,time-intent.at);doneAt=time;}
@@ -53,16 +56,16 @@ struct ThrowTracker {
   if(landedAt&&time-landedAt>.15){finish("Incomplete",time);return;}
   if(!ball){
    std::uint64_t found=0;bool ambiguous=false;
-   for(const auto& f:balls)if(f.airborne&&f.born>=intent.at-.1&&std::find(priorBalls.begin(),priorBalls.end(),f.id)==priorBalls.end()&&(f.id==intent.heldBall||(f.thrower&&(f.thrower==intent.player||f.thrower==intent.own)))){if(found)ambiguous=true;found=f.id;}
-   if(found&&!ambiguous){ball=view.ball=found;view.phase=ThrowView::Flight;lastSeen=time;}
+   for(const auto& f:balls)if(f.airborne&&!f.ended&&f.born>=intent.at-.1&&std::find(priorBalls.begin(),priorBalls.end(),f.id)==priorBalls.end()&&(!f.thrower||f.thrower==intent.player||f.thrower==intent.own)&&(f.id==intent.heldBall||(f.thrower&&(f.thrower==intent.player||f.thrower==intent.own)))){if(found)ambiguous=true;found=f.id;}
+   if(found&&!ambiguous){ball=view.ball=found;view.ballVerified=true;view.phase=ThrowView::Flight;lastSeen=time;for(const auto& f:balls)if(f.id==ball)view.ballBorn=f.born;}
    else{if(time-intent.at>1.2)clear();return;}
   }
   const BallFlight* current=nullptr;for(const auto& f:balls)if(f.id==ball){current=&f;break;}
+  if(current&&((current->thrower&&current->thrower!=intent.player&&current->thrower!=intent.own)||!std::isfinite(current->born)||std::abs(current->born-view.ballBorn)>.0001)){clear();return;}
   const ThrowActor* holder=nullptr;unsigned holders=0;
   for(const auto& actor:actors)if(actor.valid&&actor.ball){
-   bool newlyHeld=std::none_of(priorHeld.begin(),priorHeld.end(),[&](const auto& prior){return prior.first==actor.id&&prior.second==actor.ball;});
-   bool ownedClone=!current&&newlyHeld&&actor.thrower&&(actor.thrower==intent.player||actor.thrower==intent.own)&&time-lastSeen<.6&&length(actor.reach.position-lastPosition)<20;
-   if(actor.ball==ball||ownedClone){holder=&actor;++holders;}
+   // A nearby replacement ball is not evidence of a catch of this throw.
+   if(actor.ball==ball){holder=&actor;++holders;}
   }
   if(holders==1){if(holder->sideKnown)finish(holder->opponent?"Intercepted":"Caught",time,holder->name);else finish("Caught - team unknown",time,holder->name);return;}
   if(current){

@@ -1,12 +1,14 @@
-# Native external
+# Native application
 
-See the repository root README for build prerequisites, optional runtime dependencies, QB controls and collaboration instructions.
+See the repository README for current build, test, networking and packaging instructions.
 
-- `src`: native host, engine, game module boundaries, QB planning and overlays.
-- `ui`: embedded WebView2 interface and bundled font licenses.
-- `resources`: embedded application resources.
-- `tests`: isolated native behavior and render checks.
-- `diagnostics/network_decoder`: transport parsing, schema cache, packet editor and bounded helper hosts.
-- `scripts`: build, validation and packaging entry points.
+- `src`: C++ application and headers.
+- `ui`, `resources`: embedded WebView interface, fonts and Windows resources.
+- `tests`: offline regression tests.
+- `diagnostics`: version-pinned probes, decoder code and synthetic experiments.
+- `scripts`: build, test and packaging entry points.
+- `packaging`: the friend package setup guide.
+- `studio_lab`: local Studio adapter sources.
+- `build`: generated output, excluded from Git.
 
-Generated files stay under `build` and are ignored by Git. Live sessions and local settings must not be committed.
+`build-webui.cmd` builds a candidate; `build.cmd` also runs native checks and installs it beside the Native directory. Keep the executable and release catalog from the same build. Optional networking dependencies are supplied separately through the documented build arguments.

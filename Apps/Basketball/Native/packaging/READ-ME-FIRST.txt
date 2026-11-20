@@ -1,0 +1,45 @@
+VANTA - FRIEND PACKAGE
+
+GET STARTED
+1. Right-click the ZIP and choose Extract All. Keep the entire folder together.
+2. Open the extracted folder and run Vanta.exe on Windows x64.
+3. This local preview uses username 1 and password 1.
+4. Open Roblox and join Practical Basketball or Football Fusion 3.
+5. Let the four connection checks finish, then click Continue.
+
+FF3 networking prepares automatically, including while QB aim is off. Windows
+may ask for administrator approval for the networking helper. If setup says
+Rejoin without holding a football, keep Vanta open and rejoin FF3 empty-handed.
+Retry setup is available if setup cannot start. Enable the features you want
+in Vanta; assists start off. QB aim, receiving/Mags and defense are included.
+This build includes the 25-degree minimum automatic arc for confirmed open
+receivers running away, simple spherical Mags and practice range support.
+
+KEEP THESE FILES
+Vanta.exe and vanta-release.json must stay together. Keep network_decoder with
+its complete runtime folder, including _internal, WinDivert.dll and
+WinDivert64.sys. Moving Vanta.exe by itself will break networking. The three
+settings JSON files start fresh; changes are saved for this copy of the app.
+Profiles and appearance stay local to each Windows account. The sender's
+personal settings, logs, packet captures and accounts are absent.
+No Python installation or developer tools are required.
+
+REQUIREMENTS
+Microsoft Edge WebView2 Runtime must be installed. If Vanta reports it missing,
+get the Evergreen Runtime from Microsoft's official page:
+https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+The Roblox client must match a version supported by this build. If the version
+check fails after a Roblox update, get an updated Vanta build from the sender.
+
+THIRD-PARTY NOTICES
+WinDivert 2.2 is used as a separate, replaceable shared library under LGPLv3.
+Its license and official 2.2 source releases are in
+network_decoder/runtime/licenses/WinDivert. Upstream project and source:
+https://github.com/basil00/WinDivert
+The DLL and driver were copied unchanged from the sender's existing runtime.
+The package manifest records their exact hashes. No security settings are
+changed by this package. Other dependency notices accompany the runtime;
+Inter and WebView2 notices are in Licenses.
+
+This is a local preview; no licensing/account server is configured.
+This package has not been live-tested on a second computer.

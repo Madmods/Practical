@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <string>
+#include "client_version.hpp"
 
 using Key=std::array<unsigned char,32>;
 static unsigned char mul(unsigned char a,unsigned char b){unsigned char r=0;for(int i=0;i<8;i++){if(b&1)r^=a;bool high=a&128;a<<=1;if(high)a^=0x1b;b>>=1;}return r;}
@@ -38,8 +39,7 @@ extern "C" __declspec(dllexport) unsigned __cdecl ScanProcess(DWORD pid,unsigned
  auto resume=stats->nextAddress;*stats={};HANDLE process=OpenProcess(PROCESS_VM_READ|PROCESS_QUERY_INFORMATION,FALSE,pid);if(!process){stats->error=GetLastError();return 0;}
  wchar_t image[32768]{};DWORD imageSize=32768;
  if(!QueryFullProcessImageNameW(process,0,image,&imageSize)){stats->error=GetLastError();CloseHandle(process);return 0;}
- std::wstring imagePath=image;auto separator=imagePath.find_last_of(L"\\/");
- if(separator==std::wstring::npos||_wcsicmp(imagePath.c_str()+separator+1,L"RobloxPlayerBeta.exe")||imagePath.find(L"version-4ea8e85481e34f46")==std::wstring::npos){stats->error=ERROR_REVISION_MISMATCH;CloseHandle(process);return 0;}
+ if(!transportClient::supportedImage(image)){stats->error=ERROR_REVISION_MISMATCH;CloseHandle(process);return 0;}
  auto began=std::chrono::steady_clock::now();auto elapsed=[&](){return (unsigned)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-began).count();};
  std::vector<Key> keys;std::vector<unsigned char> chunk(1024*1024+240);uintptr_t address=(uintptr_t)std::max<uint64_t>(65536,resume);MEMORY_BASIC_INFORMATION region{};
  while(VirtualQueryEx(process,(void*)address,&region,sizeof region)==sizeof region){

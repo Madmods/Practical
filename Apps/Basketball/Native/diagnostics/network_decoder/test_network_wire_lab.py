@@ -9,6 +9,14 @@ def fixture_schema():
     raw=b'\x03'+bytes(8)+b'\0'+v(1)+v(0)+v(1)+s('RemoteEvent')+b'\0\0\0'+v(1)+s('FireServer')+v(1)+b'\x1d\0\0'+b'\0\0'
     compressed=zstandard.ZstdCompressor().compress(raw);return len(compressed).to_bytes(4,'little')+len(raw).to_bytes(4,'little')+compressed
 class Tests(unittest.TestCase):
+    def test_invalid_record_does_not_poison_cached_arguments(self):
+        schema=Schema.from_packet(fixture_schema());schema.properties=[dict(name='CFrame',className='Camera',kind=27)]
+        wire=Wire(schema);wire.cache[7]='Original'
+        event=b'\x07\x01'+(123).to_bytes(4,'little')+bytes(2)+v(1)+b'\x01\x87'+(7).to_bytes(4,'big')+b'Changed'
+        ack=b'\x0a\x01'+(123).to_bytes(4,'little')+bytes(2)+b'\x00'+bytes(4)
+        with self.assertRaises(DecodeError):wire.events(b'\x83'+event+ack,'outgoing')
+        self.assertEqual(wire.cache,{7:'Original'})
+
     def combined_event(self):
         schema=Schema.from_packet(fixture_schema());schema.properties=[dict(name='CFrame',className='Part',kind=27)]
         body=b'\x83\x23'+bytes(4)+b'\x0a\x01'+(123).to_bytes(4,'little')+bytes(2)+b'\x01'+v(658)+bytes(4)+b'\x07\x01'+(456).to_bytes(4,'little')+bytes(2)+v(1)+b'\x02'+s('Clicked')+b'\0'
@@ -16,6 +24,12 @@ class Tests(unittest.TestCase):
     def test_combined_acknowledgements_before_event(self):
         schema,body=self.combined_event();calls=Wire(schema).events(body,'outgoing')
         self.assertEqual(len(calls),1);self.assertEqual(calls[0]['args'],['Clicked']);self.assertEqual(calls[0]['consumed'],len(body)-1)
+    def test_verified_match_union_acknowledgement_before_event(self):
+        schema,body=self.combined_event();schema.properties[0]['className']='UnionOperation'
+        calls=Wire(schema).events(body,'outgoing')
+        self.assertEqual(len(calls),1);self.assertEqual(calls[0]['args'],['Clicked']);self.assertEqual(calls[0]['consumed'],len(body)-1)
+        schema.properties[0]['kind']=22
+        with self.assertRaisesRegex(DecodeError,'acknowledgement schema'):Wire(schema).events(body,'outgoing')
     def test_unknown_prefix_is_not_scanned_for_events(self):
         schema,body=self.combined_event();self.assertEqual(Wire(schema).events(b'\x83\xfe'+body[1:],'outgoing'),[])
     def test_acknowledgement_requires_matching_property_schema(self):

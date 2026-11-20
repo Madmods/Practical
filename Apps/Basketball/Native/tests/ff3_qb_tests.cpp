@@ -4,6 +4,229 @@
 #include <iostream>
 using namespace ff3qb;
 int main(){int count=0;
+ {
+  const Vec origin{0,8,0};const std::vector<Defender> none;
+  assert(openAwayMinimum(origin,{70,8,0},{20,0,0},none,true)==25);
+  for(const auto& route:{Vec{},Vec{4,0,0},Vec{-20,0,0},Vec{0,0,20}})assert(openAwayMinimum(origin,{70,8,0},route,none,true)<0);
+  assert(openAwayMinimum(origin,{70,8,0},{20,0,0},none,false)<0);
+  assert(openAwayMinimum(origin,{5,8,0},{20,0,0},none,true)<0);
+  Defender covered;covered.position={70,8,0};assert(openAwayMinimum(origin,covered.position,{20,0,0},{covered},true)<0);
+  for(bool beam:{false,true})for(Vec direction:{Vec{1,0,0},Vec{0,0,1},Vec{.6,0,.8}})for(double distance:{35.,70.,110.,160.}){
+   Defender wr;wr.position=origin+direction*distance;wr.velocity=direction*20;wr.speed=20;wr.jumpHeight=7;wr.radius=3;wr.above=2;wr.below=4;
+   const double floor=openAwayMinimum(origin,wr.position,wr.velocity,none,true);
+   auto p=planCoverageThrow(origin,wr.position,wr.velocity,28,.08,none,true,beam,7,196.2,{},0,false,NAN,true,.1,&wr,0,nullptr,0,0,50,nullptr,floor);
+   assert(p.solution.valid&&p.solution.angle>=25-1e-6&&p.solution.angle<=50+1e-6&&p.power<=95);
+   assert(length(point(p.solution,28,p.solution.time)-(wr.position+p.offset+wr.velocity*(p.solution.time+.08)))<1e-4);
+   assert(receiverGap(wr,p.solution.catchPoint,p.solution.time+.08)<=-.25);
+   // A retained shallow arc must not leak back through a quiet update or
+   // the old elevation hysteresis when the receiver starts running away.
+   BeamMemory memory;memory.elevation.accept(7,0);memory.goal={solve(origin,wr.position,wr.velocity,95,28,.08,false,5),{},95,10,false,false};
+   auto quiet=planCoverageThrow(origin,wr.position,wr.velocity,28,.08,none,true,beam,7,196.2,{},95,false,7,false,.016,&wr,0,&memory,.016,0,50,nullptr,floor);
+   assert(quiet.solution.valid&&quiet.solution.angle>=25-1e-6&&quiet.solution.angle<=50+1e-6);
+   auto preset=planThrow(origin,wr.position,wr.velocity,28,.08,1,true,12,true,95,false,false,none,12,{},false,5,0,50,nullptr,&wr,floor);
+   assert(preset.solution.valid&&preset.solution.angle>=25-1e-6);
+   ++count;
+  }
+ }
+
+ {
+  // Lock during an existing weave, in different world directions and phases.
+  for(double rotation:{0.,.7,1.8})for(double dt:{1./60.,.02,.05})for(double phase:{0.,.025,.075,.125})for(double amplitude:{4.,8.,12.}){
+   RouteHistory history;
+   const Vec forward{std::sin(rotation),0,std::cos(rotation)};
+   const Vec side{forward.z,0,-forward.x};
+   const double speed=std::sqrt(400-amplitude*amplitude);
+   double error=0;int samples=0;
+   for(int i=0;i<int(3/dt);++i){
+    double t=i*dt,w=t+phase;int segment=int(std::floor((w+1e-9)/.1));double local=w-segment*.1;
+    double x=segment%2?amplitude*(.1-local):amplitude*local;
+    Vec position=Vec{0,8,100}+forward*(speed*t)+side*x;
+    Vec velocity=forward*speed+side*(segment%2?-amplitude:amplitude);
+    history.update(t,{},position,velocity);
+    if(t>1){error+=length(history.movement-forward*speed);++samples;}
+   }
+   assert(samples>0&&error/samples<1.);
+  }
+  Plan tight,comfortable;tight.solution.valid=true;tight.power=95;tight.margin=4;tight.deliveryMargin=4;tight.launchMargin=4;tight.coverageKnown=true;
+  tight.receiverMargin=.3;tight.robustMargin=-.5;
+  comfortable=tight;comfortable.power=90;comfortable.receiverMargin=2;comfortable.robustMargin=1.5;
+  assert(rankedBetter(comfortable,tight,true,true));
+  assert(!continuitySafe(tight,comfortable,true));
+  Plan exposed=comfortable;exposed.margin=exposed.deliveryMargin=exposed.launchMargin=-1;
+  assert(rankedBetter(tight,exposed,true,true));
+ }
+
+ {
+  assert(pressAuthorized(1000,0,true,5000));
+  assert(pressAuthorized(1000,5000,false,5350));
+  assert(!pressAuthorized(1000,5000,false,5351));
+  assert(!pressAuthorized(1000,5000,true,5100));
+  assert(!pressAuthorized(0,0,true,5000));
+  assert(!pressAuthorized(6000,0,true,5000));
+  assert(!pressAuthorized(1000,0,true,301001));
+ }
+ {
+  auto powers=powerSearchOrder();std::array<int,96> seen{};
+  assert(powers.size()==95&&powers[0]==95&&powers[1]<90&&powers[2]<=60);
+  for(int p:powers){assert(p>=1&&p<=95);++seen[p];}
+  for(int p=1;p<=95;++p)assert(seen[p]==1);
+  std::vector<Plan> plans;
+  for(int i=0;i<16;++i){Plan p;p.solution.valid=true;p.solution.angle=10+i*.3;p.solution.time=1+i*.02;p.power=95-i*.7;p.coverageKnown=true;p.margin=-4+i*.26;p.deliveryMargin=i%3?2.:-2.;p.launchMargin=i%2?2.:-2.;p.penetration=30-i;plans.push_back(p);}
+  for(const auto& a:plans)for(const auto& b:plans)for(const auto& c:plans)if(rankedBetter(a,b,true,true)&&rankedBetter(b,c,true,true))assert(rankedBetter(a,c,true,true));
+  auto reversed=plans;std::reverse(reversed.begin(),reversed.end());
+  auto sort=[](std::vector<Plan>& pool){std::sort(pool.begin(),pool.end(),[](const Plan& a,const Plan& b){return rankedBetter(a,b,true,true);});};
+  sort(plans);sort(reversed);for(size_t i=0;i<plans.size();++i)assert(rankPlan(plans[i],true,true)==rankPlan(reversed[i],true,true));
+  std::vector<Plan> pool;for(const auto& p:reversed)retainRanked(pool,p,true,true);
+  assert(pool.size()<=8&&rankPlan(pool.front(),true,true)==rankPlan(plans.front(),true,true));
+ }
+ {
+  Defender wr{{80,8,0},{},20,6.37,12,5.88,3.88,4.88,196.2,true};
+  BeamMemory memory;Plan old;old.solution=solve({0,8,0},wr.position,{},95,28,.05,false,5);old.power=95;old.margin=10;memory.leaders={old};
+  Vec origin{5,8,0};Defender db{{20,8,0},{},22,6.37,12,5.88,3.88,4.88,196.2};
+  auto p=planCoverageThrow(origin,wr.position,{},28,.05,{db},true,true,wr.jumpHeight,196.2,{},0,false,NAN,false,.1,&wr,0,&memory,1);
+  assert(p.solution.valid&&!memory.leaders.empty()&&memory.candidatesRanked>0);
+  for(const auto& fresh:memory.leaders){
+   assert(std::abs(length(fresh.solution.origin-origin)-5)<1e-6);
+   assert(fresh.margin<=coverageMargin(fresh.solution,28,{db},.05)+1e-9&&fresh.margin<old.margin);
+  }
+ }
+ {
+  for(double dt:{.025,.05}){
+   RouteHistory h;Vec p{0,8,150};double t=0;
+   for(int i=0;i<int(1/dt);++i){t+=dt;p=p+Vec{0,0,20}*dt;h.update(t,{0,8,0},p,{0,0,20});}
+   for(int i=0;i<int(2/dt);++i){Vec v{int(i*dt/.1)%2?3.:-3.,0,20};t+=dt;p=p+v*dt;h.update(t,{0,8,0},p,v);}
+   assert(std::abs(h.movement.x)<1.2&&h.movement.z>18);
+   for(int i=0;i<int(.4/dt);++i){Vec v{4,0,19.6};t+=dt;p=p+v*dt;h.update(t,{0,8,0},p,v);}
+   assert(h.movement.x>3&&!h.intent.wobble);
+  }
+ }
+ {
+  RouteHistory h;Vec p{0,8,150};double t=0;
+  for(int i=0;i<20;++i){t+=.05;p=p+Vec{0,0,20}*.05;h.update(t,{0,8,0},p,{0,0,20});}
+  int filtered=0;
+  for(int i=0;i<80;++i){Vec v{i%4<2?8.:-8.,0,20};t+=.05;p=p+v*.05;h.update(t,{0,8,0},p,v);
+   if(i>20){assert(std::abs(h.movement.x)<1.5&&h.movement.z>18);filtered+=h.intent.wobble;}
+   assert(length(h.intent.correction)<=1.500001);
+  }
+  assert(filtered>30);
+  // A held diagonal cut must replace the straight-route assumption promptly.
+  for(int i=0;i<8;++i){Vec v{14,0,14};t+=.05;p=p+v*.05;h.update(t,{0,8,0},p,v);}
+  assert(h.movement.x>10&&h.intent.heading.x>.5&&!h.intent.wobble);
+  // A full reversal is not a small lateral wobble.
+  for(int i=0;i<3;++i){Vec v{0,0,-20};t+=.05;p=p+v*.05;h.update(t,{0,8,0},p,v);}
+  assert(h.movement.z< -15);
+  for(int i=0;i<2;++i){t+=.05;h.update(t,{0,8,0},p,{});}
+  assert(length(h.movement)==0&&length(h.intent.correction)==0);
+ }
+ {
+  Plan nearDb,overDb;nearDb.solution.valid=overDb.solution.valid=true;
+  nearDb.coverageKnown=overDb.coverageKnown=true;nearDb.margin=-2;overDb.margin=-5;
+  nearDb.deliveryMargin=-2;nearDb.launchMargin=-2;overDb.deliveryMargin=2;overDb.launchMargin=2;
+  overDb.penetration=60;
+  assert(deliveryPriority(overDb,nearDb,true)>0&&!continuitySafe(nearDb,overDb,true));
+  assert(!estimatedClear(overDb,true)); // A possible missed-catch interception remains risk.
+  auto inconsistent=overDb;inconsistent.margin=inconsistent.deliveryMargin=2;inconsistent.launchMargin=.5;
+  assert(!estimatedClear(inconsistent,true)&&deliveryClearance(inconsistent)==.5);
+  BeamMemory memory;memory.goal=nearDb;
+  assert(memory.accept(overDb,nearDb,1,true).deliveryMargin==2);
+  // If every delivery is contested, avoid an immediate launch-corridor block.
+  overDb.deliveryMargin=-4;overDb.launchMargin=2;
+  assert(deliveryPriority(overDb,nearDb,true)>0);
+  Defender db{{20,8,0},{},22,6.37,12,5.88,3.88,4.88,196.2};
+  auto low=solve({0,8,0},{100,8,0},{},95,28,.05,false,5);
+  assert(low.valid&&reachGap(db,low.catchPoint,low.time+.05)>1);
+  CoverageTrace trace;assert(coverageMargin(low,28,{db},.05,&trace)<0&&trace.time<low.time*.5);
+  Defender wr{{100,8,0},{},20,6.37,12,5.88,3.88,4.88,196.2,true};BeamMemory search;Plan protectedPass;
+  for(int i=0;i<5;++i)protectedPass=planCoverageThrow({0,8,0},wr.position,{},28,.05,{db},true,true,wr.jumpHeight,196.2,{},0,false,NAN,true,.1,&wr,0,&search,i*.1,0);
+  assert(protectedPass.solution.valid&&protectedPass.launchMargin>1&&protectedPass.deliveryMargin>1);
+  assert(protectedPass.solution.angle>low.angle&&protectedPass.power<95);
+ }
+ {
+  Defender wr{{80,8,0},{0,0,20},20,6.37,12,5.88,3.88,4.88,196.2,true};
+  assert(receiverGap(wr,{92,8,40},2)<-.25);
+  assert(receiverGap(wr,{68,8,40},2)<-.25);
+  assert(receiverGap(wr,{80,8,-20},2)>0);
+  assert(receiverGap(wr,{120,8,40},2)>0);
+  auto slowing=wr;slowing.velocity={0,0,5};
+  assert(receiverGap(slowing,{96,8,10},2)>0);
+  auto options=fitOffsets({0,8,0},wr.position,wr.velocity,{},true);
+  assert(std::any_of(options.begin(),options.end(),[](Vec p){return p.x==14&&p.z==0;}));
+  wr.position={35,8,0};wr.velocity={};wr.redirect=false;
+  auto automatic=planCoverageThrow({0,8,0},wr.position,{},28,.05,{},true,false,wr.jumpHeight,196.2,{},0,false,NAN,true,.1,&wr,0,nullptr,0,0,50);
+  assert(automatic.solution.valid&&automatic.power>94.99&&automatic.solution.angle<5);
+  assert(length(automatic.solution.catchPoint-wr.position)<1e-6);
+ }
+ {
+  // Reproduce the recorded bot-1 miss: the old target was 13.4 studs off
+  // its running route. A human could redirect; an unsteered bot cannot.
+  const Vec movement{0,0,19.1811090302764},origin{39.37295150756836,7.486886024475098,98.37617492675781};
+  Defender bot{{31.4579086303711,7.492891311645508,229.9359186851148},movement,20,6.37105,12,5.88186,3.88186,4.88186,196.2,false};
+  const Vec oldCatch{18.0116824185237,16.1955145092612,264.99486380318905};
+  assert(receiverGap(bot,oldCatch,1.8081793146045+.075)>0);
+  auto human=bot;human.redirect=true;assert(receiverGap(human,oldCatch,1.8081793146045+.075)<0);
+  const Vec target=bot.position+leadAdjustment(origin,bot.position,movement,3);
+  auto followingDb=bot;followingDb.position.z-=8;followingDb.speed=22;
+  for(bool beam:{false,true}){
+   BeamMemory memory;Plan planned;Vec offset{};double power=0,angle=NAN;bool high=false;
+   for(int i=0;i<3;++i){
+    planned=planCoverageThrow(origin,target,movement,28,.075,{followingDb},true,beam,bot.jumpHeight,196.2,offset,power,high,angle,true,.1,&bot,0,&memory,i*.1,0,beam?beamMaxAngle:50);
+    assert(planned.solution.valid);
+    assert(receiverGap(bot,planned.solution.catchPoint,planned.solution.time+.075)<=-.25);
+    auto route=bot.position+movement*(planned.solution.time+.075);
+    assert(std::hypot(planned.solution.catchPoint.x-route.x,planned.solution.catchPoint.z-route.z)<9);
+    assert(preservesCatchHeight(planned.offset));
+    offset=planned.offset;power=planned.power;high=planned.lob;angle=planned.solution.angle;
+   }
+  }
+  assert(preservesCatchHeight({5,2,0}));
+  assert(preservesCatchHeight({0,0,-1}));
+  assert(!preservesCatchHeight({0,-1,0}));
+  assert(preservesCatchHeight({0,1,-2}));
+  assert(preservesCatchHeight({0,1,2}));
+ }
+ {
+  Defender db{{0,8,0},{},22,0,12,5.88,3.88,4.88,196.2};
+  Solution deep{true,{0,8,0},{10,0,0},{10,7.5,0},1,0},edge=deep;edge.origin.z=edge.catchPoint.z=20;
+  const double dm=coverageMargin(deep,1,{db},0),em=coverageMargin(edge,1,{db},0);
+  assert(dm<0&&std::abs(dm-em)<1e-9);
+  const double dp=coveragePenetration(deep,1,{db},0),ep=coveragePenetration(edge,1,{db},0);
+  assert(dp>ep+5&&ep>0);
+  Plan held{deep,{},95,dm,true,false,dp},desired{edge,{0,0,20},95,em,true,false,ep};
+  assert(!estimatedClear(desired,true));assert(!continuitySafe(held,desired,true));
+  BeamMemory memory;memory.goal=held;
+  assert(memory.accept(desired,held,1,true).penetration==ep);
+  assert(continuitySafe(held,desired,false));
+ }
+ {
+  Defender wr{{0,8,0},{},20,6.37,12,5.88,3.88,4.88,196.2,true};
+  assert(receiverGap(wr,{0,14,0},.1)>0);assert(receiverGap(wr,{0,17.5,0},1)>0);
+  assert(receiverGap(wr,{0,13,0},.6)<0);assert(receiverGap(wr,{20,8,0},3)>0);
+  Plan held;held.solution.valid=true;held.solution.angle=39;held.power=95;held.margin=2;held.coverageKnown=true;
+  BeamMemory choice;choice.goal=held;
+  for(int i=0;i<100;i++){auto alternate=held;alternate.solution.angle=39+(i%2?1:-1);assert(choice.accept(alternate,held,i*.016,true).solution.angle==39);}
+  auto safe=held,unsafe=held;unsafe.margin=-1;choice.goal=unsafe;
+  safe.solution.angle=40;assert(choice.accept(safe,unsafe,2,true).margin==2);
+ }
+ {
+  Defender wr{{100,8,0},{0,0,20},20,7,12};wr.redirect=true;
+  for(double t:{.5,1.,2.,3.}){
+   assert(receiverGap(wr,wr.position+wr.velocity*t,t)<0);
+   auto following=wr;following.redirect=false;
+   assert(receiverGap(wr,wr.position+wr.velocity*t+Vec{0,3,0},t)<=receiverGap(following,wr.position+wr.velocity*t+Vec{0,3,0},t));
+  }
+  for(double distance:{25.,75.,150.,250.}){
+   Vec target{distance,8,0};Defender receiver{target,{},20,7,12};
+   auto lob=planLoftThrow({0,8,0},target,{},28,.05,{},true,&receiver);
+   auto beam=planCoverageThrow({0,8,0},target,{},28,.05,{},true,true,7,196.2);
+   assert(lob.solution.valid&&lob.solution.angle>=35&&lob.solution.angle<=50&&lob.solution.velocity.y-28*lob.solution.time<0);
+   assert(beam.solution.valid&&beam.power==95&&beam.solution.angle<lob.solution.angle);
+   assert(length(point(lob.solution,28,lob.solution.time)-target)<1e-6);
+  }
+  auto capped=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,7,196.2,{},60,true,65,true,.1,nullptr,0,nullptr,0,NAN,50);
+  assert(capped.solution.valid&&capped.solution.angle<=50);
+  auto preset=planThrow({0,8,0},{80,8,0},{},28,.05,2,true,55,true,95,true,false,{},55,{},false,5,NAN,50);
+  assert(preset.solution.valid&&preset.solution.angle<=50);
+ }
  {for(double center:{8.,17.,34.,52.,71.}){ElevationIntent hold;hold.update(center,0);for(int i=1;i<=100;++i)assert(std::abs(hold.update(center+(i%2?.55:-.55),i*.016)-center)<1e-8);
    assert(hold.update(center+2,2)==center);assert(hold.update(center-2,2.1)==center);assert(hold.update(center+2,2.2)==center);assert(hold.update(center+2,2.45)==center+2);
   }}
@@ -16,7 +239,9 @@ int main(){int count=0;
   for(double y:{5.,10.,18.}){double radius=reachSectionRadius(far,y,.4);if(radius>=0){assert(std::abs(reachGap(far,{far.position.x+radius,y,far.position.z},.4))<1e-7);}}
  }
  {Vec origin{0,8,0},target{65,8,0};Defender wr{target,{},20,7,12};
-  assert(chooseRoutePass(origin,target,{}, {})==RoutePass::Head);
+  assert(chooseRoutePass(origin,target,{}, {})==RoutePass::Bullet);
+  auto stationaryBullet=planRoutePass(RoutePass::Bullet,origin,target,{},28,.05,{},true,&wr,65,.016);
+  assert(stationaryBullet.solution.valid&&stationaryBullet.power>94.99&&stationaryBullet.solution.angle<=30&&stationaryBullet.offset.y==-1.5);
   auto head=planRoutePass(RoutePass::Head,origin,target,{},28,.05,{},true,&wr);
   assert(head.solution.valid&&length(head.solution.catchPoint-target)<1e-6&&head.solution.velocity.y-28*head.solution.time<0);
   wr.velocity={0,0,20};assert(chooseRoutePass(origin,target,wr.velocity,{})==RoutePass::Bullet);
@@ -32,10 +257,13 @@ int main(){int count=0;
  }
  {BeamMemory memory;Vec origin{0,8,0},target{80,8,0};auto prior=solveAngle(origin,target,{},40,28,.05,5);double power=length(prior.velocity);bool lob=false;
   memory.goal={prior,{},power,10,false,false};
-  for(int i=0;i<40;++i){auto desired=solveAngle(origin,target,{},i%2?39.4:40.3,28,.05,5);memory.goal={desired,{},length(desired.velocity),10,false,false};
+  // A genuinely better max-power throw may replace the old 40-degree arc,
+  // while retaining the endpoint and the established angular slew limit.
+  for(int i=0;i<120;++i){
    auto held=planCoverageThrow(origin,target,{},28,.05,{},true,true,7,196.2,{},power,lob,prior.angle,false,.016,nullptr,0,&memory,1+i*.016);
-   assert(held.solution.valid&&std::abs(held.solution.angle-40)<1e-6&&length(point(held.solution,28,held.solution.time)-target)<1e-6);prior=held.solution;power=held.power;lob=held.lob;
+   assert(held.solution.valid&&std::abs(held.solution.angle-prior.angle)<=45*.016+1e-6&&length(point(held.solution,28,held.solution.time)-target)<1e-6);prior=held.solution;power=held.power;lob=held.lob;
   }
+  assert(power>94.99);
  }
 
  {RouteHistory still;for(int i=0;i<30;++i)still.update(i*.05,{0,8,0},{50+(i%2?.01:-.01),8,0},{i%2?1.:-1.,0,0});assert(length(still.movement)==0);}
@@ -48,12 +276,12 @@ int main(){int count=0;
   memory.goal={solve(origin,target+Vec{0,1,0},{},95,28,.05,false,5),{0,1,0},95,10,false,false};Vec offset{};
   for(int i=0;i<7;++i){auto next=planCoverageThrow(origin,target,{},28,.05,{},true,true,7,196.2,offset,95,false,prior.angle,false,.016,nullptr,0,&memory,1+i*.016);
    assert(next.solution.valid&&next.offset.y>=offset.y&&next.offset.y-offset.y<=.192001);offset=next.offset;prior=next.solution;
-  }assert(std::abs(offset.y-1)<1e-6);
+  }assert(std::abs(offset.y)<1e-6); // An unnecessary cached height loses to the fresh head placement.
   memory.goal={solve(origin,target,{},95,28,.05,true,5),{},95,10,false,true};double power=95;bool lob=false;prior=solve(origin,target,{},95,28,.05,false,5);
   for(int i=0;i<180;++i){auto next=planCoverageThrow(origin,target,{},28,.05,{},true,true,7,196.2,{},power,lob,prior.angle,false,.016,nullptr,0,&memory,2+i*.016);
    assert(next.solution.valid&&std::abs(next.solution.angle-prior.angle)<=.72001&&length(point(next.solution,28,next.solution.time)-target)<1e-6);
    prior=next.solution;power=next.power;lob=next.lob;
-  }assert(power>94.9&&lob);
+  }assert(power>94.9&&!lob); // An old high-root goal cannot force a slower throw in an open lane.
  }
  {Defender still{{100,8,0},{},20,6.37,12,5.88,3.88,4.88};
   assert(receiverGap(still,{104,8,0},1)<0);
@@ -72,6 +300,14 @@ int main(){int count=0;
  }
  // A DB can resume running; a missed receiver catch does not end coverage.
  assert(movementPotential(0,{})==22&&movementPotential(0,{},30)==30);
+ assert(movementPotential(20,{43,0,0})==22);
+ assert(movementPotential(20,{},movementPotential(20,{43,0,0}))==22);
+ {Defender dive{{0,8,0},{43,0,0},22,7,12,5.88,3.88,4.88};
+  assert(std::abs(horizontalTravel(dive,.1)-4.3)<1e-8);
+  assert(std::abs(horizontalTravel(dive,2)-56)<1e-8);
+  dive.velocity={};assert(std::abs(horizontalTravel(dive,2)-56)<1e-8);
+ }
+
  Defender stopped{{0,8,0},{},0,0,0,2,2,2};
  assert(reachGap(stopped,{10,8,0},.5)>0);stopped.speed=movementPotential(0,{});
  assert(reachGap(stopped,{10,8,0},.5)<0);
@@ -96,12 +332,39 @@ int main(){int count=0;
   // restarts when the scene changes instead of carrying an old target over.
   auto closeDb=wr;closeDb.redirect=false;closeDb.position.z=5;closeDb.speed=22;BeamMemory scan;
   auto first=planCoverageThrow({0,8,0},wr.position,{},28,.05,{closeDb},true,true,6.37,196.2,{},0,false,NAN,true,.1,&wr,0,&scan,1,0);
-  assert(first.solution.valid&&scan.scanActive&&scan.nextPower==89);
-  auto next=planCoverageThrow({0,8,0},wr.position,{},28,.05,{closeDb},true,true,6.37,196.2,{},0,false,NAN,true,.1,&wr,0,&scan,1.1,0);
-  assert(next.solution.valid&&scan.scanActive&&scan.nextPower==83);
+  assert(first.solution.valid&&scan.scanActive&&scan.scanIndex==3&&scan.nextPower==powerSearchOrder()[3]);
+  auto next=planCoverageThrow({4,8,0},wr.position,{},28,.05,{closeDb},true,true,6.37,196.2,{},0,false,NAN,true,.1,&wr,0,&scan,1.1,0);
+  assert(next.solution.valid&&scan.scanActive&&scan.scanIndex==6&&scan.nextPower==powerSearchOrder()[6]);
   wr.position.x+=10;
   auto changed=planCoverageThrow({0,8,0},wr.position,{},28,.05,{closeDb},true,true,6.37,196.2,{},0,false,NAN,true,.1,&wr,0,&scan,1.2,0);
-  assert(changed.solution.valid&&scan.nextPower==89);
+  assert(changed.solution.valid&&scan.scanIndex==3&&scan.nextPower==powerSearchOrder()[3]);
+ }
+
+ // Saved contested scene: a measured R6 receiver can adjust to a clear side
+ // placement. Search both modes and verify that dispatch reconstructs the arc.
+ {Vec origin={-70.8704071044922,7.48999643325806,100.438293457031},target={-65.8327345697048,7.45495080947876,150.687549360086},movement={0,0,0};
+  Defender receiver{{-66.0322418212891,7.45495080947876,148.697525024414},movement,20,6.37105,12,5.8818646,3.8818646,4.8818646,196.2,true};
+  std::vector<Defender> defenders={{{-86.9555511474609,14.637001991272,231.272689819336},{0,-9.13159942626953,0},43.0147566692609,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{111.247787475586,7.48837280273438,231.698852539062},{0,0,0},22,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{-79.8101272583008,7.48929023742676,218.585922241211},{11.2748384475708,0,-16.5210952758789},22,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{135.899673461914,7.49162292480469,146.835006713867},{17.0625190734863,0,-9.79322719573975},22,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{48.0192680358887,7.49009895324707,65.1686477661133},{-12.0094966888428,0,5.14325475692749},43.0752261336546,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{77.5282287597656,7.49098443984985,90.4707565307617},{-5.20614004135132,0,19.1592140197754},42.9854825018803,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{144.236129760742,7.48837089538574,133.940795898438},{0,0,0},22,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{43.6706809997559,7.48627042770386,125.112358093262},{0,0,0},22,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{107.361015319824,7.48837280273438,234.56217956543},{0,0,0},43.0151565673506,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{11.5425224304199,7.56842613220215,-7.38220930099487},{0,0,0},22,6.37105004812896,12,6,6,8,196.199996948242},
+   {{165.658782958984,7.49227905273438,343.208374023438},{0,0,0},22,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{165.627532958984,7.49227905273438,348.669372558594},{0,0,0},22,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{37.1294708251953,9.73839378356934,252.371032714844},{0,-0.00174898467957973,0},22,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242},
+   {{38.066276550293,3.63974213600159,250.148880004883},{0,0,0},22,6.37105004812896,12,5.88186461588846,3.88186461588846,4.88186461588846,196.199996948242}};
+  for(bool beam:{false,true}){BeamMemory memory;Plan result;
+   for(int tick=0;tick<5;++tick){result=planCoverageThrow(origin,target,movement,28,0.0651110000610352,defenders,true,beam,receiver.jumpHeight,196.2,{},0,false,NAN,true,.1,&receiver,0,&memory,1+tick*.1,2.99171543121338);if(estimatedClear(result,true))break;}
+   assert(estimatedClear(result,true));
+   assert(receiverGap(receiver,result.solution.catchPoint,result.solution.time+0.0651110000610352)<=-.25);
+   auto sent=solve(origin,target+result.offset,movement,result.power,28,0.0651110000610352,result.lob,5);
+   assert(sent.valid&&length(sent.velocity-result.solution.velocity)<1e-5&&std::abs(sent.time-result.solution.time)<1e-5);
+  }
  }
  auto divingReceiver=solve({0,8,0},{60,8,0},{0,0,43.5},95,28,.05,false,5);
  assert(divingReceiver.valid&&length(point(divingReceiver,28,divingReceiver.time)-divingReceiver.catchPoint)<1e-6);
@@ -112,7 +375,10 @@ int main(){int count=0;
   std::vector<Defender> ds={{{-200,8,80},{},20,6.37,12},{{distance*.5,8,4},{5,0,0},20,6.37,12},{{distance+40,12,0},{},20,6.37,12}};
   double exhaustive=1000;int steps=std::clamp(int(std::ceil(s.time/.02)),32,400);
   for(const auto& d:ds)for(int i=0;i<=steps;++i)exhaustive=std::min(exhaustive,reachGap(d,point(s,28,s.time*i/steps),s.time*i/steps+.06));
-  assert(std::abs(exhaustive-coverageMargin(s,28,ds,.06))<1e-9);
+  double refined=coverageMargin(s,28,ds,.06); assert(refined<=exhaustive+1e-9);
+  double dense=1000;int denseSteps=int(std::ceil(s.time/.001));
+  for(const auto& d:ds)for(int i=0;i<=denseSteps;++i)dense=std::min(dense,reachGap(d,point(s,28,s.time*i/denseSteps),s.time*i/denseSteps+.06));
+  assert(std::abs(refined-dense)<.05);
  }
  for(bool beam:{false,true})for(double height:{-3.,0.,4.,8.}){
   Defender wr{{100,8,0},{},20,6.37,12,5.88,3.88,4.88};
@@ -303,6 +569,11 @@ int main(){int count=0;
   shot.begin(intent,{}, {wr,db});shot.update(10.2,1,2,{ownBall},{wr,db},0,true);shot.update(10.3,1,2,{}, {wr,db},0,true);shot.update(11,1,2,{}, {wr,db},0,true);assert(shot.view.result=="Result unavailable");
   shot.begin(intent,{ownBall},{wr,db});shot.update(10.2,1,2,{ownBall},{wr,db},0,true);assert(!shot.ball); // Existing nearby own balls are not a new pass.
   shot.begin(intent,{}, {wr,db});auto another=ownBall;another.id=89;shot.update(10.2,1,2,{ownBall,another},{wr,db},0,true);assert(!shot.ball); // Ambiguous ownership does not pick an arbitrary ball.
+  {ThrowTracker exact;exact.begin(intent,{}, {wr,db});exact.update(10.2,1,2,{ownBall},{wr,db},0,true);exact.update(10.25,1,2,{foreign,ownBall,another},{wr,db},0,true);assert(exact.ball==88&&exact.view.ballBorn==ownBall.born);}
+  {ThrowTracker exact;auto sameHandle=foreign;sameHandle.id=intent.heldBall;exact.begin(intent,{}, {wr,db});exact.update(10.2,1,2,{sameHandle},{wr,db},0,true);assert(!exact.ball);}
+  {ThrowTracker exact;exact.begin(intent,{}, {wr,db});exact.update(10.2,1,2,{ownBall},{wr,db},0,true);auto replacement=wr;replacement.ball=89;replacement.thrower=3;replacement.reach.position=ownBall.position;exact.update(10.3,1,2,{}, {replacement,db},0,true);assert(exact.view.phase==ThrowView::Flight&&exact.ball==88);}
+  {ThrowTracker exact;exact.begin(intent,{}, {wr,db});exact.update(10.2,1,2,{ownBall},{wr,db},0,true);auto reused=ownBall;reused.born=10.3;exact.update(10.3,1,2,{reused},{wr,db},0,true);assert(exact.view.phase==ThrowView::Hidden);}
+  {ThrowTracker exact;exact.begin(intent,{}, {wr,db});exact.update(10.2,1,2,{ownBall},{wr,db},0,true);auto changedOwner=ownBall;changedOwner.thrower=900;exact.update(10.3,1,2,{changedOwner},{wr,db},0,true);assert(exact.view.phase==ThrowView::Hidden);}
   shot.update(10.3,7,2,{}, {wr,db},0,true);assert(shot.view.phase==ThrowView::Hidden);
  }
  // Script-driven balls can retain their launch velocity and be anchored.
@@ -417,7 +688,8 @@ int main(){int count=0;
  assert(coverageMargin(originalLanding,28,routeCoverage,.06)<=catchSafetyMargin);
  auto sideFit=planCoverageThrow({0,8,0},routeWr.position,routeWr.velocity,28,.06,routeCoverage,true,true,actualJump,196.2,{},0,false,NAN,true,.1,&routeWr);
  assert(estimatedClear(sideFit,true)&&sideFit.power==95&&sideFit.offset.x<0&&sideFit.offset.z<0);
- assert(std::hypot(sideFit.offset.x,sideFit.offset.z)<=3.01&&sideFit.solution.angle<20);
+ assert(placementAllowed(sideFit.offset,routeWr.velocity,sideFit.solution.time));
+ assert(sideFit.robustMargin>0&&sideFit.receiverMargin>=1);
  assert(receiverGap(routeWr,sideFit.solution.catchPoint,sideFit.solution.time+.06)<-.25);
  assert(select.update(2,true,.05)==1);assert(select.update(1,true,.1)==1);
  assert(select.update(2,true,.15)==1);assert(select.update(2,true,.32)==2);

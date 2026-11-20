@@ -7,15 +7,17 @@
 #include "webui/vanta_ui.hpp"
 #include "network_inspector.hpp"
 #include "ff3_packet_bridge.hpp"
+#include "ff3_play_runtime.hpp"
+#include "ff3_mags_overlay.hpp"
 #include "ff3_throw_hud.hpp"
-#include "studio_lab.hpp"
+#include "studio_connection.hpp"
 #include <shellapi.h>
 
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
  SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
  CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
  const std::wstring args=GetCommandLineW();const bool test=args.find(L"--ui-test")!=std::wstring::npos;
- if(args.find(L"--studio-lab")!=std::wstring::npos){wchar_t path[MAX_PATH]{};GetModuleFileNameW(nullptr,path,MAX_PATH);int result=studioLab::run(instance,std::filesystem::path(path).parent_path());CoUninitialize();return result;}
+ const bool studio=!test&&args.find(L"--studio")!=std::wstring::npos;gameModules::studioMode=studio;
  HANDLE single=CreateMutexW(nullptr,FALSE,(test||args.find(L"--hud-test")!=std::wstring::npos)?L"Local\\VantaBasketballUITest":L"Local\\VantaNativeTiming");
  if(GetLastError()==ERROR_ALREADY_EXISTS){if(single)CloseHandle(single);CoUninitialize();return 0;}
  wchar_t exe[MAX_PATH]{};GetModuleFileNameW(nullptr,exe,MAX_PATH);
@@ -24,17 +26,23 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
  if(args.find(L"--hud-test")!=std::wstring::npos){int result=ff3Hud::test(instance,std::filesystem::path(exe).parent_path());CloseHandle(single);CoUninitialize();return result;}
  const auto config=folder/L"bat-timing-settings.json";
  const auto ff3Config=folder/L"ff3-qb-settings.json";
+ const auto playConfig=folder/L"ff3-play-settings.json";
  const auto testFolder=std::filesystem::path(exe).parent_path();
  int testResult=1;
  basketballConnection::required=true;sessionUnlocked=false;if(!test)basketballUi::load(config);else basketballUi::stop();
- if(!test){ff3Native::load(ff3Config);ff3Native::logPath=folder/L"ff3-qb-events-v2.csv";}
- std::atomic<bool> authenticated{false};auto& workspaceEntered=basketballConnection::entered;std::atomic<int> testFixture{0};bool hooks=false;
+ if(!test){ff3Play::recoveryPath=folder/L"ff3-reach-recovery.json";ff3Play::diagnosticPath=folder/L"ff3-play-state.json";ff3Play::stopPath=folder/L"ff3-play-stop";std::error_code ignored;std::filesystem::remove(ff3Play::stopPath,ignored);auto done=ff3Play::stopPath;done+=L".done";std::filesystem::remove(done,ignored);ff3Play::recoveryPending=!ff3Play::recoverReach();ff3Play::load(playConfig);ff3Native::inputObserver=ff3Play::physicalEdge;ff3Native::load(ff3Config);ff3Native::logPath=folder/L"ff3-qb-events-v2.csv";}
+ std::atomic<bool> authenticated{studio};auto& workspaceEntered=basketballConnection::entered;std::atomic<int> testFixture{0};bool hooks=false;
  vanta::UiHost ui;networkInspector::Service inspector([&](const json::Value& value){ui.Post(json::dump(value));},!test);ff3Packets::Service qbPackets;vanta::AppInfo info;
- if(!test){ff3Native::frameSink=[&](const ff3Native::Frame& frame){qbPackets.update(frame);};ff3Native::packetStop=[&](){qbPackets.stop();};ff3Native::packetStatus=[&](){return qbPackets.status();};}
+ studioConnection::Service studioBridge;ff3MagsVisual::Source magView;
+ if(!test&&!studio){ff3Native::extraVisuals=[](){return ff3Play::magsOn&&ff3Play::magsVisual;};ff3Visual::extraRenderer=[&](PumpSurface& surface,const ff3Native::Frame& frame,HANDLE handle,bool clear){return magView.render(surface,frame,handle,clear);};}
+ if(studio){
+  if(!studioBridge.start(folder)){MessageBoxW(nullptr,L"Could not start the Studio connection. Close any old lab helper and check vanta-lab-connection.json.",L"Vanta",MB_OK);CloseHandle(single);CoUninitialize();return 2;}
+  ff3Native::studioRead=[&](){return studioBridge.read();};ff3Native::studioView=[&](ff3Native::Frame& f){return studioBridge.view(f);};ff3Native::packetStatus=[&](){return studioBridge.status();};
+ }else if(!test){ff3Native::frameSink=[&](const ff3Native::Frame& frame){qbPackets.update(frame);};ff3Native::packetStop=[&](){qbPackets.disableEdits();};ff3Native::packetStatus=[&](){return qbPackets.status();};ff3Native::packetInputReady=[&](){return qbPackets.inputReady();};ff3Native::packetRetryable=[&](){return qbPackets.retryable();};}
  info.title=L"Vanta";info.product=L"basketball";info.dataName=test?L"VantaBasketballUITest":L"VantaBasketball";
  info.version=info.latestVersion=vantaRelease::Version;info.robloxVersion=std::wstring(Offsets::ClientVersion.begin(),Offsets::ClientVersion.end());
  info.initialState=json::dump(basketballUi::bootstrap());info.debug=args.find(L"--debug")!=std::wstring::npos;
- info.testMode=test;info.skipAuth=false;info.user=L"";
+ info.testMode=test;info.skipAuth=studio;info.user=studio?L"Studio":L"";
  if(args.find(L"--no-blur")!=std::wstring::npos)info.glass=vanta::Glass::None;
  if(const auto at=args.find(L"--scale=");at!=std::wstring::npos)info.scale=_wtof(args.c_str()+at+8);
  vanta::UiCallbacks cb;
@@ -43,7 +51,10 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
  auto persist=[&](){if(!test&&!basketballUi::save(config))error(L"Settings could not be saved. Check folder permissions.");};
  auto basketballActive=[&](){return authenticated&&workspaceEntered&&gameModules::router.active(now(),basketballConnection::releaseCurrent)==gameModules::Id::Basketball;};
  auto ff3Active=[&](){return authenticated&&ff3Native::admitted();};
- auto persistFf3=[&](){if(!test&&!ff3Native::save(ff3Config))error(L"Football settings could not be saved.");ui.Post(json::dump(ff3Native::report()));};
+ auto footballModules=[](){auto out=ff3Native::modules();for(const auto& entry:ff3Play::modules().o)out.o[entry.first]=entry.second;return out;};
+ auto footballReport=[&](){auto report=ff3Native::report();report.o[L"networking"]=qbPackets.networking();report.o[L"modules"]=footballModules();report.o[L"playStatus"]=basketballUi::string(basketballUi::widen(ff3Play::detail()));return report;};
+ auto persistPlay=[&](){if(!test&&!ff3Play::save(playConfig))error(L"Receiving and defense settings could not be saved.");ui.Post(json::dump(footballReport()));};
+ auto persistFf3=[&](){if(!test&&!ff3Native::save(ff3Config))error(L"Football settings could not be saved.");ui.Post(json::dump(footballReport()));};
  cb.signIn=[&](const std::wstring& user,const std::wstring& pass,bool)->vanta::AuthResult{
   bool ok=user==L"1"&&pass==L"1";authenticated=ok;
   return ok?vanta::AuthResult{true}:vanta::AuthResult{false,L"Use the local preview login: 1 / 1.",L"pass"};
@@ -57,7 +68,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
   return {false,L"Unknown check"};
  };
  cb.featureChanged=[&](const std::wstring& key,bool on){
-  if(ff3Active()){if(key==L"ff3_qb"){if(on&&!test&&!qbPackets.start(gameModules::router.get().pid)){const auto state=qbPackets.status();error(state.second.c_str());return;}ff3Native::set(key,basketballUi::boolean(on));persistFf3();}return;}
+  if(ff3Active()){if(key==L"ff3_qb"){if(on&&!test&&!studio&&!qbPackets.start(gameModules::router.get().pid)){const auto state=qbPackets.status();error(state.second.c_str());return;}ff3Native::set(key,basketballUi::boolean(on));persistFf3();}else if(ff3Play::set(key,basketballUi::boolean(on)))persistPlay();return;}
   if(!basketballActive())return;
   if(!basketballUi::set(key,basketballUi::boolean(on)))error(L"That feature is unavailable.");else persist();publish();
  };
@@ -69,7 +80,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
    if(a<0||b<0||(!a&&!b)||(a&&a==b)||!ui.MenuKeys(a,b))error(L"Menu shortcut unavailable. You can still click the island to reopen.");
    return;
   }
-  if(ff3Active()){if(key.rfind(L"ff3_qb.",0)==0){if(!ff3Native::set(key,value))error(L"Invalid Football setting.");else persistFf3();}return;}
+  if(ff3Active()){if(key.rfind(L"ff3_qb.",0)==0){if(!ff3Native::set(key,value))error(L"Invalid Football setting.");else persistFf3();}else if(key.rfind(L"ff3_",0)==0){if(!ff3Play::set(key,value))error(L"Invalid receiving or defense setting.");else persistPlay();}return;}
   if(!basketballActive())return;
   if(!basketballUi::set(key,value))error(L"Invalid setting, conflicting release range, or a shot is still held.");else persist();publish();
  };
@@ -77,26 +88,29 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
  cb.workspaceOpened=[&]()->bool{
   const auto selected=gameModules::router.open(now(),authenticated,basketballConnection::releaseCurrent);
   if(selected==gameModules::Id::None){error(L"Wait for the game and local release checks to pass.");return false;}
-  sessionUnlocked=false;
+  sessionUnlocked=false;ff3Play::stop();
   if(selected==gameModules::Id::Basketball){
    ff3Native::stop();ff3Native::uninstall();
    if(!test&&!hooks){hooks=installInput();if(!hooks){uninstallInput();gameModules::router.close();error(L"Input setup failed. Restart the app to retry.");return false;}}
   }else{
    if(hooks){uninstallInput();hooks=false;}
    ff3Native::stop(false);
+   if(!test)ff3Play::syncPhysical();
    if(!test&&!ff3Native::install()){gameModules::router.close();error(L"Football input setup failed. Restart the app to retry.");return false;}
   }
   ui.MenuKeys(VK_INSERT);workspaceEntered=true;sessionUnlocked=!test&&selected==gameModules::Id::Basketball;
-  if(!test&&selected==gameModules::Id::FootballFusion3&&qbPackets.resumeWanted(gameModules::router.get().pid)){
+  if(studio&&selected==gameModules::Id::FootballFusion3)ff3Native::set(L"ff3_qb",basketballUi::boolean(true));
+  if(!test&&!studio&&selected==gameModules::Id::FootballFusion3&&qbPackets.resumeWanted(gameModules::router.get().pid)){
    if(qbPackets.start(gameModules::router.get().pid))ff3Native::set(L"ff3_qb",basketballUi::boolean(true));
    else error(qbPackets.status().second.c_str());
   }
-  auto opened=gameModuleUi::opened(selected);if(selected==gameModules::Id::FootballFusion3)opened.o[L"modules"]=ff3Native::modules();
+  auto opened=gameModuleUi::opened(selected);if(selected==gameModules::Id::FootballFusion3)opened.o[L"modules"]=footballModules();if(studio)opened.o[L"gameName"]=basketballUi::string(L"Roblox Studio");
   ui.Post(json::dump(opened));return true;
  };
- cb.signedOut=[&](){inspector.reset();authenticated=false;workspaceEntered=false;sessionUnlocked=false;gameModules::router.close();basketballUi::stop();ff3Native::stop();ff3Native::uninstall();ui.MenuKeys(0);if(hooks){uninstallInput();hooks=false;}publish();};
+ cb.signedOut=[&](){inspector.reset();authenticated=false;workspaceEntered=false;sessionUnlocked=false;gameModules::router.close();basketballUi::stop();ff3Play::stop();ff3Native::stop();ff3Native::uninstall();ui.MenuKeys(0);if(hooks){uninstallInput();hooks=false;}publish();};
  cb.custom=[&](const std::wstring& type,const json::Value& msg){
-  if(type==L"connectionNotice"){if(!test)qbPackets.suspendForRejoin();workspaceEntered=false;sessionUnlocked=false;gameModules::router.close();ff3Native::stop(false);ff3Native::uninstall();return;}
+  if(type==L"qbRetry"){const auto connection=gameModules::router.get();const auto* module=gameModules::identify(connection);if(!test&&!studio&&module&&module->id==gameModules::Id::FootballFusion3&&gameModules::ready(connection,now())&&qbPackets.retryable()){const bool enabled=ff3Native::enabled;if(!(enabled?qbPackets.start(connection.pid):qbPackets.prepare(connection.pid,true)))error(qbPackets.status().second.c_str());}return;}
+  if(type==L"connectionNotice"){if(!test)qbPackets.suspendForRejoin();workspaceEntered=false;sessionUnlocked=false;gameModules::router.close();ff3Play::stop();ff3Native::stop(false);ff3Native::uninstall();return;}
   if(test&&type==L"testConnection"){
    const auto fixture=msg[L"scenario"].str();testFixture=fixture==L"ready"?1:fixture==L"wrong"?2:fixture==L"meter"?3:fixture==L"outdated"?4:fixture==L"ff3"?5:0;
    // Invalidate immediately so even a click before the next UI status cannot pass.
@@ -104,11 +118,11 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
    ui.Post(L"{\"type\":\"reply\",\"rid\":"+std::to_wstring((int)msg[L"rid"].num())+L",\"ok\":true}");return;
   }
   if(test && type==L"testState"){
-   ui.Post(L"{\"type\":\"reply\",\"rid\":"+std::to_wstring((int)msg[L"rid"].num())+L",\"ok\":true,\"authenticated\":"+(authenticated?L"true":L"false")+L",\"inputs\":"+((sessionUnlocked||hooks||ff3Native::mouse)?L"true":L"false")+L",\"ff3\":"+json::dump(ff3Native::modules())+L",\"modules\":"+json::dump(basketballUi::snapshot())+L"}");return;
+   ui.Post(L"{\"type\":\"reply\",\"rid\":"+std::to_wstring((int)msg[L"rid"].num())+L",\"ok\":true,\"authenticated\":"+(authenticated?L"true":L"false")+L",\"inputs\":"+((sessionUnlocked||hooks||ff3Native::mouse)?L"true":L"false")+L",\"ff3\":"+json::dump(footballModules())+L",\"modules\":"+json::dump(basketballUi::snapshot())+L"}");return;
   }
   if(test && type==L"testCapture"){
    const auto rid=(int)msg[L"rid"].num();const auto name=msg[L"name"].str();
-   if(name==L"ff3-live"||name==L"ff3passes"||name==L"network"||name==L"ff3"||name==L"shooting"||name==L"reviewer"||name==L"defense"||name==L"home"||name==L"login"||name==L"connection"||name==L"reconnect"||name==L"recovered"||name==L"quit")ui.Capture((testFolder/(L"webui-"+name+L".png")).wstring(),[&,rid](bool ok){ui.Post(L"{\"type\":\"reply\",\"rid\":"+std::to_wstring(rid)+L",\"ok\":"+(ok?L"true":L"false")+L"}");});return;
+   if(name==L"networking-rejoin"||name==L"ff3-mags"||name==L"ff3-receiving"||name==L"ff3-defense"||name==L"ff3-live"||name==L"ff3passes"||name==L"network"||name==L"ff3"||name==L"shooting"||name==L"reviewer"||name==L"defense"||name==L"home"||name==L"login"||name==L"connection"||name==L"reconnect"||name==L"recovered"||name==L"quit")ui.Capture((testFolder/(L"webui-"+name+L".png")).wstring(),[&,rid](bool ok){ui.Post(L"{\"type\":\"reply\",\"rid\":"+std::to_wstring(rid)+L",\"ok\":"+(ok?L"true":L"false")+L"}");});return;
   }
   if(test&&type==L"testNetworkLog"){
    auto reply=networkInspector::object();reply.o[L"type"]=networkInspector::text(L"reply");reply.o[L"rid"]=msg[L"rid"];reply.o[L"ok"]=networkInspector::flag(false);
@@ -175,7 +189,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
  if(!ui.Create(instance,info,cb)){ui.Shutdown();CloseHandle(single);CoUninitialize();return 1;}
  ff3Hud::Overlay throwHud;if(!test)throwHud.start(instance,info);
  running=true;
- std::thread reader,geometry,visuals,defender,feedback,qb,qbVisual;
+ std::thread reader,geometry,visuals,defender,feedback,qb,qbVisual,play;
  if(!test)feedbackNative::logPath=folder/L"timing-review.csv";
  std::thread releaseWorker([&](){
   try{winrt::init_apartment(winrt::apartment_type::multi_threaded);
@@ -184,7 +198,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
    winrt::uninit_apartment();
   }catch(...){vantaRelease::publish({false,L"Unavailable",L"Could not verify the local Vanta release."});}
  });
- if(!test){reader=std::thread(engine);geometry=std::thread(contestWorker);visuals=std::thread(pumpVisualWorker);defender=std::thread(defense::worker);feedback=std::thread(shotFeedbackWorker);qb=std::thread([](){winrt::init_apartment(winrt::apartment_type::multi_threaded);ff3Native::worker();winrt::uninit_apartment();});qbVisual=std::thread(ff3Visual::worker);}
+ if(!test){reader=std::thread(engine);geometry=std::thread(contestWorker);visuals=std::thread(pumpVisualWorker);defender=std::thread(defense::worker);feedback=std::thread(shotFeedbackWorker);qb=std::thread([](){winrt::init_apartment(winrt::apartment_type::multi_threaded);ff3Native::worker();winrt::uninit_apartment();});qbVisual=std::thread(ff3Visual::worker);if(!studio)play=std::thread(ff3Play::worker);}
  std::thread telemetry([&](){while(running){
   if(test){ // Explicit synthetic fixtures only in isolated --ui-test; real policy/bridge.
    basketballConnection::Snapshot s;s.sampledAt=now();const int fixture=testFixture;
@@ -194,11 +208,12 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
   }
   auto release=vantaRelease::get();if(test&&testFixture==4)release={false,L"Update needed",L"A newer local Vanta build is available."};
   basketballConnection::releaseCurrent=release.current;
-  const auto connection=gameModules::router.get();if(!test)inspector.observe(connection.pid,connection.model,connection.universeId);const bool ready=gameModules::ready(connection,now())&&release.current;
-  if(gameModules::router.active(now(),release.current)==gameModules::Id::None&&workspaceEntered.exchange(false)){sessionUnlocked=false;if(!test)qbPackets.suspendForRejoin();ff3Native::stop(false);}
+  const auto connection=gameModules::router.get();if(!test&&!studio)inspector.observe(connection.pid,connection.model,connection.universeId);const bool ready=gameModules::ready(connection,now())&&release.current;
+  if(gameModules::router.active(now(),release.current)==gameModules::Id::None&&workspaceEntered.exchange(false)){sessionUnlocked=false;if(!test)qbPackets.suspendForRejoin();ff3Play::stop();ff3Native::stop(false);}
+  if(!test&&!studio){const auto* module=gameModules::identify(connection);if(ready&&module&&module->id==gameModules::Id::FootballFusion3)qbPackets.prepare(connection.pid);qbPackets.poll();ui.Post(json::dump(qbPackets.networking()));}
   ui.Post(json::dump(gameModuleUi::connection(connection,workspaceEntered,release)));
   if(ready&&basketballConnection::targetGame(connection)&&livePing)ui.SetPing(pingMs);
-  if(gameModules::router.active(now(),release.current)==gameModules::Id::FootballFusion3){ui.Post(json::dump(ff3Native::report()));const auto f=ff3Native::snapshot();if(f.ping>0&&now()-f.at<.3)ui.SetPing(int(std::lround(f.ping)));}
+  if(gameModules::router.active(now(),release.current)==gameModules::Id::FootballFusion3){ui.Post(json::dump(footballReport()));const auto f=ff3Native::snapshot();if(f.ping>0&&now()-f.at<.3)ui.SetPing(int(std::lround(f.ping)));}
   if(gameModules::router.active(now(),release.current)!=gameModules::Id::Basketball){for(int i=0;i<10&&running;i++)Sleep(25);continue;}
   auto frame=defense::snapshot();
   auto reason=basketballUi::widen(frame.decision.reason);
@@ -206,10 +221,10 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int){
   for(int i=0;i<10&&running;i++)Sleep(25);
  }});
  const int result=ui.Run();throwHud.stop();inspector.stop();
- sessionUnlocked=false;ff3Native::stop();ff3Native::uninstall();running=false;
- if(qb.joinable())qb.join();if(qbVisual.joinable())qbVisual.join();
+ sessionUnlocked=false;ff3Play::stop();ff3Native::stop();ff3Native::uninstall();running=false;qbPackets.stop();
+ if(play.joinable())play.join();if(qb.joinable())qb.join();if(qbVisual.joinable())qbVisual.join();
  if(reader.joinable())reader.join();if(geometry.joinable())geometry.join();if(defender.joinable())defender.join();if(visuals.joinable())visuals.join();if(feedback.joinable())feedback.join();
- telemetry.join();releaseWorker.join();if(hooks)uninstallInput();ui.Shutdown();
+ telemetry.join();releaseWorker.join();studioBridge.stop();if(hooks)uninstallInput();ui.Shutdown();
  CloseHandle(single);CoUninitialize();return test?testResult:result;
 }
 

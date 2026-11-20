@@ -8,7 +8,7 @@ import math,struct,collections
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from network_transport_lab import DecodeError,Stream,frames,unprotect,recover_nonce,ecb
 from network_wire_lab import Reader,Wire
-from live_network_decoder import record_alignment,MAPS
+from live_network_decoder import record_alignment,MAPS,REPLICATION_MODES
 
 def vector(value):
     if not isinstance(value,(list,tuple)) or len(value)!=3 or any(isinstance(x,bool) or not isinstance(x,(int,float)) or not math.isfinite(x) or abs(x)>1e7 for x in value):raise DecodeError('Invalid plan vector')
@@ -81,15 +81,18 @@ def angle_velocity(origin,target,movement,angle,gravity,latency,spawn=0):
     raise DecodeError('Selected angle exceeds available power')
 
 def throw_fields(body,call):
-    if call['method']!='FireServer' or len(call['args'])!=4 or call['args'][0]!='Clicked':return None
+    if call['method']!='FireServer' or len(call['args']) not in (4,6) or call['args'][0]!='Clicked':return None
     r=Reader(body);r.pos=call['recordOffset']+1;r.ref();r.integer(2)
-    if r.uint()!=4 or r.byte()!=2 or r.string()!='Clicked':return None
+    if r.uint()!=len(call['args']) or r.byte()!=2 or r.string()!='Clicked':return None
     if r.byte()!=22:return None
     origin=struct.unpack('<fff',r.take(12))
     if r.byte()!=22:return None
     aim_offset=r.pos;r.take(12)
     if r.byte()!=12:return None
     power_offset=r.pos;power=struct.unpack('<d',r.take(8))[0]
+    # Live-match calls append two numeric fields. Keep their bytes untouched.
+    for _ in range(len(call['args'])-4):
+        if r.byte()!=12 or not math.isfinite(struct.unpack('<d',r.take(8))[0]):return None
     if r.pos!=call['consumed'] or not math.isfinite(power) or not 1<=power<=95:return None
     return origin,aim_offset,power_offset,power
 
@@ -98,13 +101,18 @@ def jump_rise(jump,gravity,horizon,vertical_speed=0):
     rise=launch*t-.5*gravity*t*t;t=min(max(0,horizon),max(0,vertical_speed)/gravity)
     return max(rise,max(0,vertical_speed)*t-.5*gravity*t*t)
 
+def horizontal_travel(d,horizon):
+    horizon=max(0,horizon);speed=max(0,min(45,d['speed']))
+    burst=max(0,min(45,math.hypot(d['velocity'][0],d['velocity'][2]))-speed)*min(horizon,.35)
+    future_dive=max(0,horizon-.1)*max(0,45-speed)
+    return speed*horizon+min(d['dive'],max(burst,future_dive))
+
 def reach_gap(d,p,horizon):
     position=d['position'];movement=d['velocity'];horizon=max(0,horizon)
-    speed=max(0,min(45,max(d['speed'],math.hypot(movement[0],movement[2]))))
-    extra=min(d['dive'],max(0,horizon-.1)*max(0,45-speed))
+    travel=horizontal_travel(d,horizon)
     vertical_radius=(d.get('above',6)+d.get('below',8))*.5;horizontal_radius=min(d.get('radius',6),vertical_radius)
     shoulder_radius=max(0,d.get('radius',6)-vertical_radius);shoulder_y=position[1]+(d.get('above',6)-d.get('below',8))*.5
-    horizontal=max(0,math.hypot(p[0]-position[0],p[2]-position[2])-shoulder_radius-speed*horizon-extra)
+    horizontal=max(0,math.hypot(p[0]-position[0],p[2]-position[2])-shoulder_radius-travel)
     top=shoulder_y+jump_rise(d['jump'],d.get('worldGravity',196.2),horizon,movement[1])
     bottom=shoulder_y+min(0,movement[1])*min(horizon,.25)
     vertical=max(0,p[1]-top,bottom-p[1])
@@ -119,18 +127,60 @@ def validate_reach(d):
     if d.get('above',6)+d.get('below',8)<.2:raise DecodeError('Empty catcher vertical extent')
     if math.hypot(movement[0],movement[2])>45:raise DecodeError('Catcher speed outside model')
 
-def receiver_gap(receiver,point,horizon):
-    pose=dict(receiver);movement=receiver['velocity']
+def validate_field(field):
+    if not isinstance(field,dict) or field.get('known') is not True:raise DecodeError('Field boundaries unavailable')
+    vector(field.get('center'));right=vector(field.get('right'));forward=vector(field.get('forward'))
+    for value,lo,hi in ((field.get('halfWidth'),30,150),(field.get('halfLength'),80,350)):
+        if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not lo<=value<=hi:raise DecodeError('Field dimension bounds')
+    if abs(right[1])>=.01 or abs(forward[1])>=.01 or abs(length(right)-1)>=.01 or abs(length(forward)-1)>=.01 or abs(sum(a*b for a,b in zip(right,forward)))>=.01:raise DecodeError('Field orientation bounds')
+
+def field_contains(field,point,inset=0):
+    delta=[p-c for p,c in zip(point,field['center'])]
+    return abs(sum(a*b for a,b in zip(delta,field['right'])))<=field['halfWidth']-inset and abs(sum(a*b for a,b in zip(delta,field['forward'])))<=field['halfLength']-inset
+
+def field_closest(field,point,inset=1):
+    delta=[p-c for p,c in zip(point,field['center'])]
+    x=max(-field['halfWidth']+inset,min(field['halfWidth']-inset,sum(a*b for a,b in zip(delta,field['right']))))
+    z=max(-field['halfLength']+inset,min(field['halfLength']-inset,sum(a*b for a,b in zip(delta,field['forward']))))
+    return [field['center'][0]+field['right'][0]*x+field['forward'][0]*z,point[1],field['center'][2]+field['right'][2]*x+field['forward'][2]*z]
+
+def receiver_gap(receiver,point,horizon,field=None):
+    if field is not None and not field_contains(field,receiver['position'],.5):return math.inf
+    legal=lambda pose:field is None or field_contains(field,pose['position'],1)
+    horizon=max(0,horizon)
+    comfortable=dict(receiver);comfortable['jump']=comfortable['jump']*.85
+    comfortable['radius']=max(.1,comfortable.get('radius',6)-.4);comfortable['above']=max(0,comfortable.get('above',6)-.25)
+    jump_time=max(0,horizon-.18)
+    pose=dict(comfortable);movement=receiver['velocity']
+    following=dict(comfortable)
+    following['position']=[receiver['position'][0]+movement[0]*horizon,receiver['position'][1],receiver['position'][2]+movement[2]*horizon]
+    following.update(velocity=[0,movement[1],0],speed=0,dive=0)
+    if math.hypot(movement[0],movement[2])>.5:following['radius']=following.get('radius',6)+min(3.0,max(0,horizon-.15)*4)
+    route_gap=reach_gap(following,point,jump_time) if legal(following) else math.inf
     if receiver.get('redirect') is True:
         delay=.18+(.12 if math.hypot(movement[0],movement[2])>.5 else 0)
         pose['position']=[receiver['position'][0]+movement[0]*min(horizon,delay),receiver['position'][1],receiver['position'][2]+movement[2]*min(horizon,delay)]
         pose.update(velocity=[0,movement[1],0],speed=0,dive=0)
-        pose['radius']=pose.get('radius',6)+min(18,max(0,horizon-delay)*max(0,min(45,receiver['speed']))*.7)
-        return reach_gap(pose,point,max(0,horizon-.18))
-    pose['position']=[receiver['position'][0]+movement[0]*horizon,receiver['position'][1],receiver['position'][2]+movement[2]*horizon]
-    pose.update(velocity=[0,movement[1],0],speed=0,dive=0)
-    if math.hypot(movement[0],movement[2])>.5:pose['radius']=pose.get('radius',6)+min(3.0,max(0,horizon-.15)*4)
-    return reach_gap(pose,point,horizon)
+        speed=math.hypot(movement[0],movement[2])
+        if speed>.5:
+            available=max(0,horizon-delay)
+            forward=(movement[0]/speed,0,movement[2]/speed);side=(-forward[2],0,forward[0])
+            delta=[a-b for a,b in zip(field_closest(field,point) if field is not None else point,pose['position'])]
+            dot=lambda a,b:sum(x*y for x,y in zip(a,b))
+            progress=dot(delta,forward)
+            if available<=0 or progress<speed*available*.55:return route_gap
+            lateral=dot(delta,side);distance=math.hypot(progress,lateral)
+            direction=[delta[0]/max(1e-9,distance),0,delta[2]/max(1e-9,distance)] if abs(lateral)<=progress*.7002075382097097 else [f*.8191520442889918+s*(-.573576436351046 if lateral<0 else .573576436351046) for f,s in zip(forward,side)]
+            travel=max(0,min(max(0,min(45,min(receiver['speed'],speed)))*available,dot(delta,direction)))
+            pose['position']=[p+d*travel for p,d in zip(pose['position'],direction)]
+            return min(route_gap,reach_gap(pose,point,jump_time) if legal(pose) else math.inf)
+        adjustment=min(8,max(0,horizon-delay)*max(0,min(45,receiver['speed']))*.5)
+        if field is not None:
+            delta=[a-b for a,b in zip(field_closest(field,point),pose['position'])];delta[1]=0
+            scale=min(1,adjustment/max(1e-9,length(delta)));pose['position']=[p+d*scale for p,d in zip(pose['position'],delta)]
+        else:pose['radius']=pose.get('radius',6)+adjustment
+        return min(route_gap,reach_gap(pose,point,max(0,horizon-.18)) if legal(pose) else math.inf)
+    return route_gap
 
 def placement_limit(movement,flight,redirect=False):
     if redirect:return min(24,6+max(0,flight-.18)*14)
@@ -160,7 +210,10 @@ def replacement(body,call,plan,tick):
     if not fields:return None
     if plan.get('active') is not True or plan.get('mode')!='ff3-qb':raise DecodeError('No active assisted plan at throw')
     issued,expires,clicked=plan.get('issued',0),plan.get('expires',0),plan.get('clickAt',0)
-    if not 0<=tick-issued<=150 or not issued<=tick<=expires<=issued+200 or not 0<=tick-clicked<=350 or clicked<=0:raise DecodeError('Throw plan or physical click expired')
+    released=plan.get('releasedAt',0);held=plan.get('physicalHeld') is True
+    if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) for v in (issued,expires,clicked,released)):raise DecodeError('Throw timing bounds')
+    click_valid=clicked>0 and 0<=tick-clicked<=300000 and ((held and released==0) or (not held and ((released>=clicked and 0<=tick-released<=350) if released else tick-clicked<=350)))
+    if not 0<=tick-issued<=150 or not issued<=tick<=expires<=issued+200 or not click_valid or clicked>issued or released>issued:raise DecodeError('Throw plan or physical click expired')
     # The target was sampled before planning, not when this packet arrived.
     # Advance only its measured route; retain old catcher positions and extend
     # their reach horizon by the same delay for conservative revalidation.
@@ -175,19 +228,59 @@ def replacement(body,call,plan,tick):
         for key in ('targetPosition','routePosition'):
             if key in plan:plan[key]=[p+v*sample_delay for p,v in zip(vector(plan[key]),movement)]
     origin,aim_offset,power_offset,old_power=fields
+    wire_origin=origin
+    if len(call['args'])==6:
+        head=vector(plan['head'])
+        distance=lambda value:length(tuple(a-b for a,b in zip(value,head)))
+        # Two independently observed live-match calls encoded X minus 6M.
+        # Confirm against this client's native head before interpreting it.
+        decoded=(origin[0]+6000000,origin[1],origin[2])
+        if distance(origin)>16:
+            if call['args'][4:]!=[60,1] or distance(decoded)>16:raise DecodeError('Unrecognized live-match origin encoding')
+            origin=decoded
+
     if length(tuple(a-b for a,b in zip(vector(origin),vector(plan['head']))))>12:raise DecodeError('Throw origin disagrees with held character')
     power=plan.get('plannedPower',95.0) if plan.get('autoPower') is True else old_power
     if isinstance(power,bool) or not isinstance(power,(int,float)) or not math.isfinite(power) or not 1<=power<=95:raise DecodeError('Planned power bounds')
     beam=plan.get('beam95') is True
     if beam:
         if plan.get('autoPower') is not True:raise DecodeError('Beam requires calculated power')
-        launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],power,float(plan['gravity']),float(plan['latency']),bool(plan.get('lob')),spawn=5)
+        try:
+            launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],power,float(plan['gravity']),float(plan['latency']),bool(plan.get('lob')),spawn=5)
+        except DecodeError:
+            # Keep the selected elevation when a retained lower-power tier
+            # loses range during release. Revalidate reach/coverage below.
+            launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],float(plan.get('angle',math.nan)),float(plan['gravity']),float(plan['latency']),spawn=5)
         elevation=math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2])))
         if not -30<=elevation<=85:raise DecodeError('Receiver outside planned Beam range')
     elif plan.get('anglePower') is True and plan.get('autoPower') is True:
-        launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],float(plan['angle']),float(plan['gravity']),float(plan['latency']),spawn=5)
+        try:
+            launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],float(plan['angle']),float(plan['gravity']),float(plan['latency']),spawn=5)
+        except DecodeError:
+            if plan.get('angleFallback') is not True:raise
+            options=[]
+            for high in (False,True):
+                try:
+                    candidate,t=velocity(origin,plan['targetPosition'],plan['targetVelocity'],95,float(plan['gravity']),float(plan['latency']),high,spawn=5)
+                    elevation=math.degrees(math.atan2(candidate[1],math.hypot(candidate[0],candidate[2])))
+                    if elevation<=plan.get('maxAngle',50):options.append((abs(elevation-float(plan['angle'])),candidate,t))
+                except DecodeError:continue
+            if not options:raise DecodeError('Receiver outside capped automatic throw range')
+            _,launch,flight=min(options,key=lambda item:item[0]);power=95.0
     else:
         launch,flight=velocity(origin,plan['targetPosition'],plan['targetVelocity'],power,float(plan['gravity']),float(plan['latency']),bool(plan.get('lob')),spawn=5)
+    max_angle=plan.get('maxAngle',85)
+    if isinstance(max_angle,bool) or not isinstance(max_angle,(int,float)) or not math.isfinite(max_angle) or not 5<=max_angle<=85:raise DecodeError('Angle limit bounds')
+    elevation=math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2])))
+    if elevation>max_angle+1e-6:
+        if plan.get('autoPower') is not True:raise DecodeError('Throw exceeds angle limit')
+        launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],max_angle,float(plan['gravity']),float(plan['latency']),spawn=5)
+    min_angle=plan.get('minAngle',-30)
+    if isinstance(min_angle,bool) or not isinstance(min_angle,(int,float)) or not math.isfinite(min_angle) or not -30<=min_angle<=max_angle:raise DecodeError('Minimum angle bounds')
+    elevation=math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2])))
+    if elevation<min_angle-1e-6:
+        if plan.get('autoPower') is not True or min_angle<5:raise DecodeError('Throw below route angle minimum')
+        launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],min_angle,float(plan['gravity']),float(plan['latency']),spawn=5)
     offset=None
     anchor=plan.get('routePosition')
     if anchor is None and isinstance(plan.get('receiver'),dict):anchor=plan['receiver'].get('position')
@@ -198,9 +291,21 @@ def replacement(body,call,plan,tick):
         if length(direction)<.5:direction=(base[0]-plan['head'][0],0,base[2]-plan['head'][2])
         norm=length(direction);bias=tuple(v*lead/norm for v in direction) if norm>.001 else (0,0,0)
         offset=tuple(a-b-c for a,b,c in zip(vector(plan['targetPosition']),base,bias))
+        if plan.get('preserveCatchHeight') is True:
+            height=plan.get('heightAdjustment')
+            if isinstance(height,bool) or not isinstance(height,(int,float)) or not math.isfinite(height) or not -3<=height<=8:raise DecodeError('Configured catch height bounds')
+            if offset[1]<height-1e-6:raise DecodeError('Fit lowers configured catch height')
         redirect=plan.get('smartFit') is True and isinstance(plan.get('receiver'),dict) and plan['receiver'].get('redirect') is True
         if math.hypot(offset[0],offset[2])>placement_limit(vector(plan['targetVelocity']),flight,redirect)+1e-6:raise DecodeError('Placement leaves receiver route')
     margin=None
+    if plan.get('boundaryRequired') is True:
+        field=plan.get('field');validate_field(field)
+        validate_reach(plan.get('receiver'));receiver=dict(plan['receiver'])
+        receiver['position']=[p+v*sample_delay for p,v in zip(vector(receiver['position']),vector(receiver['velocity']))]
+        landing=[origin[i]+launch[i]*(5/power+flight)-(.5*float(plan['gravity'])*flight*flight if i==1 else 0) for i in range(3)]
+        start=[origin[i]+launch[i]*5/power for i in range(3)]
+        nearest=field_closest(field,landing);outside=math.hypot(landing[0]-nearest[0],landing[2]-nearest[2])
+        if not field_contains(field,start,-3) or (not field_contains(field,landing,1) and outside>3) or receiver_gap(receiver,landing,flight+float(plan['latency']),field)>-.25:raise DecodeError('No receiver-reachable catch in bounds')
     if plan.get('smartFit') is True or plan.get('strictFit') is True:
         if plan.get('coverageKnown') is not True:raise DecodeError('Incomplete catcher coverage')
         # Recompute coverage at the actual origin. The app explicitly permits
@@ -210,10 +315,12 @@ def replacement(body,call,plan,tick):
         if margin<=1.0 and (plan.get('allowContested') is not True or plan.get('strictFit') is True):raise DecodeError('No clear window at actual throw origin')
         if 'receiver' in plan:
             validate_reach(plan['receiver'])
+            receiver=dict(plan['receiver'])
+            receiver['position']=[p+v*sample_delay for p,v in zip(vector(receiver['position']),vector(receiver['velocity']))]
             landing=[origin[i]+launch[i]*(5/power+flight)-(.5*float(plan['gravity'])*flight*flight if i==1 else 0) for i in range(3)]
-            if receiver_gap(plan['receiver'],landing,flight+float(plan['latency'])+sample_delay)>-.25:raise DecodeError('Receiver cannot reach updated throw')
+            if receiver_gap(receiver,landing,flight+float(plan['latency']))>-.25:raise DecodeError('Receiver cannot reach updated throw')
     aim=tuple(origin[i]+launch[i]*(10000/power) for i in range(3))
-    return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],routeOffset=offset,instance=call['instance'],clickAt=clicked,coverageMargin=margin,contested=margin is not None and margin<=1.0,coverageUnits='studs')
+    return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,wireOrigin=wire_origin,argumentCount=len(call['args']),aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],routeOffset=offset,instance=call['instance'],clickAt=clicked,coverageMargin=margin,contested=margin is not None and margin<=1.0,coverageUnits='studs')
 
 class RecordTracker:
     def __init__(self,schema):self.schema=schema;self.streams={}
@@ -256,34 +363,75 @@ class RecordTracker:
 
 class Editor:
     def __init__(self,schema):
-        self.schema=schema;self.wire=Wire(schema,MAPS['3']);self.tracker=RecordTracker(schema);self.ledger=[];self.claimed=set();self.stats=collections.Counter();self.last=None;self.last_decline=None;self.covered=set()
+        self.schema=schema;self._reset_reader();self.ledger=[];self.claimed=set();self.stats=collections.Counter();self.last=None;self.last_decline=None;self.covered=set()
+        self.recent=collections.deque();self.recent_bytes=0;self.parser_failures=collections.Counter();self.last_recovery=-10000;self.recovering=False
+    def _reset_reader(self):
+        self.wires={mode:Wire(self.schema,MAPS[mode]) for mode in set(REPLICATION_MODES.values())}
+        self.wire=self.wires['3'];self.profile_wire=self.wires['4'];self.tracker=RecordTracker(self.schema)
+    def _calls(self,body):
+        mode=REPLICATION_MODES.get(body[0]) if body else None
+        return self.wires[mode].events(b'\x83'+body[1:],'outgoing') if mode else []
+    def _recover(self,tick):
+        # Reconstruct parser state from recent authenticated plaintext only.
+        # Never replay a game input or evaluate an old plan. Accepted reliable
+        # edits and their click ownership remain pinned for retransmissions.
+        self._reset_reader();decoded=0
+        for plain in self.recent:
+            try:spans=frames(plain)
+            except DecodeError:continue
+            for frame in spans:
+                try:records=self.tracker.add(frame)
+                except DecodeError:continue
+                for stream,start,body in records:
+                    try:decoded+=len(self._calls(body))
+                    except (DecodeError,UnicodeError,KeyError,ValueError,TypeError):pass
+        self.parser_failures.clear();self.last_recovery=tick;self.recovering=not bool(decoded);self.stats['parserRecoveries']+=1
+        self.stats['recoveredCalls']+=decoded
+    def update_schema(self,schema,tick):
+        self.schema=schema;self._recover(tick);self.stats['schemaRefreshes']+=1
+    def _decline(self,error,plan,tick,body,parser=False):
+        self.stats['declinedRecords']+=1
+        self.last_decline=dict(reason=str(error)[:160],at=tick,clickAt=plan.get('clickAt'),planActive=plan.get('active'),selectionReason=plan.get('selectionReason'),sampleAgeMs=plan.get('sampleAgeMs'),lockedTarget=plan.get('lockedTarget'),selectedTarget=plan.get('selectedTarget'),angle=plan.get('angle'),anglePower=plan.get('anglePower'),plannedPower=plan.get('plannedPower'),input=plan.get('input'),recordMode=REPLICATION_MODES.get(body[0]) if body else None,parserFailure=parser,property=getattr(error,'context',None))
     def process_plain(self,plain,plan,tick,allow=True):
         spans=frames(plain);candidate=bytearray(plain);records=[]
+        if len(plain)<=1024*1024:
+            self.recent.append(bytes(plain));self.recent_bytes+=len(plain)
+            while len(self.recent)>256 or self.recent_bytes>1024*1024:self.recent_bytes-=len(self.recent.popleft())
         for frame in spans:
             try:records.extend(self.tracker.add(frame))
             except DecodeError:self.stats['trackingFailures']+=1
-        if allow:
-            for stream,start,body in records:
-                if body[:1]!=b'\x83':continue
+        recover=False
+        for stream,start,body in records:
+            if not body or body[0] not in REPLICATION_MODES:continue
+            try:calls=self._calls(body)
+            except (DecodeError,UnicodeError,KeyError,TypeError,ValueError) as error:
+                self._decline(error,plan,tick,body,True);self.parser_failures[stream]+=1
+                recover=recover or (self.parser_failures[stream]>=3 and tick-self.last_recovery>=5000)
+                continue
+            if calls:self.recovering=False
+            for call in calls:
+                self.stats['decodedCalls']+=1
+                if call['method']=='FireServer' and call['args'] and call['args'][0]=='Clicked':self.stats['clickedCalls']+=1
+                # Setup/draining still primes dictionaries, but never creates
+                # an edit or consumes a physical click from a previous record.
+                if not allow or self.recovering:continue
                 try:
-                    for call in self.wire.events(body,'outgoing'):
-                        proposal=replacement(body,call,plan,tick)
-                        if not proposal:continue
-                        edits,detail=proposal
-                        if detail['clickAt'] in self.claimed or len(self.ledger)+len(edits)>2048:continue
-                        planned=[]
-                        for offset,value in edits:
-                            absolute=start+offset;positions={}
-                            for frame in spans:
-                                if frame.stream!=stream:continue
-                                for at in range(max(absolute,frame.offset),min(absolute+len(value),frame.offset+len(frame.data))):positions.setdefault(at,[]).append(frame.plain_offset+at-frame.offset)
-                            if any(at not in positions for at in range(absolute,absolute+len(value))):break
-                            planned.append((stream,absolute,value,detail['clickAt']))
-                        else:
-                            self.ledger.extend(planned);self.claimed.add(detail['clickAt']);self.last=detail;self.stats['modifiedThrows']+=1
-                except (DecodeError,UnicodeError,KeyError,TypeError,ValueError) as error:
-                    self.stats['declinedRecords']+=1
-                    self.last_decline=dict(reason=str(error)[:160],at=tick,clickAt=plan.get('clickAt'),planActive=plan.get('active'),selectionReason=plan.get('selectionReason'),sampleAgeMs=plan.get('sampleAgeMs'))
+                    proposal=replacement(body,call,plan,tick)
+                    if not proposal:continue
+                    edits,detail=proposal
+                    if detail['clickAt'] in self.claimed or len(self.ledger)+len(edits)>2048:continue
+                    planned=[]
+                    for offset,value in edits:
+                        absolute=start+offset;positions={}
+                        for frame in spans:
+                            if frame.stream!=stream:continue
+                            for at in range(max(absolute,frame.offset),min(absolute+len(value),frame.offset+len(frame.data))):positions.setdefault(at,[]).append(frame.plain_offset+at-frame.offset)
+                        if any(at not in positions for at in range(absolute,absolute+len(value))):break
+                        planned.append((stream,absolute,value,detail['clickAt']))
+                    else:
+                        self.ledger.extend(planned);self.claimed.add(detail['clickAt']);self.last=detail;self.stats['modifiedThrows']+=1
+                except (DecodeError,UnicodeError,KeyError,TypeError,ValueError) as error:self._decline(error,plan,tick,body)
+        if recover:self._recover(tick)
         touched=False;coverage=collections.defaultdict(list);self.covered=set()
         for stream,start,value,clicked in self.ledger:
             present=set()

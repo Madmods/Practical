@@ -12,6 +12,14 @@ call "%~dp0test-ff3-qb.cmd"
 if errorlevel 1 exit /b 1
 call "%~dp0test-ff3-qb-native.cmd"
 if errorlevel 1 exit /b 1
+call "%~dp0test-ff3-boundaries.cmd"
+if errorlevel 1 exit /b 1
+call "%~dp0test-ff3-mags-visual.cmd"
+if errorlevel 1 exit /b 1
+call "%~dp0test-ff3-play.cmd"
+if errorlevel 1 exit /b 1
+call "%~dp0test-ff3-ball-mags.cmd"
+if errorlevel 1 exit /b 1
 copy /y "%~dp0..\build\Vanta-Basketball.exe" "%~dp0..\..\Vanta.exe" >nul
 if errorlevel 1 (
  echo Close Basketball before installing the new executable. The candidate is in Native\build.

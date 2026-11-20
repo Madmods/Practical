@@ -149,6 +149,14 @@ class Wire:
         if len(args)>64:raise DecodeError('Invocation argument limit')
         return dict(path=f'Unresolved instance {peer}:{ident}',method=method,args=args,peer=peer,instance=ident,eventId=event_id,invocationId=invocation_id,source='Authenticated traffic',consumed=r.pos,recordBytes=len(body),pathResolved=False)
     def events(self,body,direction):
+        cache=dict(self.cache)
+        try:return self._events(body,direction)
+        except (DecodeError,UnicodeError,KeyError,ValueError,TypeError):
+            # A partly decoded record must not poison cached arguments for
+            # the following valid record on this connection.
+            self.cache=cache
+            raise
+    def _events(self,body,direction):
         if not body or body[0]!=0x83:return []
         r=Reader(body);r.byte();calls=[]
         while r.pos<len(body) and len(calls)<64:
@@ -159,7 +167,10 @@ class Wire:
                 peer,ident=r.ref();property_id=r.integer(2);versioned=r.byte()
                 if not peer or not self.schema or property_id>=len(self.schema.properties) or versioned>1:raise DecodeError('Invalid property acknowledgement header')
                 prop=self.schema.properties[property_id]
-                if prop['name']!='CFrame' or prop['className'] not in ('Part','MeshPart') or prop['kind']!=27:raise DecodeError('Unsupported property acknowledgement schema')
+                if prop['name']!='CFrame' or prop['className'] not in ('Part','MeshPart','UnionOperation') or prop['kind']!=27:
+                    error=DecodeError('Unsupported property acknowledgement schema')
+                    error.context=dict(propertyId=property_id,propertyName=prop['name'],propertyClass=prop['className'],propertyKind=prop['kind'])
+                    raise error
                 if versioned and r.uint()>0xffffffff:raise DecodeError('Property acknowledgement version bound')
                 r.take(4)
             elif op==7:

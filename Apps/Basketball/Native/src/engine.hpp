@@ -34,7 +34,18 @@ inline ShotBindingRouter shotRouter;   // hold key, rebindable from the UI
 inline double now(){using namespace std::chrono;return duration<double>(steady_clock::now().time_since_epoch()).count();}
 template<class T>T rd(HANDLE h,addr a,T fail={}){T v{};SIZE_T n=0;return a>65535&&ReadProcessMemory(h,(void*)a,&v,sizeof v,&n)&&n==sizeof v?v:fail;}
 inline std::string nm(HANDLE h,addr o){auto a=rd<addr>(h,o+Offsets::Instance::NameContainer),n=rd<addr>(h,a+16);if(!n||n>120)return {};if(rd<addr>(h,a+24)>=16)a=rd<addr>(h,a);char s[121]{};SIZE_T z;return ReadProcessMemory(h,(void*)a,s,n,&z)&&z==n?std::string(s,n):"";}
-inline addr child(HANDLE h,addr o,const std::string& s){auto t=rd<addr>(h,o+Offsets::Instance::ChildrenStart),a=rd<addr>(h,t),b=rd<addr>(h,t+8);if(!a||b<a||b-a>160000)return 0;for(;a<b;a+=16){auto v=rd<addr>(h,a);if(nm(h,v)==s)return v;}return 0;}
+inline bool instanceClassIs(HANDLE h,addr o,const std::string& expected){
+ auto descriptor=rd<addr>(h,o+Offsets::Instance::ClassDescriptor),text=rd<addr>(h,descriptor+Offsets::Instance::ClassName);
+ auto size=rd<addr>(h,text+16),capacity=rd<addr>(h,text+24);if(size!=expected.size()||!size||size>120||capacity<size||capacity>4096)return false;
+ if(capacity>=16)text=rd<addr>(h,text);char value[121]{};SIZE_T read=0;return ReadProcessMemory(h,(void*)text,value,size,&read)&&read==size&&expected==std::string(value,size);
+}
+inline addr child(HANDLE h,addr o,const std::string& s){
+ auto t=rd<addr>(h,o+Offsets::Instance::ChildrenStart),a=rd<addr>(h,t),b=rd<addr>(h,t+8);if(!a||b<a||b-a>160000)return 0;
+ // Services may be renamed by an experience; restrict class fallback to the
+ // DataModel's singleton services, never similarly named gameplay objects.
+ const bool service=(s=="Workspace"||s=="Players")&&instanceClassIs(h,o,"DataModel");addr fallback=0;
+ for(;a<b;a+=16){auto v=rd<addr>(h,a);if(nm(h,v)==s)return v;if(service&&instanceClassIs(h,v,s))fallback=v;}return fallback;
+}
 inline addr path(HANDLE h,addr o,std::initializer_list<std::string> names){for(auto&s:names){if(!o)return 0;o=child(h,o,s);}return o;}
 inline double median(std::vector<double> a){std::sort(a.begin(),a.end());return (a[(a.size()-1)/2]+a[a.size()/2])/2;}
 inline std::atomic<bool> assist{false},holdEarly{true},protectFall{true},ceilingOn{false},closeoutOn{false};
@@ -162,6 +173,12 @@ inline basketballConnection::Snapshot inspectBasketball(HANDLE h,addr base,DWORD
  if(rd<addr>(h,rd<addr>(h,base+Offsets::FakeDataModel::Pointer)+Offsets::FakeDataModel::RealDataModel)!=root||rd<std::uint64_t>(h,root+Offsets::DataModel::PlaceId)!=s.placeId||rd<std::uint64_t>(h,root+Offsets::DataModel::GameId)!=s.universeId||child(h,characters,who)!=own||WaitForSingleObject(h,0)!=WAIT_TIMEOUT){s.loaded=false;s.player=false;}
  s.sampledAt=now();return s;
 }
+inline int supportedClientRank(HANDLE h,addr base,DWORD pid){
+ auto candidate=inspectBasketball(h,base,pid);
+ // connectRoblox has already checked process access and the client version.
+ candidate.process=candidate.version=true;
+ return gameModules::compatible(candidate)?2:gameModules::identify(candidate)?1:0;
+}
 // Geometry runs separately so scanning defenders cannot stall meter sampling.
 inline void updatePump(HANDLE h,addr root,addr own,addr player,addr visualEngine);
 inline std::atomic<addr> sceneVisualEngine{0};
@@ -170,21 +187,34 @@ inline void contestWorker(){HANDLE h=nullptr;DWORD attached=0;while(running){DWO
 inline void engine(){
  PreciseWait meterWait;
  HANDLE h=nullptr;DWORD pid=0;addr base=0,m=0,ping=0,root=0,own=0,player=0;
- double lookup=-10,net=-10,lastPing=-10,start=0,threatSince=-1,connectionProbe=-10;bool tracking=false,initialized=false,falling=false;unsigned seen=0;int failures=0;unsigned seenPump=0;double ownedSince=0;
+ double lookup=-10,net=-10,lastPing=-10,start=0,threatSince=-1,connectionProbe=-10,unavailableSince=-1;bool tracking=false,initialized=false,falling=false;unsigned seen=0;int failures=0;unsigned seenPump=0;double ownedSince=0;
  shooting::MeterTrend trend;auto& descent=trend.descent;shooting::PingFilter pingFilter;
  const double minimumPoll=meterWait.highResolution()?.006:.016;
  double lastMeterAt=-1,pollAhead=minimumPoll;
  timingReview::Tuning shotTuning;bool tuningCaptured=false,reviewWasActive=false;int shotBase=0;
  TimingWindow shotWindow;bool windowCaptured=false;
  auto stop=[&](int reason){if(pumpOwned.exchange(false)&&gameDown){sendRelease();gameDown=false;}tracking=false;activeMeter=false;fillPct=0;statusCode=reason;publishTimingWindow({});if(pendingUp&&gameDown){if(sendRelease()){pendingUp=false;gameDown=false;}else statusCode=12;}};
+ auto disconnect=[&](){resetReviewer();stop(0);CloseHandle(h);h=nullptr;gamePid=0;linked=false;meterFound=false;livePing=false;m=ping=0;pingFilter.reset();pingMs=30;lastPing=-10;contestAt=-10;sceneRoot=0;sceneOwn=0;scenePlayer=0;sceneVisualEngine=0;heldBall=0;nearTarget=0;sceneAt=-10;connectionState=ConnectionState::Waiting;};
  while(running){double t=now();
+  if(gameModules::studioMode){Sleep(100);continue;}
   const bool reviewActive=reviewOn&&sessionUnlocked;
   if(reviewActive!=reviewWasActive){resetReviewer();reviewWasActive=reviewActive;}
-  if(h&&WaitForSingleObject(h,0)!=WAIT_TIMEOUT){resetReviewer();stop(0);CloseHandle(h);h=nullptr;gamePid=0;linked=false;meterFound=false;livePing=false;m=ping=0;pingFilter.reset();pingMs=30;lastPing=-10;contestAt=-10;sceneRoot=0;sceneOwn=0;scenePlayer=0;sceneVisualEngine=0;heldBall=0;nearTarget=0;sceneAt=-10;connectionState=ConnectionState::Waiting;}
-  if(!h){if(!connectRoblox(h,pid,base)){if(basketballConnection::required)gameModules::publish(inspectBasketball(nullptr,0,0));Sleep(350);continue;}gamePid=pid;lookup=-10;net=-10;connectionProbe=-10;}
+  if(h&&WaitForSingleObject(h,0)!=WAIT_TIMEOUT){disconnect();}
+  if(!h){if(!connectRoblox(h,pid,base,basketballConnection::required?supportedClientRank:nullptr)){if(basketballConnection::required)gameModules::publish(inspectBasketball(nullptr,0,0));Sleep(350);continue;}gamePid=pid;lookup=-10;net=-10;connectionProbe=-10;}
   if(basketballConnection::required&&t-connectionProbe>=.25){
    const auto previous=basketballConnection::state.get();auto connection=inspectBasketball(h,base,pid);
    gameModules::publish(connection);connectionProbe=now();
+   if(!gameModules::compatible(connection)){
+    if(unavailableSince<0)unavailableSince=t;
+    if(t-unavailableSince>=2){
+     HANDLE alternate=nullptr;DWORD alternatePid=0;addr alternateBase=0;
+     if(connectRoblox(alternate,alternatePid,alternateBase,supportedClientRank)){
+      if(alternatePid!=pid){CloseHandle(alternate);disconnect();unavailableSince=-1;continue;}
+      CloseHandle(alternate);
+     }
+     unavailableSince=t;
+    }
+   }else unavailableSince=-1;
    if(!basketballConnection::compatible(connection)||!basketballConnection::sameSession(previous,connection)){resetReviewer();stop(1);m=0;lookup=-10;}
   }
   // Stop all Basketball discovery and input work in other experiences. The

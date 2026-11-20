@@ -4,7 +4,7 @@ The normal game generates the throw. No event is synthesized or replayed.
 Original datagrams are forwarded on every processing error. Already accepted
 stream edits remain pinned during disable/drain so retransmissions stay stable.
 """
-import ctypes,json,pathlib,struct,socket,threading,time,collections
+import ctypes,json,pathlib,struct,socket,threading,time,collections,sys
 from network_transport_lab import DecodeError,frames,unprotect,recover_nonce
 from live_network_decoder import LiveDecoder
 from qb_packet_editor import Editor,authenticated_plain,encrypt_changed
@@ -12,11 +12,16 @@ from validate_live_transport import candidates
 import network_schema_cache
 
 GAME_FILTER='ip and udp and !loopback and (udp.Payload32[0] == 0x01000017 or udp.Payload32[0] == 0x0100001f) and udp.Payload16[4b] == 0x0111 and udp.Payload[6] == 2'
-DEPENDENCY=r'C:\Users\k\Downloads\Practical Basketball\Tools\LatencyTest\bin\WinDivert.dll'
+def dependency_path():
+    base=pathlib.Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else pathlib.Path(__file__).resolve().parent
+    path=base/'WinDivert.dll'
+    if not path.is_file() or not (base/'WinDivert64.sys').is_file():
+        raise FileNotFoundError('Networking files are missing. Extract the entire Vanta ZIP and keep its folders together')
+    return path
 
 class Driver:
     def __init__(self):
-        self.dll=ctypes.WinDLL(DEPENDENCY,use_last_error=True);d=self.dll
+        self.dll=ctypes.WinDLL(str(dependency_path()),use_last_error=True);d=self.dll
         d.WinDivertOpen.argtypes=[ctypes.c_char_p,ctypes.c_int,ctypes.c_short,ctypes.c_ulonglong];d.WinDivertOpen.restype=ctypes.c_void_p
         d.WinDivertRecv.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_uint,ctypes.POINTER(ctypes.c_uint),ctypes.c_void_p];d.WinDivertRecv.restype=ctypes.c_int
         d.WinDivertSend.argtypes=d.WinDivertRecv.argtypes;d.WinDivertSend.restype=ctypes.c_int
@@ -80,19 +85,36 @@ def current_flow(live,observed,owned):
         contexts.append(state['context'])
     return connection,*contexts
 
-def setup_status(live,observed,owned):
+def setup_phase(live,observed,owned):
     recent=[r for r in observed[-512:] if r['connection'][0][1] in owned]
-    if not recent:return 'Waiting for the current game connection'
+    if not recent:return 'waiting'
     connection=recent[-1]['connection']
     for direction in ('outgoing','incoming'):
         latest=next((r for r in reversed(recent) if r['connection']==connection and r['direction']==direction),None)
         if latest is None or not live.groups.get((connection,direction,latest['cid']),{}).get('context'):
-            return 'Preparing keys for the current game connection'
-    return 'Rejoin once to finish QB setup' if connection not in live.schemas else 'Checking current QB connection'
+            return 'keys-'+direction
+    return 'rejoin' if connection not in live.schemas else 'checking'
 
-def scan_incrementally(pid,keys,result,cancel,stop_path):
+def setup_status(live,observed,owned):
+    phase=setup_phase(live,observed,owned)
+    if phase=='waiting':return 'Waiting for the current game connection'
+    if phase.startswith('keys-'):return 'Preparing keys for '+phase[5:]+' traffic on this game connection'
+    if phase=='rejoin':return 'Rejoin FF3 without holding a football. Keep Vanta open while you rejoin'
+    return 'Checking current QB connection'
+
+def setup_failure(live,observed,owned,key_count,scan_result):
+    recent=[r for r in observed[-512:] if r['connection'][0][1] in owned]
+    if scan_result.get('error'):return 'QB cannot read this game process. Retry setup; normal throwing remains available'
+    if not recent:return 'No supported traffic from this Roblox client. Join FF3, then retry QB setup'
+    if not key_count:return 'No supported transport keys found for this client. QB assistance is unavailable; retry setup for a fresh diagnostic'
+    stage=setup_status(live,observed,owned)
+    if 'Preparing keys' in stage:return 'Transport authentication failed for this client. QB assistance is unavailable; retry setup'
+    if setup_phase(live,observed,owned)=='rejoin':return 'Join schema missing. Retry setup, then rejoin FF3 without holding a football. Keep Vanta open'
+    return 'QB setup stopped before the current connection became ready. Retry QB setup'
+
+def scan_incrementally(pid,keys,result,cancel,stop_path,start_address=0):
     # Publish candidate keys after short slices; preserve the total scan budget.
-    started=time.monotonic();address=0;total=0
+    started=time.monotonic();address=start_address;total=0
     while not cancel.is_set() and not stop_path.exists() and time.monotonic()-started<10 and total<1024*1024*1024:
         found,stats=candidates(pid,750,start_address=address,stop_path=stop_path,max_bytes=1024*1024*1024-total)
         keys.extend(k for k in found if k not in keys);found.clear();total+=stats.get('bytesRead',0);result.update(stats);result['bytesRead']=total
@@ -109,13 +131,17 @@ def run(folder,pid,parent,seconds=None):
     parent_handle=kernel.OpenProcess(0x100000,False,parent) if parent else None
     owner=network_schema_cache.identity(pid);keys=[];live=LiveDecoder(keys,network_schema_cache.load(folder.parent/'schema-cache.json',owner,max_age=None))
     driver=None;handles=[];ending=threading.Event();scan_done=threading.Event();scan_result={};editor=None;mode='Preparing';error='';seen=0;started=time.monotonic();draining=None;last_edit=0;pending={};acked=set();last_publish=0;last_plan=0;plan={};flow=None;out_context=None;in_context=None
-    scan_rounds=0;scan_groups=set();last_scan=0;last_receive=0;last_port_check=0;scan_cancel=threading.Event();saved_flow=None
+    scan_rounds=0;scan_groups=set();last_scan=0;last_receive=0;last_port_check=0;scan_cancel=threading.Event();saved_flow=None;owned_packets=0;scan_resume=0;observed=[];setup_deadline=started+120
     def status(message,ready=False):
-        publish(state_path,dict(capture=mode,decoder=message,status=message,calls=[],ready=ready,error=error,stats={**dict(live.counts),**(dict(editor.stats) if editor else {}),'observedPackets':seen,'scanRounds':scan_rounds},last=editor.last if editor else None,lastDecline=editor.last_decline if editor else None,heartbeat=int(kernel.GetTickCount64()),localPort=flow[0][1] if flow else None,keysWritten=False))
+        phase=setup_phase(live,observed,ports(pid))
+        rejoin=phase=='rejoin' and not error and not stop.exists()
+        publish(state_path,dict(capture=mode,phase='ready' if ready else ('failed' if mode=='Stopped' else phase),requiresRejoin=rejoin,decoder=message,status=message,calls=[],ready=ready,error=error,stats={**dict(live.counts),**(dict(editor.stats) if editor else {}),'observedPackets':seen,'scanRounds':scan_rounds,'ownedPackets':owned_packets,'keyCandidateCount':len(keys),'scanBytes':scan_result.get('bytesRead',0),'scanError':scan_result.get('error',0),'authenticatedOutgoingGroups':sum(bool(s['context']) for g,s in live.groups.items() if g[1]=='outgoing'),'authenticatedIncomingGroups':sum(bool(s['context']) for g,s in live.groups.items() if g[1]=='incoming')},last=editor.last if editor else None,lastDecline=editor.last_decline if editor else None,heartbeat=int(kernel.GetTickCount64()),localPort=flow[0][1] if flow else None,keysWritten=False))
     def wants_stop():return stop.exists() or (mode!='Preparing' and setup_only.exists()) or (parent_handle and kernel.WaitForSingleObject(parent_handle,0)==0) or (seconds is not None and time.monotonic()-started>=seconds)
     def scan():
+        nonlocal scan_resume
         try:
-            scan_incrementally(pid,keys,scan_result,scan_cancel,stop)
+            scan_incrementally(pid,keys,scan_result,scan_cancel,stop,start_address=scan_resume)
+            scan_resume=scan_result.get('nextAddress',0) if scan_result.get('limitReached') else 0
         except Exception as exc:scan_result['error']=str(exc)
         finally:scan_done.set()
     scan_thread=None;watcher=None;active_handle=[None]
@@ -131,30 +157,34 @@ def run(folder,pid,parent,seconds=None):
                     if flow[0][1] not in ports(pid):error='Game connection changed; toggle QB aim to reconnect';mode='Draining';draining=stamp
                 if wants_stop():mode='Draining';draining=stamp
             drained=mode=='Draining' and draining is not None and ((not pending or all(clicked in acked for clicked in list(pending.values()))) and time.monotonic()-last_edit>=2 or time.monotonic()-draining>10)
-            if active_handle[0] and ((mode=='Preparing' and (wants_stop() or time.monotonic()-started>120)) or drained):
+            if active_handle[0] and ((mode=='Preparing' and (wants_stop() or time.monotonic()>setup_deadline)) or drained):
                 driver.shutdown(active_handle[0]);return
     try:
         if not owner or (parent and not parent_handle):raise RuntimeError('QB game or app process is unavailable')
         driver=Driver();warm=driver.open(GAME_FILTER,True);handles.append(warm);active_handle[0]=warm;status('Preparing QB throw control')
         scan_rounds=1;last_scan=time.monotonic();scan_thread=threading.Thread(target=scan);scan_thread.start();watcher=threading.Thread(target=watch);watcher.start()
         observed=[];owned=ports(pid);last_ports=time.monotonic();last_decode=0;warm_connection=None
-        while not wants_stop() and time.monotonic()-started<120:
+        while not wants_stop() and time.monotonic()<setup_deadline:
             received=driver.recv(warm)
             if received is None:break
             raw,_=received;seen+=1;r=row(raw,seen)
             if not r:continue
             if time.monotonic()-last_ports>.2 or r['connection'][0][1] not in owned:owned=ports(pid);last_ports=time.monotonic()
             if r['connection'][0][1] not in owned:continue
+            owned_packets+=1
             if warm_connection and warm_connection!=r['connection'] and warm_connection[0][1] not in owned:
                 # A real rejoin closed the old socket. Its queued packets,
                 # decoder limits and key retry count must not starve the join.
                 observed=[];live=LiveDecoder(keys,network_schema_cache.load(cache_path,owner,max_age=None))
-                scan_rounds=0;scan_groups=set();last_scan=0;last_decode=0;flow=None;saved_flow=None
+                scan_rounds=0;scan_groups=set();last_scan=0;last_decode=0;flow=None;saved_flow=None;scan_resume=0;setup_deadline=time.monotonic()+120
             warm_connection=r['connection']
             observed.append(r)
-            if len(observed)>20000:raise RuntimeError('QB warm-up packet budget reached; retry setup')
+            # Keep a rolling setup sample while the prepared helper waits for
+            # QBA. Decoder streams keep their own bounded reassembly state.
+            if len(observed)>4096:del observed[:-4096]
+            if hasattr(live,'seen') and len(live.seen)>8192:live.seen.intersection_update(r['frame'] for r in observed)
             signature=(r['connection'],r['cid'])
-            if scan_done.is_set() and scan_rounds<3 and time.monotonic()-last_scan>3 and (signature not in scan_groups or 'Preparing keys' in setup_status(live,observed,owned)):
+            if not flow and scan_done.is_set() and scan_rounds<3 and time.monotonic()-last_scan>3 and (signature not in scan_groups or 'Preparing keys' in setup_status(live,observed,owned)):
                 scan_thread.join();scan_groups={(item['connection'],item['cid']) for item in observed};scan_done.clear();scan_cancel.clear();scan_result.clear();scan_rounds+=1;last_scan=time.monotonic();scan_thread=threading.Thread(target=scan);scan_thread.start()
             if scan_done.is_set() and scan_result.get('error'):raise RuntimeError('QB transport keys are unavailable for this client')
             if keys and time.monotonic()-last_decode>.25:
@@ -166,19 +196,22 @@ def run(folder,pid,parent,seconds=None):
                 if flow:
                     scan_cancel.set()
                     if saved_flow!=flow:network_schema_cache.save(cache_path,owner,live);saved_flow=flow
-                    if setup_only.exists() and (folder/'resume-after-join').exists():
-                        status('Setup ready. Press Continue; QB aim will resume automatically')
+                    if setup_only.exists():
+                        setup_deadline=time.monotonic()+120
+                        status('Setup ready. Press Continue; QB aim will resume automatically' if (folder/'resume-after-join').exists() else 'Networking ready. QBA is off',True)
                         continue
                     network_schema_cache.save(cache_path,owner,live)
                     break
                 status(setup_status(live,observed,ports(pid)))
+            elif not keys and time.monotonic()-last_publish>.5:
+                last_publish=time.monotonic();status('Reading current transport keys' if not scan_done.is_set() else 'No supported keys found yet; waiting for this connection')
         if wants_stop():
             mode='Stopped';status('QB setup stopped');return 0
         if not flow:
-            mode='Stopped';status('QB setup stopped' if wants_stop() else 'Setup timed out. Enable QB aim before rejoining; wait for setup to finish');return 1
+            mode='Stopped';status('QB setup stopped' if wants_stop() else setup_failure(live,observed,ports(pid),len(keys),scan_result));return 1
         if setup_only.exists():
             mode='Stopped';status('Join setup saved. Enable QB aim in Football Fusion 3');return 0
-        editor=Editor(live.schemas[flow])
+        editor=Editor(live.schemas[flow]);active_schema=live.schema_packets.get(flow)
         def process_warm(r):
             if r['connection']!=flow:return
             if r['direction']=='outgoing':
@@ -228,6 +261,15 @@ def run(folder,pid,parent,seconds=None):
                             for clicked in editor.covered:pending[u.packet_number]=clicked
                             if editor.stats['modifiedThrows']>before:last_edit=time.monotonic()
                     else:
+                        # A match can teach a fresh descriptor dictionary after
+                        # setup. Keep the decoder attached to incoming schema
+                        # records instead of pinning the warm-up dictionary.
+                        if len(getattr(live,'seen',()))>8192:live.seen.clear()
+                        live.ingest([r])
+                        fresh_schema=live.schema_packets.get(flow)
+                        if fresh_schema and fresh_schema!=active_schema:
+                            editor.update_schema(live.schemas[flow],int(kernel.GetTickCount64()));active_schema=fresh_schema
+                            network_schema_cache.save(cache_path,owner,live)
                         u=unprotect(r['payload'],in_context['hp'],23,in_context['largest']);recovered=recover_nonce(u,in_context['key'])
                         if recovered:
                             ranges=[];frames(recovered[1],ack_ranges=ranges)
@@ -247,7 +289,7 @@ def run(folder,pid,parent,seconds=None):
                         driver.send(active,changed,address,True)
                     else:raise
             if time.monotonic()-last_publish>.2:
-                status('QB throw control ready' if draining is None else 'Finishing the previous throw',draining is None);last_publish=time.monotonic()
+                status(('Resynchronizing match throw data' if editor.recovering else 'QB throw control ready') if draining is None else 'Finishing the previous throw',draining is None and not editor.recovering);last_publish=time.monotonic()
         mode='Stopped';status('QB throw control stopped');return 0
     except Exception as exc:
         error=str(exc);mode='Stopped';status('QB throw control unavailable');return 1

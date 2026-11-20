@@ -14,6 +14,8 @@ local running, missed, autoReact = false, false, true
 local settings = {beam = true, smartFit = true, height = P.BeamHeight, lead = P.BeamLead}
 local preview, ball, busy, result, owner = nil, nil, false, "", nil
 local pendingThrow, generation = false, 0
+local socket, connected, pendingRequest = nil, false, nil
+Lab:SetAttribute("Session", session)
 local bridgeStatus, lastRequest = "Waiting for Vanta", 0
 local function V(a) return Vector3.new(a[1], a[2], a[3]) end
 local function A(v) return {v.X, v.Y, v.Z} end
@@ -28,7 +30,7 @@ local function add(role, position)
     return b
 end
 local function reset(name)
-    generation += 1; bots = {}; selected = nil; preview = nil; ball = nil; pendingThrow = false; result = ""; running = false
+    generation += 1; pendingRequest=nil; bots = {}; selected = nil; preview = nil; ball = nil; pendingThrow = false; result = ""; running = false
     if name == "Overlap" then add("WR", Vector3.new(0, 4.5, -65)); add("DB", Vector3.new(2, 4.5, -65))
     elseif name == "Missed catch" then add("WR", Vector3.new(0, 4.5, -65)); add("DB", Vector3.new(0, 4.5, -100))
     elseif name == "Crossing" then local w = add("WR", Vector3.new(-30, 4.5, -65)); w.route = "Slant"; add("DB", Vector3.new(-15, 4.5, -75)); running = true
@@ -61,34 +63,62 @@ local function actor(b)
         diveReach = b.canDive and P.DiveReach or 0, radius = P.CatchRadius, above = P.CatchAbove, below = P.CatchBelow, worldGravity = P.WorldGravity}
 end
 local function point(o,v,t) return o + v*t - Vector3.new(0, P.BallGravity*t*t/2, 0) end
-local function requestPlan(throw)
-    local wr = find(selected); local head = owner and owner.Character and owner.Character:FindFirstChild("Head")
-    if not wr or not head or not held() or ball then return end
-    local epoch = generation; local targetId = selected
-    local others = {}; for _,b in ipairs(bots) do if b.id ~= selected then table.insert(others,actor(b)) end end
-    sequence += 1
-    local body = {protocol = 1, session = session, sequence = sequence, origin = A(head.Position), receiver = actor(wr), defenders = others, target = selected,
-        settings = settings, gravity = P.BallGravity, ground = P.GroundY}
-    local ok, response = pcall(function()
-        return Http:RequestAsync({Url = "http://127.0.0.1:"..Connection.port.."/plan", Method = "POST",
-            Headers = {["Content-Type"] = "application/json", ["X-Vanta-Lab"] = Connection.token}, Body = Http:JSONEncode(body)})
-    end)
-    if epoch ~= generation or selected ~= targetId then return end
-    if not ok or not response.Success then bridgeStatus = "Vanta disconnected - start the lab launcher"; preview = nil; lastRequest=workspace:GetServerTimeNow()+1; if not ok then script:SetAttribute("LastBridgeError", tostring(response)) end; return end
-    local parsed, data = pcall(function() return Http:JSONDecode(response.Body) end)
-    if not parsed or data.sequence ~= sequence or data.target ~= selected then bridgeStatus = "Invalid bridge reply"; return end
-    bridgeStatus = "Vanta connected"; script:SetAttribute("BridgeConnected", true); script:SetAttribute("LastBridgeError",nil); script:SetAttribute("PlanCount", sequence)
-    preview = data; preview.at = workspace:GetServerTimeNow()
-    if throw and data.valid and held() then
-        -- Use the exact native launch parameters. No second aim solver in Luau.
-        local o, v = V(data.origin), V(data.velocity)
-        if v.Magnitude > 95.01 or (o-head.Position).Magnitude > 12 then result = "Stale launch - retry"; return end
-        ball = {o = o, v = v, at = workspace:GetServerTimeNow(), last = o, target = targetId, plan = data, elapsed = 0}
-        script:SetAttribute("LastLaunch",Http:JSONEncode(data));script:SetAttribute("ThrowCount",(script:GetAttribute("ThrowCount") or 0)+1)
-        local tool = held(); if tool then tool:Destroy() end
-        result = "In flight"; Event:FireAllClients("release", data)
-    elseif throw then result = "No reachable arc at these settings" end
+local function worldState()
+    local actors={}
+    for _,b in ipairs(bots) do local a=actor(b);a.id=tonumber(b.id);a.name=b.role.." "..b.id;a.wr=b.role=="WR";table.insert(actors,a) end
+    local head=owner and owner.Character and owner.Character:FindFirstChild("Head")
+    return {protocol=2,kind="state",session=session,generation=generation,loaded=head~=nil,head=A(head and head.Position or Vector3.zero),
+        held=held()~=nil,power=95,gravity=P.BallGravity,ground=P.GroundY,actors=actors,result=result,
+        ball=ball and {origin=A(ball.o),velocity=A(ball.v),age=workspace:GetServerTimeNow()-ball.at} or false}
 end
+local function transmit(data)
+    if not connected or not socket then return false end
+    local ok=pcall(function() socket:Send(Http:JSONEncode(data)) end)
+    if not ok then connected=false end
+    return ok
+end
+local function launch(o,v,target,assisted)
+    local head=owner and owner.Character and owner.Character:FindFirstChild("Head")
+    if not head or not held() or ball or v.Magnitude>95.01 or v.Magnitude<1 or (o-head.Position).Magnitude>12 then return end
+    ball={o=o,v=v,at=workspace:GetServerTimeNow(),last=o,target=tostring(target or selected),elapsed=0}
+    local tool=held();if tool then tool:Destroy() end
+    script:SetAttribute("LastLaunch",Http:JSONEncode({origin=A(o),velocity=A(v),power=v.Magnitude,target=ball.target,assisted=assisted}))
+    script:SetAttribute("ThrowCount",(script:GetAttribute("ThrowCount") or 0)+1)
+    script:SetAttribute("LastThrowAssisted",assisted)
+    if assisted then script:SetAttribute("AssistedThrowCount",(script:GetAttribute("AssistedThrowCount") or 0)+1) end
+    result="In flight"
+end
+local function manual(request)
+    local head=owner and owner.Character and owner.Character:FindFirstChild("Head")
+    if not head then return end
+    local direction=request.aim-head.Position
+    if direction.Magnitude<1 then direction=head.CFrame.LookVector end
+    launch(head.Position+direction.Unit*5,direction.Unit*95,selected,false)
+end
+local function requestThrow(aim)
+    if not held() or ball or pendingRequest then return end
+    sequence+=1
+    local request={id=sequence,at=workspace:GetServerTimeNow(),aim=aim}
+    pendingRequest=request
+    if not transmit({protocol=2,kind="throw",session=session,id=sequence,snapshot=worldState()}) then pendingRequest=nil;manual(request) end
+end
+local function connect()
+    if socket then pcall(function() socket:Close() end) end
+    local ok,ws=pcall(function() return Http:CreateWebStreamClient(Enum.WebStreamClientType.WebSocket,{
+        Url="ws://127.0.0.1:"..Connection.port.."/studio/server",Headers={["X-Vanta-Lab"]=Connection.token}}) end)
+    if not ok then script:SetAttribute("LastBridgeError",tostring(ws));return end
+    socket=ws
+    ws.Opened:Connect(function() if socket~=ws then return end;connected=true;script:SetAttribute("BridgeConnected",true);script:SetAttribute("LastBridgeError",nil);transmit(worldState()) end)
+    ws.Closed:Connect(function() if socket==ws then connected=false;script:SetAttribute("BridgeConnected",false) end end)
+    ws.Error:Connect(function(code,message) if socket==ws then connected=false;script:SetAttribute("LastBridgeError",tostring(code).." "..tostring(message)) end end)
+    ws.MessageReceived:Connect(function(raw)
+        local good,data=pcall(function() return Http:JSONDecode(raw) end)
+        if not good or data.kind~="throw" or data.session~=session or not pendingRequest or data.id~=pendingRequest.id then return end
+        local request=pendingRequest;pendingRequest=nil
+        if data.assisted and type(data.origin)=="table" and type(data.velocity)=="table" then launch(V(data.origin),V(data.velocity),data.target,true) else manual(request) end
+    end)
+end
+task.spawn(function() while script.Parent do if not connected then connect() end;task.wait(2) end end)
 local function finish(outcome)
     result = outcome; script:SetAttribute("LastResult", outcome); Event:FireAllClients("result", outcome)
     ball = nil; preview = nil; task.delay(0.7,function() if owner then toolFor(owner) end end)
@@ -164,16 +194,15 @@ Run.Heartbeat:Connect(function(dt)
     end
     -- Five requests/second leaves headroom below Studio's HTTP quota.
     -- A click requests a fresh native plan on the next available tick.
-    if not busy and now-lastRequest >= 0.2 and held() and not ball then
-        busy=true; lastRequest=now; local throw=pendingThrow; pendingThrow=false
-        task.spawn(function() local ok,err=pcall(requestPlan,throw); if not ok then warn("Lab planner: "..tostring(err)) end; busy=false end)
-    end
+    if now-lastRequest>=1/30 then lastRequest=now;transmit(worldState());script:SetAttribute("StateCount",(script:GetAttribute("StateCount") or 0)+1) end
+    if pendingRequest and now-pendingRequest.at>0.45 then local request=pendingRequest;pendingRequest=nil;manual(request) end
+
 end)
 local lastInput = 0
 Event.OnServerEvent:Connect(function(player, action, value)
     if player ~= owner or type(action) ~= "string" then return end
     local now = os.clock(); if now-lastInput < 0.025 then return end; lastInput=now
-    if action == "throw" then if held() and not ball then pendingThrow=true end
+    if action == "throw" then if typeof(value)=="Vector3" then requestThrow(value) end
     elseif action == "select" then local b=find(tostring(value)); if b and b.role=="WR" then selected=b.id; preview=nil; generation+=1 end
     elseif action == "add" and type(value)=="table" and typeof(value.p)=="Vector3" and (value.role=="WR" or value.role=="DB") then
         add(value.role,Vector3.new(math.clamp(value.p.X,-75,75),4.5,math.clamp(value.p.Z,-295,45))); generation+=1

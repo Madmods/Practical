@@ -3,6 +3,7 @@ import ctypes,json,pathlib,struct,sys,time,ipaddress,collections,threading
 from network_transport_lab import *
 
 BASE=pathlib.Path(__file__).parent
+if not (BASE/'scan_aes_schedules.dll').exists() and (BASE.parents[1]/'build'/'network_decoder'/'scan_aes_schedules.dll').exists():BASE=BASE.parents[1]/'build'/'network_decoder'
 class Stats(ctypes.Structure):
     _fields_=[('bytesRead',ctypes.c_uint64),('regions',ctypes.c_uint32),('error',ctypes.c_uint32),('milliseconds',ctypes.c_uint32),('limitReached',ctypes.c_uint32),('nextAddress',ctypes.c_uint64)]
 

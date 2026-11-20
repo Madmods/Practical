@@ -6,21 +6,25 @@ from validate_live_transport import discover
 
 MAPS=json.loads((pathlib.Path(__file__).parent/'replication-type-maps.json').read_text())
 SUPPORTED_METHODS={'FireServer','InvokeServer','OnClientEvent','OnClientInvoke'}
+# Build 2c6fd5e: independently schema-validated outgoing event opcode, plus
+# timestamp/CFrame-ack framing. Unverified opcodes remain unsupported.
+REPLICATION_MODES={0x83:'3',0xb7:'1',0xe8:'2',0xc3:'4'}
 
 def record_alignment(data,schema,mapping,direction):
     """Require three complete framed records and one schema-validated remote event."""
     for start in range(max(0,len(data)-11)):
         if data[start]!=0x80:continue
-        pos=start;event=False;wire=Wire(schema,mapping)
+        pos=start;event=False
         for _ in range(3):
             if pos+5>len(data) or data[pos]!=0x80:break
             size=int.from_bytes(data[pos:pos+4],'big')&0x7fffffff
             if not 1<=size<=65536 or pos+4+size>len(data):break
             body=bytes(data[pos+4:pos+4+size])
-            if body[0] not in (0x83,0xf8,0xe5):break
-            if body[0]==0x83:
-                if len(body)<2 or mapping[body[1]]>35:break
-                try:event=bool(wire.events(body,direction)) or event
+            if body[0] not in (*REPLICATION_MODES,0xf8,0xe5):break
+            if body[0] in REPLICATION_MODES:
+                selected=mapping if body[0]==0x83 else MAPS[REPLICATION_MODES[body[0]]]
+                if len(body)<2 or selected[body[1]]>35:break
+                try:event=bool(Wire(schema,selected).events(b'\x83'+body[1:],direction)) or event
                 except (DecodeError,UnicodeError):break
             pos+=4+size
         else:
@@ -46,10 +50,15 @@ class LiveDecoder:
             elif len(state['pending'])<10000:state['pending'].append(row)
         for group,state in self.groups.items():
             if state['context'] or len(state['pending'])<2:continue
-            attempt=(len(self.keys),min(len(state['pending']),12))
+            attempt=(len(self.keys),min(len(state['pending']),12),len(state['pending'])//32)
             if state['attempt']==attempt:continue
             state['attempt']=attempt;wrapper=31 if group[1]=='outgoing' else 23
-            context=discover(state['pending'],self.keys,wrapper)
+            # Keep the initial sample for a late key scan, and periodically try
+            # recent packets when the first captured key epoch is unavailable.
+            # discover still requires two independently authenticated datagrams.
+            context=discover(state['pending'][:12],self.keys,wrapper)
+            if context is None and len(state['pending'])>12:
+                context=discover(state['pending'][-12:],self.keys,wrapper)
             if context:
                 state['context']=context;waiting=state['pending'];state['pending']=[]
                 cached=self.cached.get(group[0])
@@ -74,8 +83,11 @@ class LiveDecoder:
             if len(self.streams)>=64:raise DecodeError('Stream count budget exceeded')
             if frame.offset and row['connection'] not in self.schemas:return
             self.streams[key]={'stream':Stream(limit=8*1024*1024,origin=frame.offset),'header':bytearray(),'ready':False,'control':False,'blocked':False,'records':Records()}
-        state=self.streams[key];data=state['stream'].add(frame.offset,frame.data,frame.fin)
+        state=self.streams[key]
         if state['blocked']:return
+        window=state['stream'];skip=max(0,window.origin-frame.offset)
+        if skip>=len(frame.data):return
+        data=window.add(frame.offset+skip,frame.data[skip:],frame.fin)
         if not state['ready']:
             state['header'].extend(data)
             if len(state['header'])>65536:state['blocked']=True;raise DecodeError('Record alignment budget exceeded; rejoin required')
@@ -88,23 +100,31 @@ class LiveDecoder:
                 header=bytes(state['header'][:7])
                 if header[:3] not in (bytes.fromhex('060104'),bytes.fromhex('060100')):state['blocked']=True;raise DecodeError('Unknown channel header')
                 state['control']=header[3:]==b'ctrl';data=bytes(state['header'][7:]);state['header'].clear();state['ready']=True
-        if state['control']:return
-        for offset in range(0,len(data),65536):
-            for flag,body in state['records'].feed(data[offset:offset+65536]):self.application(row['connection'],row['direction'],body,row['time'])
+        if not state['control']:
+            for offset in range(0,len(data),65536):
+                for flag,body in state['records'].feed(data[offset:offset+65536]):self.application(row['connection'],row['direction'],body,row['time'])
+        consumed=window.delivered
+        if consumed>=65536:
+            window.buffer=window.buffer[consumed:];window.present=window.present[consumed:];window.contiguous-=consumed;window.delivered-=consumed;window.origin+=consumed
+            if window.final is not None:window.final-=consumed
     def application(self,connection,direction,body,stamp):
         self.counts['applicationRecords']+=1
         if not body:return
         if body[0]==0x97:
             try:
-                self.schemas[connection]=Schema.from_packet(body[1:]);self.schema_packets[connection]=body[1:];self.counts['validatedSchemas']+=1
+                schema=Schema.from_packet(body[1:]);changed=self.schema_packets.get(connection)!=body[1:]
+                self.schemas[connection]=schema;self.schema_packets[connection]=body[1:];self.counts['validatedSchemas']+=1
+                if changed:
+                    for key in list(self.wires):
+                        if key[0]==connection:del self.wires[key]
                 waiting=self.pending.pop(connection,[])
                 for d,b,t in waiting:self.replication(connection,d,b,t)
             except (DecodeError,ValueError,UnicodeError,zstandard.ZstdError) as exc:self.errors['Schema: '+str(exc)]+=1
-        elif body[0] in (0x83,0xb7,0xe8):
+        elif body[0] in REPLICATION_MODES:
             if connection in self.schemas:self.replication(connection,direction,body,stamp)
             elif len(self.pending[connection])<4096:self.pending[connection].append((direction,body,stamp))
     def replication(self,connection,direction,body,stamp):
-        mode={0x83:'3',0xb7:'1',0xe8:'2'}[body[0]];key=(connection,direction,mode)
+        mode=REPLICATION_MODES[body[0]];key=(connection,direction,mode)
         wire=self.wires.setdefault(key,Wire(self.schemas[connection],MAPS[mode]))
         try:
             for call in wire.events(b'\x83'+body[1:],direction):

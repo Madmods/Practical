@@ -12,7 +12,10 @@ inline constexpr Module registry[]={
  {Id::FootballFusion3,L"ff3",L"Football Fusion 3",82866880824588ULL,9908641400ULL,true}
 };
 using Snapshot=basketballConnection::Snapshot;
+inline std::atomic<bool> studioMode{false};
+inline constexpr Module studioModule{Id::FootballFusion3,L"ff3",L"Roblox Studio",0,0,true};
 inline const Module* identify(const Snapshot& s){
+ if(s.studio)return studioMode?&studioModule:nullptr;
  if(!s.placeId||!s.universeId)return nullptr;
  // A known root with a conflicting universe is never accepted as another module.
  for(const auto& m:registry)if(s.placeId==m.rootPlace&&s.universeId!=m.universe)return nullptr;
@@ -46,5 +49,5 @@ public:
  void close(){std::lock_guard<std::mutex> lock(mutex_);active_=Id::None;}
 };
 inline Router router;
-inline void publish(const Snapshot& s){basketballConnection::state.publish(s);router.publish(s);}
+inline void publish(const Snapshot& s){if(studioMode&&!s.studio)return;basketballConnection::state.publish(s);router.publish(s);}
 }

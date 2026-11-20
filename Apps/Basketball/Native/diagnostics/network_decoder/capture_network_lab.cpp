@@ -12,13 +12,12 @@
 #include <string>
 #include <iostream>
 #include <chrono>
+#include <filesystem>
+#include "client_version.hpp"
 static void le32(std::ofstream& out,uint32_t x){out.write((char*)&x,4);}
 static unsigned be16(const unsigned char* p){return (unsigned(p[0])<<8)|p[1];}
 static constexpr const char* gameFilter="ip and udp and !loopback and (udp.Payload32[0] == 0x01000017 or udp.Payload32[0] == 0x0100001f) and udp.Payload16[4b] == 0x0111 and (udp.Payload[6] == 1 or udp.Payload[6] == 2)";
-static std::wstring dependency(){
- wchar_t configured[32768]{};DWORD n=GetEnvironmentVariableW(L"VANTA_WINDIVERT_DLL",configured,32768);if(n&&n<32768)return configured;
- wchar_t exe[32768]{};GetModuleFileNameW(nullptr,exe,32768);std::wstring path=exe;return path.substr(0,path.find_last_of(L"\\/")+1)+L"WinDivert.dll";
-}
+static std::filesystem::path dependency(){wchar_t exe[32768]{};if(!GetModuleFileNameW(nullptr,exe,32768))return {};return std::filesystem::path(exe).parent_path()/L"WinDivert.dll";}
 static int selfTest(){
  HMODULE dll=LoadLibraryExW(dependency().c_str(),nullptr,LOAD_WITH_ALTERED_SEARCH_PATH);if(!dll)return 21;
  auto compile=(decltype(&WinDivertHelperCompileFilter))GetProcAddress(dll,"WinDivertHelperCompileFilter");auto eval=(decltype(&WinDivertHelperEvalFilter))GetProcAddress(dll,"WinDivertHelperEvalFilter");
@@ -30,7 +29,7 @@ static int selfTest(){
  packet[28]=0x40;ok=ok&&!eval(gameFilter,packet,sizeof packet,&address);packet[28]=1;packet[34]=3;ok=ok&&!eval(gameFilter,packet,sizeof packet,&address);
  FreeLibrary(dll);std::cout<<(ok?"Capture filter: 5 checks passed; no capture opened\n":"Capture filter checks failed\n");return ok?0:24;
 }
-static bool supported(DWORD pid){HANDLE h=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);if(!h)return false;wchar_t image[32768]{};DWORD size=32768;bool ok=QueryFullProcessImageNameW(h,0,image,&size);CloseHandle(h);if(!ok)return false;std::wstring name=image;auto slash=name.find_last_of(L"\\/");return slash!=std::wstring::npos&&!_wcsicmp(name.c_str()+slash+1,L"RobloxPlayerBeta.exe")&&name.find(L"version-4ea8e85481e34f46")!=std::wstring::npos;}
+static bool supported(DWORD pid){HANDLE h=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);if(!h)return false;wchar_t image[32768]{};DWORD size=32768;bool ok=QueryFullProcessImageNameW(h,0,image,&size);CloseHandle(h);return ok&&transportClient::supportedImage(image);}
 static std::set<unsigned> ports(DWORD pid){
  std::set<DWORD> allowed;if(pid){if(supported(pid))allowed.insert(pid);}else{HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);if(snapshot!=INVALID_HANDLE_VALUE){PROCESSENTRY32W entry{sizeof entry};if(Process32FirstW(snapshot,&entry))do{if(!_wcsicmp(entry.szExeFile,L"RobloxPlayerBeta.exe")&&supported(entry.th32ProcessID))allowed.insert(entry.th32ProcessID);}while(Process32NextW(snapshot,&entry));CloseHandle(snapshot);}}
  ULONG bytes=0;GetExtendedUdpTable(nullptr,&bytes,FALSE,AF_INET,UDP_TABLE_OWNER_PID,0);std::vector<unsigned char> buffer(bytes);std::set<unsigned> result;if(bytes&&GetExtendedUdpTable(buffer.data(),&bytes,FALSE,AF_INET,UDP_TABLE_OWNER_PID,0)==NO_ERROR){auto table=(MIB_UDPTABLE_OWNER_PID*)buffer.data();for(DWORD i=0;i<table->dwNumEntries;i++)if(allowed.count(table->table[i].dwOwningPid))result.insert(ntohs((USHORT)table->table[i].dwLocalPort));}return result;

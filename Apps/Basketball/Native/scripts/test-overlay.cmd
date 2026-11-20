@@ -6,4 +6,6 @@ cl /nologo /I"..\src" /I"..\resources" /std:c++17 /EHsc /O2 /utf-8 "..\tests\pum
 if errorlevel 1 exit /b 1
 pump-overlay-tests.exe
 if errorlevel 1 exit /b 1
-exit /b %errorlevel%
+cl /nologo /I"..\src" /I"..\resources" /std:c++17 /EHsc /O2 /utf-8 /DOLD_OVERLAY "..\tests\pump_overlay_tests.cpp" /Fe:pump-overlay-baseline.exe /link user32.lib gdi32.lib
+if errorlevel 1 exit /b 1
+pump-overlay-baseline.exe

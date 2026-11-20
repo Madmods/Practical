@@ -4,6 +4,46 @@ from network_decoder_host import publish
 from test_network_wire_lab import fixture_schema,v,s
 
 class Tests(unittest.TestCase):
+    def test_new_dictionary_invalidates_existing_event_readers(self):
+        from network_wire_lab import Wire
+        decoder=LiveDecoder([]);connection='current';packet=fixture_schema()
+        decoder.application(connection,'incoming',b'\x97'+packet,0)
+        decoder.wires[(connection,'outgoing','3')]=Wire(decoder.schemas[connection])
+        decoder.schema_packets[connection]=b'older dictionary'
+        decoder.application(connection,'incoming',b'\x97'+packet,1)
+        self.assertNotIn((connection,'outgoing','3'),decoder.wires)
+
+    def test_live_schema_tracking_continues_past_old_stream_budget(self):
+        from types import SimpleNamespace
+        decoder=LiveDecoder([]);row=dict(connection='current',direction='incoming',time=0)
+        header=bytes.fromhex('06010000000000');offset=0
+        decoder.segment(row,SimpleNamespace(stream=6,offset=offset,data=header,fin=False));offset+=len(header)
+        body=b'\xf8'+bytes(1023);record=(0x80000000+len(body)).to_bytes(4,'big')+body
+        block=record*64
+        for i in range(145):
+            decoder.segment(row,SimpleNamespace(stream=6,offset=offset,data=block,fin=False));offset+=len(block)
+        state=decoder.streams[('current','incoming',6)];window=state['stream']
+        self.assertGreater(window.origin,8*1024*1024);self.assertLess(len(window.buffer),65536)
+        self.assertEqual(decoder.counts['applicationRecords'],145*64)
+        decoder.segment(row,SimpleNamespace(stream=6,offset=0,data=header,fin=False))
+        self.assertEqual(decoder.counts['applicationRecords'],145*64)
+    def test_authentication_retries_recent_packets_with_unchanged_keys(self):
+        from unittest.mock import patch
+        decoder=LiveDecoder([bytes(32)])
+        connection=(('10.0.0.1',123),('10.0.0.2',456));cid=bytes(20)
+        rows=[dict(frame=i,connection=connection,direction='outgoing',cid=cid) for i in range(1,65)]
+        context={'verified':True}
+        def discover(sample,keys,wrapper):
+            self.assertEqual(wrapper,31)
+            return context if sample[0]['frame']>=21 else None
+        with patch('live_network_decoder.discover',side_effect=discover) as probe,patch.object(decoder,'packet') as packet:
+            decoder.ingest(rows[:12]);self.assertIsNone(decoder.groups[(connection,'outgoing',cid)]['context'])
+            attempts=probe.call_count;decoder.ingest(rows[:12]);self.assertEqual(probe.call_count,attempts)
+            decoder.ingest(rows[:32]);self.assertIs(decoder.groups[(connection,'outgoing',cid)]['context'],context)
+            self.assertEqual(packet.call_count,32)
+            attempts=probe.call_count;decoder.ingest(rows);self.assertEqual(probe.call_count,attempts)
+            self.assertEqual(packet.call_count,64)
+
     def test_midstream_alignment_requires_three_records(self):
         from network_wire_lab import Schema
         schema=Schema.from_packet(fixture_schema());body=b'\x83\x07\x01'+(123).to_bytes(4,'little')+b'\0\0'+v(1)+b'\x02'+s('Clicked');framed=(0x80000000+len(body)).to_bytes(4,'big')+body

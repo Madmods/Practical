@@ -1,0 +1,53 @@
+STATUS: LIVE INTEGRATION REVERTED — 2026-11-16
+
+User testing found excessive angles and throws behind the receiver. The prior
+app, helper, settings, runtime, visuals, bridge, solver and helper math have been
+restored. The new planner is NOT active in normal builds.
+
+Useful standalone physics, scenarios, numerical tests, reports and benchmarks
+remain here. The attempted adapter and its integration/replay tests are isolated
+in integration-experiment, with their own version of the shared logic.
+Run integration-experiment/scripts/test-ff3-trajectory.cmd for offline experiments.
+Do not interpret passing numerical tests as evidence of live-play accuracy.
+
+Historical integration notes follow; they do not describe the active app:
+------------------------------------------------------------------------
+Integrated into Vanta automatic Smart fit and Beam on 2026-11-16.
+
+The source package is preserved at the user-supplied Projectile-Physics folder.
+The archived headers live in diagnostics/trajectory/vendor; the forwarding headers here make
+the original test, scenario, visualization and benchmark programs exercise them.
+
+src/ff3_trajectory_adapter.hpp maps measured positions, speeds, catch shapes,
+jump limits, ball gravity and lead/height settings into the new planner. Units
+stay in studs and seconds. The launch model uses a five-stud displacement along
+the complete 3D direction; displayed and helper-reconstructed roots are checked
+for agreement. Existing manual/preset behavior remains available.
+
+Integration extensions: along-direction launch offset; destination bias; a
+receiver compatibility gate; cost adjustment; exact-speed and broad-placement
+seed candidates; full-flight-after-miss clearance; optional distant-threat
+pruning using a conservative horizontal lower bound; time-prioritized search
+within each placement; and validated blending that cannot worsen cost.
+
+Acceleration, turning, reaction-time and uncertainty values are explicit
+estimates in the adapter, not calibrated measurements. Existing measured catch
+envelopes remain additional conservative constraints in both scoring and helper
+validation. Risk flags are predictions, not interception guarantees.
+
+The existing plan.json now includes planner engine, verdict, selection reason,
+search work/progress, receiver effort and calibration status. The existing field
+overlay adds a few alternative landing markers and the selected receiver path.
+SVG reports and the standalone benchmark remain offline diagnostics here; they
+are not additional in-game windows.
+
+Integration checks:
+ scripts/test-ff3-trajectory.cmd
+ scripts/test-ff3-trajectory-replay.cmd
+ python tests/check_joint_dispatch.py
+ scripts/test-ff3-qb.cmd
+ scripts/test-ff3-qb-native.cmd
+ diagnostics/trajectory/build-test.cmd
+
+The helper additionally preserves the normal running-route catch region when
+receiver redirection is enabled, in addition to the reaction/comeback region.

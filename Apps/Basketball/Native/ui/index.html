@@ -420,7 +420,6 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   .row.flash { animation: flashRow 1.6s var(--ease) !important; }
   @keyframes flashRow { 0%, 35% { background: var(--accent-wash); } }
   .row-label { font-size: 13px; color: var(--text-2); font-weight: 500; }
-  .row-description { display:block; margin-top:5px; font-size:11px; font-weight:400; line-height:1.5; color:var(--muted); }
   .row-wide { grid-template-columns: 1fr auto; }
   .row-keybind { grid-template-columns: 180px 1fr; }
 
@@ -536,18 +535,34 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
 
 
 
-  .qb-dashboard{margin:16px 18px 10px;padding:22px;border:1px solid #ffffff18;border-radius:20px;background:radial-gradient(ellipse at 95% 0,#56cdb513,transparent 60%),#0b1019;color:#edf3ff;box-shadow:0 12px 32px #0003}
-  .qb-eyebrow{display:flex;justify-content:space-between;gap:12px;font-size:9px;letter-spacing:.16em;font-weight:700;color:#8d9aaa}.qb-eyebrow span{letter-spacing:0;font-weight:500;color:#778697}
-  .qb-target{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:15px 0 5px}.qb-target strong{font-size:26px;letter-spacing:-.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.qb-target small{display:block;font-size:9px;letter-spacing:.13em;color:#8392a5;margin-bottom:5px}
-  .qb-badge{font-size:9px;font-weight:700;letter-spacing:.06em;border:1px solid #a1bcff30;border-radius:6px;padding:7px 9px;white-space:nowrap;color:#a9bfff;background:#89acff0a}.qb-badge.open{color:#7ee2c1;border-color:#7ee2c130;background:#7ee2c10a}.qb-badge.risk{color:#ffbc85;border-color:#ffbc8540;background:#ffbc850c}
-  .qb-route{font-size:11px;color:#8d9aaa}.qb-flight-view{position:relative;margin:18px 0 14px;border:1px solid #ffffff0b;border-radius:12px;background:linear-gradient(180deg,#ffffff03,#ffffff00);overflow:hidden}.qb-flight-view svg{display:block;width:100%;height:112px}.qb-flight-caption{display:flex;justify-content:space-between;padding:10px 12px 0;color:#8d9aaa;font-size:9px;letter-spacing:.06em}.qb-flight-caption b{color:#c5d3e3;font-weight:500}
-  .qb-metrics{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:1px;border:1px solid #ffffff0b;border-radius:10px;overflow:hidden;background:#ffffff0b}.qb-metric{background:#0e1520;padding:12px}.qb-metric label{display:block;font-size:8px;color:#8695a8;letter-spacing:.09em;text-transform:uppercase;margin-bottom:6px}.qb-metric b{font-size:23px;font-variant-numeric:tabular-nums;font-weight:600;letter-spacing:-.04em}.qb-metric:first-child b{color:#8fe5d3}.qb-metric small{font-size:10px;color:#74849a;margin-left:4px}
-  .qb-power-track{height:2px;background:#ffffff0c;margin:14px 0;overflow:hidden}.qb-power-track i{display:block;height:100%;background:#82dbc5;transition:width .12s}
-  .qb-footer{display:flex;gap:8px;flex-wrap:wrap}.qb-footer span{font-size:10px;color:#8797aa;display:flex;align-items:center;gap:5px}.qb-footer span+span:before{content:'·';color:#415268;margin-right:3px}.qb-footer span.live{color:#a8c4ba}.qb-status{display:block;font-size:10px;color:#a4b2c4;line-height:1.5;margin-top:12px;padding-top:12px;border-top:1px solid #ffffff0a}
-  .qb-library{padding:18px}.qb-mode-card{display:grid;grid-template-columns:98px 1fr auto;align-items:center;gap:16px;margin-top:12px;padding:17px;border-radius:13px;border:1px solid #8ee5d52b;background:linear-gradient(120deg,#6bdfc70a,#ffffff02)}
-  .qb-mode-card svg{width:98px;height:64px;fill:none;stroke:#8ee5d5;stroke-width:2}.qb-mode-card b{display:block;font-size:20px;letter-spacing:-.03em;color:var(--text)}.qb-mode-card span{display:block;margin-top:5px;font-size:10px;color:var(--text-2);line-height:1.5}.qb-mode-actions{display:flex;gap:5px}.qb-mode-actions button{padding:9px 11px;border:1px solid #ffffff1a;background:#ffffff06;border-radius:7px;color:var(--text);cursor:pointer}.qb-mode-actions button:hover{background:#8ee5d51a;border-color:#8ee5d560}.qb-key-guide{display:flex;gap:17px;margin-top:13px;font-size:10px;color:#8d9aaa}.qb-key-guide kbd,.qb-mode-card kbd{border:1px solid #ffffff20;border-bottom-width:2px;border-radius:4px;padding:2px 5px;font-family:inherit;font-size:9px;margin-right:4px}
-  .qb-mode-strip{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-top:9px}.qb-mode-strip button{border:1px solid #ffffff10;background:#ffffff02;color:#8392a5;border-radius:6px;padding:8px 3px;font-size:10px;cursor:pointer}.qb-mode-strip button.active{color:#a5eddb;background:#80dbc514;border-color:#80dbc540}.qb-mode-strip button:hover{color:#edf3ff;border-color:#ffffff30}
-  @media(max-width:650px){.qb-metrics{grid-template-columns:repeat(2,1fr)}.qb-target strong{font-size:22px}.qb-mode-card{grid-template-columns:70px 1fr}.qb-mode-card svg{width:70px}.qb-mode-actions{grid-column:2}.qb-mode-strip{grid-template-columns:repeat(3,1fr)}}
+  .setting-help{display:inline-grid;place-items:center;width:18px;height:18px;min-width:18px;padding:0;border:1px solid var(--line-2);border-radius:50%;font-size:10px;font-weight:600;color:var(--muted);background:transparent;cursor:help;line-height:1}
+  .setting-help:hover,.setting-help:focus-visible{color:var(--text);border-color:var(--accent);background:var(--accent-wash);outline:2px solid transparent}
+  .setting-help:focus-visible{box-shadow:0 0 0 2px var(--accent-wash)}
+  .setting-tooltip{position:fixed;z-index:20000;box-sizing:border-box;width:max-content;max-width:min(330px,calc(100vw - 24px));max-height:min(320px,calc(100vh - 24px));overflow:auto;padding:12px 14px;border:1px solid #ffffff24;border-radius:10px;background:#20232bf5;color:#e0e4ed;box-shadow:0 8px 28px #0006;font-size:12px;font-weight:400;line-height:1.6;white-space:pre-line;pointer-events:auto}
+  .setting-tooltip[hidden]{display:none}
+  .row-label{display:inline-flex;align-items:center;gap:7px;min-width:0}
+  .settings-section{margin:18px 12px 5px;padding-top:12px;border-top:1px solid var(--line);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+  .settings-section:first-of-type{margin-top:8px}
+  .ff3-panel .card{border-radius:12px;background:#ffffff03;box-shadow:inset 0 0 0 1px var(--line)}
+  .ff3-panel .card.on{background:#ffffff04}.ff3-panel .card .sheen,.ff3-panel .card .state,.ff3-panel .card-meta{display:none}
+  .ff3-panel .card-head{height:56px;gap:10px}.ff3-panel .card-icon{width:28px;height:28px;border-radius:8px}
+  .ff3-panel .card.open .row{animation:none}.ff3-panel .card:hover{box-shadow:inset 0 0 0 1px var(--line-2)}
+  .ff3-panel .card-title{font-size:13px}.ff3-panel .card-rows{padding-top:4px}.ff3-panel .row{min-height:46px;gap:16px;grid-template-columns:180px minmax(80px,1fr)104px}
+  .ff3-panel .row-wide{grid-template-columns:1fr auto}.ff3-panel .row-keybind{grid-template-columns:1fr auto}
+  .ff3-panel .row-label{font-size:12px}.ff3-panel .choice{flex-wrap:wrap}.ff3-panel .choice button{padding:6px 9px;font-size:11px}
+  .ff3-panel .settings-advanced{padding:6px 0}.ff3-panel .settings-advanced summary{cursor:pointer;color:var(--muted);font-size:11px;padding:10px 12px}
+  .qb-network{display:flex;align-items:flex-start;gap:10px;padding:11px 12px;border:1px solid var(--line-2);border-radius:10px;background:rgba(var(--accent-rgb),.055);font-size:11px;line-height:1.5;color:var(--muted)}
+  .qb-network[hidden]{display:none}.qb-network::before{content:'';flex:none;width:6px;height:6px;margin-top:6px;border-radius:50%;background:var(--accent)}
+  .qb-network[data-phase="ready"]::before{background:var(--good)}.qb-network.rejoin{border-color:rgba(232,183,104,.3);background:rgba(232,183,104,.055)}.qb-network.rejoin::before{background:#e8b768}
+  .qb-network-copy{flex:1;min-width:0}.qb-network b{display:block;color:var(--text);font-size:12px;font-weight:600}.qb-network button{flex:none;align-self:center;font-size:11px;border:1px solid var(--line-2);padding:5px 8px;border-radius:6px;color:var(--text)}
+  .lg-body>.qb-network{margin-bottom:15px}.main>.qb-network{margin:0 24px 12px}.reconnect-island>.qb-network{margin:10px 0}
+  .ff3-status-bar{display:flex;align-items:center;gap:9px;margin:8px 12px 12px;padding:9px 0;color:var(--muted);font-size:11px;line-height:1.5}
+  .ff3-status-bar>span{flex:1;min-width:0}.ff3-status-dot{width:6px;height:6px;flex:none;border-radius:50%;background:var(--muted)}.ff3-status-dot.ready{background:var(--good)}
+  .ff3-status-bar button{font-size:11px;color:var(--text-2);border:1px solid var(--line-2);border-radius:6px;padding:4px 8px}
+  .ff3-check{flex:none;border-radius:99px;padding:4px 9px;font-size:10px;font-weight:700;letter-spacing:.04em;color:var(--muted);background:rgba(151,160,180,.12)}
+  .ff3-check.clear{color:var(--good);background:rgba(62,207,142,.12)}.ff3-check.tight{color:#ffbf73;background:rgba(255,191,115,.12)}.ff3-check.intercept{color:#ff7d8f;background:rgba(255,125,143,.12)}
+  @media(max-width:780px){.ff3-panel .row{grid-template-columns:130px minmax(60px,1fr)88px;gap:10px}.ff3-panel .row-wide,.ff3-panel .row-keybind{grid-template-columns:1fr auto}.ff3-panel .choice{max-width:285px}}
+
 
   /* ================= Football companion ================= */
   :root { --team0: #6aa8ff; --team1: #e8a24a; }
@@ -1105,6 +1120,8 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   .net-methods{display:flex;flex-wrap:wrap;gap:12px;padding:14px;border-bottom:1px solid var(--line)}.net-methods label{display:flex;align-items:center;gap:5px;font-size:11px}.net-call-list{max-height:230px;overflow:auto}.net-call{display:flex;justify-content:space-between;gap:12px;width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line);padding:12px;color:var(--text);cursor:pointer}.net-call>span{min-width:0;overflow-wrap:anywhere}.net-call time{font-size:10px;color:var(--muted);max-width:130px;overflow-wrap:anywhere}.net-empty{padding:25px 16px;color:var(--muted);line-height:1.65}.net-args{margin:0;padding:18px;max-height:350px;overflow:auto;font:12px/1.65 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.net-format{color:var(--muted);line-height:1.7}.net-format pre{overflow:auto}.net-error{color:#ff9c9c}#netStatus{font-size:12px;line-height:1.6}
   @media(max-width:760px){.net-columns{grid-template-columns:1fr}#netTree{max-height:200px}}
 
+
+  html.app .window{clip-path:inset(0 round 24px);}
 </style>
 </head>
 <body data-scene="graphite" class="booting">
@@ -1160,6 +1177,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     <nav class="lg-steps" id="lgSteps" aria-label="Progress"><div id="lgStepList"></div><span class="lg-bar" id="lgBar"></span></nav>
 
     <div class="lg-body">
+      <div class="qb-network" data-qb-network hidden role="status" aria-live="polite"></div>
       <!-- 01 Account (sign in) -->
       <form class="lg-view" data-view="login" id="fLogin" novalidate>
         <h1 class="lg-h">Welcome back.</h1>
@@ -1316,6 +1334,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         <div class="active-count surface" id="activeCount"></div>
       </div>
 
+      <div class="qb-network" data-qb-network hidden role="status" aria-live="polite"></div>
       <div class="scroll" id="scroll"><div class="stack" id="stack"></div></div>
 
       <footer class="dock glass">
@@ -1361,6 +1380,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
 <section class="reconnect-island" id="reconnectIsland" aria-label="Vanta connection status">
   <div class="rec-head"><span class="rec-logo">V</span><span class="rec-title" id="recTitle">Connection lost</span><span class="rec-state"><i></i><span id="recState">Searching</span></span><button class="rec-close" id="recClose" aria-label="Quit Vanta">×</button></div>
   <p class="rec-reason" id="recReason" aria-live="polite">Looking for a supported game.</p>
+  <div class="qb-network" data-qb-network hidden role="status" aria-live="polite"></div>
   <div class="rec-progress" id="recProgress"><i></i><i></i><i></i><i></i></div>
   <div class="rec-bottom"><span class="rec-step" id="recStep">Checking your connection</span><button class="isl-open" id="recContinue" disabled>Continue</button></div>
 </section>
@@ -1573,7 +1593,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   const DEFAULTS = clone(PAGES);
   const basketballPages=BB?Object.fromEntries(Object.entries(PAGES).filter(([,p])=>p.group==='workspace')):{};
   const moduleViews={};
-  let ff3Live={reason:'QB aim off',power:0,angle:0,flight:0};
+  let qbNetworking={phase:'waiting',detail:'Waiting for Football Fusion 3'},ff3Live={reason:'QB aim off',power:0,angle:0,flight:0};
   let ff3PreviewTest=false;
   const activeGameName=()=>BBS.moduleId==='ff3'?'Football Fusion 3':'Practical Basketball';
   function openGameModule(message){
@@ -1586,18 +1606,18 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     for(const [id,p] of Object.entries(PAGES))if(p.group==='workspace')delete PAGES[id];
     BBS.moduleId=next;BBS.shot=null;BBS.window=null;
     if(next==='basketball')Object.assign(PAGES,basketballPages);
-    else PAGES.ff3={title:'Football Fusion 3',sub:'Lead the receiver. Choose the throw.',group:'workspace',icon:ICONS.launch,navMeta:'Quarterback',tabs:[{id:'overview',label:'Quarterback',icon:ICONS.launch,features:[
+    else PAGES.ff3={title:'Football Fusion 3',sub:'Quarterback, receiving and defense',group:'workspace',icon:ICONS.launch,navMeta:'Football',tabs:[{id:'overview',label:'Quarterback',icon:ICONS.launch,features:[
       {id:'ff3_qb',name:'QB aim',meta:'Receiver lead · aim and power',icon:ICONS.launch,on:false,open:true,rows:[
         {type:'ff3status',id:'status',label:'Live throw plan'},
         {type:'choice',id:'preset',label:'Pass library',value:0,options:[[0,'Auto route'],[1,'Bullet'],[2,'Lob'],[3,'Mag'],[4,'Slant'],[5,'Touch']]},
         {type:'switch',id:'autoangle',label:'Automatic angle',description:'Keeps a clear arc steady while power follows the receiver. Searches low-power touch passes when a new arc is needed.',value:true},
-        {type:'slider',id:'angle',label:'Manual angle · R / F',description:'R / F switch to manual angle with calculated power. Z or a pass button restores preset control.',value:35,min:5,max:75,step:1,unit:'°'},
+        {type:'slider',id:'angle',label:'Manual angle · R / F',description:'R / F switch to manual angle with calculated power. Z or a pass button restores preset control.',value:35,min:5,max:85,step:1,unit:'°'},
         {type:'switch',id:'power',label:'Calculate power for the angle',description:'Recomputes continuously, up to 95. R/F automatically enable it.',value:true},
-        {type:'switch',id:'force95',label:'Beam mode · adaptive power',description:'Searches both low and high arcs for the highest power with estimated clearance, up to 95. Can lower power and raise the arc to get over coverage.',value:false},
-        {type:'switch',id:'fit',label:'Smart fit',description:'Uses measured catch-part dimensions when available and timed jump/dive reach. Adjusts landing around the observed route: up to 3 studs when stationary or 6 while moving, in addition to normal route lead. Prefers clear placements and keeps the best available assisted throw ready when coverage is contested. Amber means the defense may still reach it; no guaranteed catch.',value:true},
+        {type:'switch',id:'force95',label:'Beam mode · adaptive power',description:'Prefers a high-power direct pass, up to 95. Uses an elevated fit when the direct route cannot clear coverage. Height 0 allows chest-level bullets.',value:false},
+        {type:'switch',id:'fit',label:'Smart fit',description:'Uses measured catch-part dimensions when available and timed jump/dive reach. Keeps placement within the selected receiver’s observed route and catch reach, rather than assuming a new sideways sprint. Prefers clear placements and keeps the best available assisted throw ready when coverage is contested. Amber means the defense may still reach it; no guaranteed catch.',value:true},
         {type:'slider',id:'height',label:'Catch height adjustment',description:'Raise or lower the preferred catch point in regular and Beam mode. Smart fit can raise it further within the receiver’s estimated reach.',value:0,min:-3,max:8,step:1,unit:' studs'},
         {type:'slider',id:'lead',label:'Lead distance adjustment',description:'Negative pulls the catch point back; positive places it farther ahead. Added to automatic movement lead. Stationary targets use the direction from QB to receiver.',value:0,min:-12,max:12,step:1,unit:' studs'},
-        {type:'slider',id:'radius',label:'Mouse selection radius',value:40,min:10,max:700,step:10,unit:' px'},
+        {type:'slider',id:'radius',label:'Mouse selection radius',value:20,min:10,max:700,step:10,unit:' px'},
         {type:'slider',id:'dive',label:'Estimated dive reach',description:'Extra reach allowed to other catchers. Conservative estimate, not a measured game limit.',value:12,min:0,max:24,step:1,unit:' studs',advanced:true},
         {type:'switch',id:'visuals',label:'Aim beam and ground catch marker',value:true},
         {type:'switch',id:'trails',label:'Live ball trajectories',description:'Tracks visible workspace footballs, including other players’ throws. Full observed flight plus a forecast to the field, with a landing marker and countdown. Clears on catch, rest, or detected landing. Forecasts assume no collision before the field. Works with QB aim off.',value:true},
@@ -1607,7 +1627,35 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         {type:'choice',id:'arc',label:'Game-power arc',value:0,options:[[0,'Direct'],[1,'Lob']],advanced:true},
         {type:'moduleinfo',id:'help',label:'Read the field',text:'Enable QB aim once. If asked to rejoin, keep Vanta open; Continue resumes QB aim automatically. Aim near a receiver’s body and click normally once Ready. Green means an estimated opening; amber means contested. Smart fit predicts movement, not a guaranteed catch. Mag is a high touch preset, not a change to catch range.'}
       ]}
+    ]},{id:'receiving',label:'Receiving',icon:ICONS.target,features:[
+      {id:'ff3_catch',name:'Auto Catch',meta:'Catch inputs timed to the observed pass',icon:ICONS.target,on:false,open:true,rows:[
+        {type:'ff3playstatus',id:'status',label:'Receiving and defense status'},
+        {type:'choice',id:'input',label:'In-game catch input',value:0,options:[[0,'Left click'],[1,'E'],[2,'Middle mouse']]},
+        {type:'switch',id:'refresh',label:'Refresh hands on long windows',description:'Briefly releases and presses your catch input again during a long approach. Keeps holding when arrival is under 0.18 seconds away. Manual input always takes priority.',value:false},
+        {type:'slider',id:'refreshMs',label:'Hands refresh interval',value:700,min:300,max:1500,step:50,unit:' ms'},
+        {type:'moduleinfo',id:'help',label:'Catch timing',text:'Raises your hands ahead of an approaching pass and holds the catch input through arrival. Pauses with possession, typing, game menus or lost focus. Does not need QB aim or throw setup.'}
+      ]},
+      {id:'ff3_jump',name:'Auto Jump',meta:'Jump only for a predicted reachable high pass',icon:ICONS.launch,on:false,open:true,rows:[
+        {type:'keybind',id:'input',label:'In-game jump input',keys:['Space'],single:true},
+        {type:'moduleinfo',id:'help',label:'High passes',text:'Uses your current jump strength and gravity. Predicts the ball and your jump together; skips a jump when a standing catch arrives sooner. Enable Auto Catch too to time the catch input.'}
+      ]},
+      {id:'ff3_mags',name:'Ball Mags',meta:'Ball size · external reach overlay',icon:ICONS.target,on:false,open:true,rows:[
+        {type:'ff3playstatus',id:'status',label:'Applied Mags size'},
+        {type:'slider',id:'studs',label:'Reach size',description:'Full football hitbox size in studs, on the ground and in the air. A verified existing collision group filters player bodies while retaining solid contact with the field and touch with the original catch zones. The visible mesh stays normal-sized. Normal catch input is still required.',value:20,min:1,max:50,step:.5,unit:' st'},
+        {type:'slider',id:'delay',label:'Activation delay',description:'How long a discovered football waits before resizing. Zero applies immediately.',value:0,min:0,max:500,step:10,unit:' ms'},
+        {type:'switch',id:'visual',label:'Reach visual',description:'Show a clean sphere around loose footballs in the air and after landing, with direct tracking and a small size label. Cyan means active, amber means guide only, and mint means measured ball/hand overlap. Overlap does not confirm a catch.',value:true},
+        {type:'moduleinfo',id:'help',label:'Ball Mags',text:'Enlarges loose football hitboxes on the ground and in the air. Uses an existing game collision group that excludes player bodies and permits the original catch zones and other world groups. Ball collision flags and hand sizes stay unchanged. In practice, catch collision groups temporarily adjust and restore with Mags. The visible mesh stays normal-sized. Original ball size and physics group restore on pickup, disable, pause, respawn or shutdown. Enlargement waits if a compatible collision group cannot be verified. Normal catch input is still required.'}
+      ]}
+    ]},{id:'defense',label:'Defense',icon:ICONS.target,features:[
+      {id:'ff3_rush',name:'Auto Rush QB',meta:'Pursue the opposing player holding the ball',icon:ICONS.target,on:false,open:true,rows:[
+        {type:'ff3playstatus',id:'status',label:'Receiving and defense status'},
+        {type:'switch',id:'hold',label:'Require held activation',value:true},
+        {type:'keybind',id:'input',label:'Rush activation',keys:['Mouse5'],single:true},
+        {type:'slider',id:'range',label:'Acquire range',value:150,min:10,max:300,step:10,unit:' studs'},
+        {type:'moduleinfo',id:'help',label:'Pursuit',text:'Uses normal movement toward a verified opposing ball carrier with a short movement lead. Stops when they release the ball. Your WASD takes priority. Does not navigate around walls or field obstacles.'}
+      ]}
     ]}]};
+    if(next==='ff3')organizeFootballSettings(PAGES.ff3);
     const saved=moduleViews[next];state.page=saved?.page||(next==='ff3'?'ff3':'home');
     if(state.page!=='home'&&!PAGES[state.page])state.page='home';
     state.tab={...Object.fromEntries(Object.entries(PAGES).map(([id,p])=>[id,p.tabs[0].id])),...(saved?.tab||{})};
@@ -1615,6 +1663,37 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     $('#profilesBtn').hidden=next==='ff3';$('#resetBtn').hidden=next==='ff3';
     if(BBS.resume){BBS.resume.scroll=0;BBS.resume.focus=null;}
     renderNav();renderPage();syncDom();if(state.minimized)renderMini();
+  }
+
+  function organizeFootballSettings(page){
+    for(const tab of page.tabs)for(const f of tab.features){
+      f.help=[f.meta,...f.rows.filter(r=>r.type==='moduleinfo').map(r=>r.text)].filter(Boolean).join('\n\n');
+      f.rows=f.rows.filter(r=>r.type!=='moduleinfo');
+    }
+    const qb=page.tabs[0].features[0],byId=Object.fromEntries(qb.rows.map(r=>[r.id,r]));
+    byId.preset.label='Pass mode';byId.preset.description='Auto route, Bullet, Lob, Mag, Slant or Touch. Q locks a receiver; Z cycles pass modes. Mag is a throw preset, separate from receiving Mags.';
+    byId.power.label='Automatic power';byId.force95.label='Beam mode';byId.height.label='Catch height';byId.lead.label='Lead distance';byId.radius.label='Selection radius';
+    byId.radius.description='Mouse distance used to select a receiver, in pixels. Q locks the current receiver.';
+    byId.visuals.label='Aim beam';byId.hud.label='Throw HUD';byId.candidates.label='Defender markers';
+    byId.visuals.description='Show the aim beam and catch marker. Green: CLEAR. Amber: TIGHT. Red: INTERCEPT risk. Gray: CHECKING. Anti out of bounds keeps the receiver’s body in the field while allowing reachable sideline catches.';byId.hud.description='Show the throw check before release and a landing countdown for your own verified thrown ball. Other balls are ignored; uncertain tracking shows no countdown.';byId.candidates.description='Show small position markers for nearby defenders.';
+    qb.help+='\n\nQ locks a receiver. Z changes pass type. R / F adjust the manual angle.';
+    const groups=[['Throw',['preset','force95','autoangle','power']],['Placement',['fit','height','lead']],['Controls',['angle','radius']],['Visuals',['visuals','trails','hud','candidates']]];
+    qb.rows=[byId.status,...groups.flatMap(([label,ids])=>[{type:'section',id:'section-'+label.toLowerCase(),label},...ids.map(id=>byId[id])]),...Object.values(byId).filter(r=>r.advanced)];
+    const receiving=page.tabs.find(t=>t.id==='receiving');receiving.features.sort((a,b)=>(a.id==='ff3_mags'?-1:b.id==='ff3_mags'?1:0));
+    for(const tab of page.tabs.slice(1))for(const f of tab.features){const status=f.rows.filter(r=>r.type==='ff3playstatus');f.rows=f.rows.filter(r=>r.type!=='ff3playstatus');if(f.id!=='ff3_catch')f.rows.push(...status);}
+    const mags=receiving.features.find(f=>f.id==='ff3_mags');mags.rows.find(r=>r.id==='studs').label='Reach size';mags.rows.find(r=>r.id==='delay').label='Delay';mags.rows.find(r=>r.id==='visual').label='Reach visual';
+    const catcher=receiving.features.find(f=>f.id==='ff3_catch');catcher.rows.find(r=>r.id==='refreshMs').advanced=true;
+    const help={
+      'ff3_qb.practice':'Include practice receivers when choosing a target.',
+      'ff3_qb.arc':'Choose the direct or lob trajectory when using the game power instead of calculated power.',
+      'ff3_catch.input':'Match your in-game catch binding. Vanta sends this normal input when a pass approaches.',
+      'ff3_catch.refreshMs':'Time between optional catch-input refreshes. Used only when Refresh hands on long windows is enabled.',
+      'ff3_jump.input':'Match your in-game jump binding. Space is the default.',
+      'ff3_rush.hold':'When enabled, hold the activation button to rush. When disabled, pursuit runs whenever Auto Rush is on and a valid opposing ball carrier is available.',
+      'ff3_rush.input':'The button to hold when Require held activation is enabled. Release it to stop pursuit.',
+      'ff3_rush.range':'Maximum distance, in studs, for acquiring an opposing ball carrier. Your manual movement still takes priority.'
+    };
+    for(const tab of page.tabs)for(const f of tab.features)for(const r of f.rows)if(!r.description&&!r.hint&&help[f.id+'.'+r.id])r.description=help[f.id+'.'+r.id];
   }
 
   // ================= Native host bridge (Vanta-UI.exe / WebView2) =================
@@ -1948,6 +2027,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
 
   function renderStack({ enter = true } = {}) {
     const stack = $('#stack');
+    hideSettingTip();stack.classList.toggle('ff3-panel',BBS.moduleId==='ff3'&&state.page==='ff3');
     stack.classList.toggle('enter', enter);
     if (FB) requestAnimationFrame(renderLive);   // fill the live views (match card, receivers, field) straight away
     if(state.page==='network'){stack.innerHTML=networkHTML();renderNetworkPanels();renderCount();return;}
@@ -1980,24 +2060,53 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       <div class="card-head" data-act="expand">
         <span class="card-icon">${f.icon}</span>
         <span class="card-text"><div class="card-title">${esc(f.name)}</div>${f.meta ? `<div class="card-meta">${esc(f.meta)}</div>` : ''}</span>
-        ${f.fixed ? '' : `<span class="state"><span class="st"><b>Off</b><b>On</b></span></span>`}
+        ${f.help?settingHelp(f.help,f.name):''}
+      ${f.fixed ? '' : `<span class="state"><span class="st"><b>Off</b><b>On</b></span></span>`}
         <button class="chev" data-act="expand" aria-label="Expand ${esc(f.name)}" aria-expanded="${!!f.open}">${ICONS.chev}</button>
         ${f.fixed ? '' : fswitch(f)}
       </div>
-      <div class="card-body"><div class="inner"><div class="card-rows">${f.rows.filter(r=>!r.advanced).map((r,j)=>rowHTML(f,r,j)).join('')}${f.rows.some(r=>r.advanced)?`<details style="padding:12px 0"><summary style="cursor:pointer;color:var(--muted);padding:8px 18px">Advanced controls</summary>${f.rows.filter(r=>r.advanced).map((r,j)=>rowHTML(f,r,j)).join('')}</details>`:''}</div></div></div>
+      <div class="card-body"><div class="inner"><div class="card-rows">${f.rows.filter(r=>!r.advanced).map((r,j)=>rowHTML(f,r,j)).join('')}${f.rows.some(r=>r.advanced)?`<details class="settings-advanced"><summary>Advanced controls</summary>${f.rows.filter(r=>r.advanced).map((r,j)=>rowHTML(f,r,j)).join('')}</details>`:''}</div></div></div>
     </section>`;
   }
 
-  function ff3PassCardHTML(r){
-    const v=r.value,paths=['M8 36Q58 1 112 28','M8 36Q65 22 112 28','M8 36Q58 -24 112 28','M8 36Q62 -5 112 28','M8 36Q60 30 112 8','M8 36Q65 0 112 28'];
-    return `<div class="qb-mode-card"><svg viewBox="0 0 120 44" aria-hidden="true"><path d="${paths[v]}"/></svg><div><b>${esc(r.options[v][1])}</b><span>${['Reads recent motion and route cuts','Fast, low delivery','High, deep arc','Elevated touch','Quick crossing pass','Balanced air time'][v]}</span></div><div class="qb-mode-actions"><button data-key="ff3_qb.preset" data-choice="${(v+5)%6}" aria-label="Previous pass type">‹</button><button data-pass-next data-key="ff3_qb.preset" data-choice="${(v+1)%6}" aria-label="Next pass type">Next <kbd>Z</kbd></button></div></div><div class="qb-mode-strip">${r.options.map((option,i)=>`<button data-key="ff3_qb.preset" data-choice="${i}" class="${i===v?'active':''}" aria-pressed="${i===v}">${esc(option[1])}</button>`).join('')}</div><div class="qb-key-guide"><span><kbd>Q</kbd> Lock / unlock</span><span><kbd>R</kbd> Raise angle</span><span><kbd>F</kbd> Lower angle</span></div>`;
+  function settingHelp(text,label){return text?`<button type="button" class="setting-help" data-help data-tip="${esc(text)}" aria-label="Info: ${esc(label)}">?</button>`:'';}
+  const settingTip={node:null,target:null,timer:0,hideTimer:0};
+  function hideSettingTip(){
+    clearTimeout(settingTip.timer);clearTimeout(settingTip.hideTimer);
+    if(settingTip.target)settingTip.target.removeAttribute('aria-describedby');
+    settingTip.target=null;if(settingTip.node)settingTip.node.hidden=true;
   }
+  function showSettingTip(target){
+    if(!target?.isConnected||!target.dataset.tip)return;hideSettingTip();
+    if(!settingTip.node){const node=document.createElement('div');node.id='setting-tooltip';node.className='setting-tooltip';node.setAttribute('role','tooltip');node.hidden=true;document.body.append(node);settingTip.node=node;}
+    const node=settingTip.node;settingTip.target=target;node.textContent=target.dataset.tip;node.hidden=false;node.style.left='12px';node.style.top='12px';target.setAttribute('aria-describedby',node.id);
+    const anchor=target.getBoundingClientRect(),bounds=node.getBoundingClientRect();
+    const x=clamp(anchor.left+anchor.width/2-bounds.width/2,12,Math.max(12,innerWidth-bounds.width-12));
+    const preferred=anchor.top-bounds.height-9;const y=preferred>=12?preferred:anchor.bottom+9;
+    node.style.left=x+'px';node.style.top=clamp(y,12,Math.max(12,innerHeight-bounds.height-12))+'px';
+  }
+  function delayHideSettingTip(){clearTimeout(settingTip.hideTimer);settingTip.hideTimer=setTimeout(()=>{if(settingTip.node?.matches(':hover')||settingTip.target?.matches(':hover')||document.activeElement===settingTip.target)return;hideSettingTip();},120);}
+  document.addEventListener('pointerover',e=>{
+    const target=e.target.closest('[data-help]');if(settingTip.node?.contains(e.target)){clearTimeout(settingTip.hideTimer);return;}
+    if(!target)return;if(target===settingTip.target){clearTimeout(settingTip.hideTimer);return;}
+    clearTimeout(settingTip.timer);settingTip.timer=setTimeout(()=>showSettingTip(target),240);
+  });
+  document.addEventListener('pointerout',e=>{const target=e.target.closest('[data-help]');if(target){clearTimeout(settingTip.timer);if(!target.contains(e.relatedTarget)&&!settingTip.node?.contains(e.relatedTarget))delayHideSettingTip();}else if(settingTip.node?.contains(e.target)&&!settingTip.node.contains(e.relatedTarget))delayHideSettingTip();});
+  document.addEventListener('focusin',e=>{const target=e.target.closest('[data-help]');if(target)showSettingTip(target);});
+  document.addEventListener('focusout',e=>{if(e.target===settingTip.target)delayHideSettingTip();});
+  document.addEventListener('click',e=>{const target=e.target.closest('[data-help]');if(target){e.preventDefault();e.stopPropagation();showSettingTip(target);}else if(!settingTip.node?.contains(e.target))hideSettingTip();},true);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&settingTip.target){hideSettingTip();e.preventDefault();e.stopPropagation();}},true);
+  document.addEventListener('scroll',e=>{if(!settingTip.node?.contains(e.target))hideSettingTip();},true);
+  window.addEventListener('resize',hideSettingTip);window.addEventListener('blur',hideSettingTip);
+
   function rowHTML(f, r, i) {
     const key = `${f.id}.${r.id}`;
-    const open = (cls = '') => `<div class="row ${cls}" data-row="${key}" style="--i:${i}"><span class="row-label" title="${esc(r.hint||'')}">${esc(r.label)}${r.description?`<span class="row-description">${esc(r.description)}</span>`:''}</span>`;
-    if(r.type==='moduleinfo')return `${open('row-wide')}<span style="max-width:340px;text-align:right;font-size:12px;color:var(--text-2);line-height:1.5">${esc(r.text)}</span></div>`;
-    if(r.type==='ff3status')return `<div class="qb-dashboard" data-ff3-dashboard>${ff3Dashboard()}</div>`;
-    if(f.id==='ff3_qb'&&r.id==='preset')return `<div class="qb-library"><div class="qb-eyebrow">PASS MODE <span>Z cycles · Q locks receiver</span></div><div data-ff3-pass-card>${ff3PassCardHTML(r)}</div></div>`;
+    const open = (cls = '') => `<div class="row ${cls}" data-row="${key}" style="--i:${i}"><span class="row-label"><span>${esc(r.label)}</span>${settingHelp(r.description||r.hint||'',r.label)}</span>`;
+    if(r.type==='section')return `<h3 class="settings-section">${esc(r.label)}</h3>`;
+    if(r.type==='moduleinfo')return `${open('row-wide')}${settingHelp(r.text,r.label)}</div>`;
+    if(r.type==='ff3status')return `<div class="ff3-status-bar" data-ff3-summary role="status">${ff3Summary()}</div>`;
+    if(r.type==='ff3playstatus')return `<div class="ff3-status-bar" data-row="${key}" role="status"><span data-ff3-play-status>${esc(ff3Live.playStatus||'Receiving and defense assists off')}</span></div>`;
+
     if (r.type === 'slider') return `${open()}
         <div class="slider" tabindex="0" role="slider" aria-label="${esc(r.label)}" aria-valuemin="${r.min}" aria-valuemax="${r.max}" data-key="${key}">
           <div class="track"><div class="fill"></div>${r.zero ? `<span class="zero" style="left:${pct(r, 0)}%"></span>` : ''}</div>
@@ -2466,7 +2575,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     $$('[data-act="rowswitch"]').forEach(s => s.setAttribute('aria-checked', find(s.dataset.key).r.value));
     $$('.keycap').forEach(k => { const v = find(k.dataset.key).r.keys[+k.dataset.i]; if (k.classList.contains('listening')) return; k.textContent = v || 'None'; k.classList.toggle('empty', !v); });
     $$('.swatch').forEach(s => s.classList.toggle('sel', find(s.dataset.key).r.value === s.dataset.color));
-    $$('[data-ff3-pass-card]').forEach(n=>{const r=find('ff3_qb.preset').r;if(n.dataset.mode!==String(r.value)){n.innerHTML=ff3PassCardHTML(r);n.dataset.mode=String(r.value);}});
+
     $$('[data-choice]').forEach(b => b.classList.toggle('sel', String(find(b.dataset.key).r.value) === b.dataset.choice));
     renderCount(); updateNav(); updateHomeStats(); updateProfileBtn();
   }
@@ -2627,7 +2736,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         if (p.tabs.length > 1) out.push({ kind: 'page', pid, tid: t.id, title: t.label, path: p.title, icon: t.icon });
         for (const f of t.features) {
           out.push({ kind: 'feature', pid, tid: t.id, fid: f.id, title: f.name, path: `${p.title} › ${t.label}`, icon: f.icon, f });
-          for (const r of f.rows) out.push({ kind: 'row', pid, tid: t.id, fid: f.id, rid: r.id, title: r.label, path: `${p.title} › ${f.name}`, icon: f.icon, r });
+          for (const r of f.rows) if(r.type!=='section')out.push({ kind: 'row', pid, tid: t.id, fid: f.id, rid: r.id, title: r.label, path: `${p.title} › ${f.name}`, icon: f.icon, r });
         }
       }
     }
@@ -2924,23 +3033,26 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     hostSend('drag');
   });
   // Messages from the C++ host
-  function ff3Dashboard(){
-    const m=ff3Live,valid=!!m.ready,num=(x,d=0)=>Number.isFinite(x)?x.toFixed(d):'—';
-    const pressure=m.transportReady===false&&m.setup?'SETTING UP':m.fitBlocked?'FIT UNAVAILABLE':!valid?'STANDBY':!m.coverageKnown?'INCOMPLETE':m.coverageCount===0?'NO COVERAGE':m.margin>1?'OPEN ESTIMATE':'CONTESTED';
-    const color=valid&&m.coverageKnown&&m.coverageCount>0&&m.margin<=1?'#ffbc85':'#8ee5d5';
-    const samples=valid&&Array.isArray(m.trajectory)?m.trajectory.filter(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)):[];
-    let curve='',end='';
-    if(samples.length>1){const xmax=Math.max(1,...samples.map(p=>p[0])),ymin=Math.min(0,...samples.map(p=>p[1])),yrange=Math.max(5,...samples.map(p=>p[1]))-ymin;const points=samples.map(p=>[22+p[0]/xmax*356,92-(p[1]-ymin)/yrange*68]);curve=points.map((p,i)=>(i?'L':'M')+p.map(n=>n.toFixed(2)).join(' ')).join(' ');const last=points.at(-1);end=`<circle cx="${last[0]}" cy="${last[1]}" r="7" fill="${color}" fill-opacity=".12"/><circle cx="${last[0]}" cy="${last[1]}" r="3" fill="${color}"/>`;}
-    const metric=(label,value,unit)=>`<div class="qb-metric"><label>${label}</label><b>${valid?value:'—'}</b><small>${unit}</small></div>`;
-    return `<div class="qb-eyebrow">VANTA / QUARTERBACK<span>${m.locked?'TARGET LOCKED · Q':'CURSOR SELECTION · Q'}</span></div><div class="qb-target"><div><small>INTENDED RECEIVER</small><strong>${esc(m.target||'Find your receiver')}</strong></div><span class="qb-badge ${valid&&m.coverageKnown?(m.margin>1||m.coverageCount===0?'open':'risk'):''}">${pressure}</span></div><div class="qb-route">${esc(m.preset||'Auto route')} / ${esc(m.route||'Aim near a teammate')}${valid?' / '+num(m.distance)+' studs':''}</div><div class="qb-flight-view"><div class="qb-flight-caption"><span>TRAJECTORY PROFILE</span><b>${valid?(m.catchHeight>=3?'RISE +'+num(m.catchHeight,1)+' ST':'LEVEL CATCH')+' · OFFSET '+num(m.fitOffset,1)+' ST':'AWAITING THROW PLAN'}</b></div><svg viewBox="0 0 400 112" preserveAspectRatio="none" aria-label="Live trajectory side profile" role="img"><path d="M22 30H378 M22 61H378 M22 92H378 M93 24V96 M164 24V96 M235 24V96 M306 24V96" stroke="#ffffff09" fill="none"/>${curve?`<path d="${curve}" stroke="${color}" stroke-opacity=".08" stroke-width="9" fill="none"/><path d="${curve}" stroke="${color}" stroke-width="2" fill="none"/>${end}`:'<text x="200" y="65" text-anchor="middle" fill="#607086" font-size="10">Equip a ball and select a receiver</text>'}</svg></div><div class="qb-metrics">${metric('Power',num(m.power),'/ 95')}${metric('Elevation',num(m.angle),'°')}${metric('Flight time',num(m.flight,2),'s')}${metric('Clearance',m.coverageKnown&&m.coverageCount>0?num(m.margin,2):'—','st')}</div><div class="qb-power-track"><i style="width:${valid?clamp(m.power/95*100,0,100):0}%"></i></div><div class="qb-footer"><span class="${m.held?'live':''}">${m.held?'Ball equipped':'No ball equipped'}</span><span>${m.force95?'Adaptive Beam':m.automaticPower?'Adaptive power':'Game power'}</span><span>${esc(m.coverageDetail||'Reading coverage')}</span>${m.balls?`<span>${num(m.balls)} airborne</span>`:''}</div><span class="qb-status" data-ff3-status>${esc(m.reason||'QB aim off')}</span>`;
+  function renderQbNetworking(){
+    const n=qbNetworking,visible=BB&&n.phase!=='waiting'&&(BBS.detectedId==='ff3'||BBS.moduleId==='ff3');
+    const title=n.requiresRejoin?'Rejoin without holding a football':n.ready?'Networking ready':n.retryable?'Networking needs attention':'Preparing networking';
+    const detail=n.requiresRejoin?'Keep Vanta open while you rejoin FF3. Setup will continue automatically.':n.ready?(n.editing?'Ready for QBA.':'QBA is off. Your connection is prepared.'):(n.detail||'Preparing the current game connection.');
+    const html=`<span class="qb-network-copy"><b>${esc(title)}</b><span>${esc(detail)}</span></span>${n.retryable?'<button type="button" data-ff3-retry>Retry setup</button>':''}`;
+    $$('[data-qb-network]').forEach(el=>{el.hidden=!visible;el.classList.toggle('rejoin',!!n.requiresRejoin);el.dataset.phase=n.ready?'ready':n.phase;if(el.innerHTML!==html)el.innerHTML=html;});
   }
-  function ff3StatusText(){return (ff3Live.setup&&!ff3Live.transportReady?ff3Live.setup+' · ':'')+(ff3Live.lastAction?ff3Live.lastAction+' · ':'')+ff3Live.reason+(ff3Live.flight>0?` · ${Math.round(ff3Live.angle)}° · ${ff3Live.flight.toFixed(2)} s · power ${Number(ff3Live.power).toFixed(1)}`:'');}
+  function ff3Summary(){
+    const check=ff3Live.ready?ff3Live.check:null;
+    return `<i class="ff3-status-dot ${ff3Live.ready?'ready':''}" aria-hidden="true"></i><span data-ff3-status>${esc(ff3StatusText())}</span>${check?`<b class="ff3-check ${['CLEAR','TIGHT','INTERCEPT'].includes(check)?check.toLowerCase():''}" data-ff3-check>${esc(check)}</b>`:''}${ff3Live.setupFailed?'<button data-ff3-retry>Retry setup</button>':''}`;
+  }
+  document.addEventListener('click',e=>{if(e.target.closest('[data-ff3-retry]'))hostSend('qbRetry');});
+  function ff3StatusText(){return ff3Live.setup&&!ff3Live.transportReady?ff3Live.setup:(ff3Live.reason||'QB aim off');}
   function onHostMessage(m) {
     if (!m || typeof m !== 'object') return;
+    if(BB&&m.type==='qbNetworking'){qbNetworking=m;renderQbNetworking();return;}
     if(BB&&m.type==='networkInspector'){applyNetworkReport(m);return;}
     if(m.type==='closeRequested'){requestQuit();return;}
     if(BB&&m.type==='gameModule'){openGameModule(m);return;}
-    if(BB&&m.type==='ff3Live'){if(window.__VANTA_HOST__?.testMode&&ff3PreviewTest)return;if(BBS.moduleId==='ff3'){ff3Live=m;if(m.modules)applySnapshot(m.modules,true);syncDom();$$('[data-ff3-dashboard]').forEach(n=>n.innerHTML=ff3Dashboard());$$('[data-ff3-status]').forEach(n=>n.textContent=ff3StatusText());$$('[data-bb-reason]').forEach(n=>n.textContent=m.reason);}return;}
+    if(BB&&m.type==='ff3Live'){if(window.__VANTA_HOST__?.testMode&&ff3PreviewTest)return;if(BBS.moduleId==='ff3'){ff3Live=m;if(m.modules)applySnapshot(m.modules,true);syncDom();$$('[data-ff3-summary]').forEach(n=>n.innerHTML=ff3Summary());$$('[data-ff3-status]').forEach(n=>n.textContent=ff3StatusText());$$('[data-ff3-play-status]').forEach(n=>n.textContent=m.playStatus||'Receiving and defense assists off');$$('[data-bb-reason]').forEach(n=>n.textContent=m.reason);}return;}
     if(BB&&m.type==='basketballConnection'){
       if(BBS.detectedId!==(m.moduleId||'')){BBS.sequence={stage:0,at:performance.now()};BBS.noticeSequence={stage:0,at:performance.now()};}
       BBS.detectedId=m.moduleId||'';BBS.gameName=m.gameName||'Supported game';
@@ -2950,7 +3062,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       $$('[data-bb-title]').forEach(n=>n.textContent=BBS.ready?'Connected to '+BBS.gameName:'Waiting for a supported game');
       $$('[data-rbx]').forEach(n=>{n.textContent=BBS.ready?'Connected to '+BBS.gameName:'Waiting for game';n.title=m.detail;});
       if(!BBS.ready){hostPing=false;$$('[data-ping]').forEach(n=>n.textContent='—');}
-      renderBasketballConnection();renderReconnectNotice();
+      renderBasketballConnection();renderReconnectNotice();renderQbNetworking();
       if(BBS.everOpened&&!BBS.workspaceOpen&&!BBS.signingOut&&!document.body.classList.contains('booting'))reconnectBasketball();
       return;
     }
@@ -2989,6 +3101,11 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   // ================= Boot =================
   if(BB)try{
     const saved=JSON.parse(localStorage.getItem('basketball.appearance')||'{}');
+    if(localStorage.getItem('basketball.themeEdition')!=='original-colors-1'){
+      saved['theme.accent']='#8e97ff';
+      localStorage.setItem('basketball.appearance',JSON.stringify(saved));
+      localStorage.setItem('basketball.themeEdition','original-colors-1');
+    }
     for(const [key,v]of Object.entries(saved)){
       if(!/^(theme|glass|menukey)\./.test(key))continue;
       const {r}=find(key);if(!r)continue;
@@ -3346,6 +3463,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   }
   let quitFocus=null,quitPending=false;
   async function requestQuit(){
+    hideSettingTip();
     if(quitPending||!$('#quitLayer').hidden)return;
     quitPending=true;quitFocus=document.activeElement;stopListening();closeMenu();closePalette();
     await hostAsk('quitLayout',{open:true});
@@ -3644,11 +3762,12 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       check(!!$('#stack [data-fsw="ff3_qb"]')&&!!$('[data-ff3-status]'),'FF3 has QB controls and live throw status');
       $('[data-fsw="ff3_qb"]').click();check((await native()).ff3.ff3_qb.on,'QB toggle reaches FF3 state');
       check(!(await native()).ff3.ff3_qb.rows.force95,'Beam is optional and starts off');
+      check(!$('[data-row="ff3_qb.dragangle"]')&&!('dragangle' in (await native()).ff3.ff3_qb.rows),'Angle dragging is removed from controls and native state');
       hostSend('setting',{key:'ff3_qb.trails',value:false});check(!(await native()).ff3.ff3_qb.rows.trails,'Ball trajectories can be disabled');
       hostSend('setting',{key:'ff3_qb.trails',value:true});check((await native()).ff3.ff3_qb.rows.trails,'Ball trajectories can be enabled independently');
       hostSend('setting',{key:'ff3_qb.force95',value:true});check((await native()).ff3.ff3_qb.rows.force95,'Beam option reaches native state');
       hostSend('setting',{key:'ff3_qb.force95',value:false});check(!(await native()).ff3.ff3_qb.rows.force95,'Adaptive power can be restored');
-      $('[data-pass-next]').click();await until(()=>find('ff3_qb.preset').r.value===1);$('[data-pass-next]').click();check((await native()).ff3.ff3_qb.rows.preset===2,'Lob preset card reaches native state');
+      $('[data-key="ff3_qb.preset"][data-choice="1"]').click();await until(()=>find('ff3_qb.preset').r.value===1);$('[data-key="ff3_qb.preset"][data-choice="2"]').click();check((await native()).ff3.ff3_qb.rows.preset===2,'Compact pass selector reaches native state');
       hostSend('setting',{key:'ff3_qb.height',value:4});check((await native()).ff3.ff3_qb.rows.height===4,'Catch height reaches native state');hostSend('setting',{key:'ff3_qb.height',value:0});
       hostSend('setting',{key:'ff3_qb.lead',value:-4});check((await native()).ff3.ff3_qb.rows.lead===-4,'Signed lead slider reaches native state');hostSend('setting',{key:'ff3_qb.lead',value:0});
       {
@@ -3669,6 +3788,33 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       hostSend('setting',{key:'ff3_qb.arc',value:1});check((await native()).ff3.ff3_qb.rows.arc===1,'QB arc reaches native state');
       hostSend('setting',{key:'ff3_qb.arc',value:7});check((await native()).ff3.ff3_qb.rows.arc===1,'Invalid QB arc is rejected');
       check($('#profilesBtn').hidden&&$('#resetBtn').hidden,'Basketball profiles and resets are unavailable in FF3');
+      {
+        const qbBefore=JSON.stringify((await native()).ff3.ff3_qb);
+        $('[data-tab="receiving"]').click();check(!!$('[data-fsw="ff3_catch"]')&&!!$('[data-fsw="ff3_jump"]')&&!!$('[data-fsw="ff3_mags"]'),'Receiving tab renders Catch, Jump and Mags controls');
+        check($('#stack .card').dataset.feature==='ff3_mags'&&!$('#stack .row-description'),'Mags is first and receiving descriptions are hover-only');
+        check($('#stack .card').textContent.includes('Ball Mags')&&$('[data-row="ff3_mags.studs"]').textContent.includes('Reach size')&&$('[data-row="ff3_mags.visual"]').textContent.includes('Reach visual'),'Reach size and external visual controls are labeled clearly');
+        check((await native()).ff3.ff3_mags.rows.studs===20,'Ball Mags starts at 20 studs');
+        $('[data-fsw="ff3_catch"]').click();check((await native()).ff3.ff3_catch.on,'Auto Catch toggle reaches native state');
+        $('[data-fsw="ff3_jump"]').click();check((await native()).ff3.ff3_jump.on,'Auto Jump toggle reaches native state');
+        $('[data-fsw="ff3_mags"]').click();check((await native()).ff3.ff3_mags.on,'Mags toggle reaches native state without test memory writes');
+        hostSend('setting',{key:'ff3_mags.studs',value:50});check((await native()).ff3.ff3_mags.rows.studs===50,'Mags accepts the 50-stud maximum');
+        check((await native()).ff3.ff3_mags.rows.visual&&!!$('[data-row="ff3_mags.visual"]'),'Mags volume visuals start enabled and render a control');
+        hostSend('setting',{key:'ff3_mags.visual',value:false});check(!(await native()).ff3.ff3_mags.rows.visual,'Mags volume visuals can be disabled');
+        hostSend('setting',{key:'ff3_mags.visual',value:true});check((await native()).ff3.ff3_mags.rows.visual,'Mags volume visuals can be restored');
+        hostSend('setting',{key:'ff3_mags.delay',value:120});check((await native()).ff3.ff3_mags.rows.delay===120,'Ball Mags delay reaches native state');
+        check(!('shape' in (await native()).ff3.ff3_mags.rows)&&!!$('[data-row="ff3_mags.studs"]')&&!$('[data-row="ff3_mags.width"]'),'Mags uses one size slider without shape or axis controls');
+        $('[data-row="ff3_mags.studs"]').scrollIntoView({block:'start'});await delay(300);check((await hostAsk('testCapture',{name:'ff3-mags'})).ok,'Simplified ball Mags controls captured');
+        hostSend('setting',{key:'ff3_catch.input',value:1});check((await native()).ff3.ff3_catch.rows.input===1,'Catch binding reaches native state');
+        await delay(300);check((await hostAsk('testCapture',{name:'ff3-receiving'})).ok,'Receiving controls captured');
+        hostSend('feature',{feature:'ff3_catch',on:false});hostSend('feature',{feature:'ff3_jump',on:false});hostSend('feature',{feature:'ff3_mags',on:false});
+        $('[data-tab="defense"]').click();check(!!$('[data-fsw="ff3_rush"]')&&!!$('[data-ff3-play-status]'),'Defense tab renders rush controls and live status');
+        $('[data-fsw="ff3_rush"]').click();check((await native()).ff3.ff3_rush.on,'Auto Rush toggle reaches native state');
+        hostSend('setting',{key:'ff3_rush.input',value:['Mouse4']});check((await native()).ff3.ff3_rush.rows.input[0]==='Mouse4','Rush activation is rebindable');
+        hostSend('setting',{key:'ff3_rush.hold',value:false});check(!(await native()).ff3.ff3_rush.rows.hold,'Rush can use toggle activation');
+        await delay(300);check((await hostAsk('testCapture',{name:'ff3-defense'})).ok,'Rush controls captured');
+        hostSend('feature',{feature:'ff3_rush',on:false});check(JSON.stringify((await native()).ff3.ff3_qb)===qbBefore,'Receiving and defense changes preserve every QB setting');
+        $('[data-tab="overview"]').click();
+      }
       hostSend('feature',{feature:'autotime',on:true});hostSend('setting',{key:'autotime.release',value:59});hostSend('snapshot',{data:PROFILES[0].data});
       check(JSON.stringify((await native()).modules)===basketballBefore&&!(await native()).inputs,'FF3 rejects Basketball commands; test mode never installs inputs');
       await until(()=>!$('.toast.show')); // Capture after the deliberate invalid-setting notification clears.
@@ -3676,17 +3822,41 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       check((await hostAsk('testCapture',{name:'ff3'})).ok,'FF3 workspace captured');
       $('[data-row="ff3_qb.autoangle"]').scrollIntoView({block:'end'});await delay(300);
       check((await hostAsk('testCapture',{name:'ff3passes'})).ok,'Pass library captured');
-      check(!!$('[data-ff3-pass-card]')&&$('[data-ff3-pass-card]').textContent.includes('Lob'),'Pass mode card and cycle button render');
-      const passButton=$('[data-pass-next]');syncDom();check(passButton===$('[data-pass-next]'),'Live settings refresh preserves the pass button');
-      $('.qb-mode-strip [data-choice="4"]').click();check((await native()).ff3.ff3_qb.rows.preset===4,'Direct pass selector reaches native mode');
-      const previousLive=ff3Live;ff3PreviewTest=true;ff3Live={ready:true,held:true,automaticPower:true,coverageKnown:true,coverageCount:2,coverageDetail:'2 catchers / jump + dive estimate',target:'Practice receiver',locked:true,preset:'Auto route',route:'Crossing / out',power:80,angle:32,flight:1.6,distance:112,fitOffset:6,catchHeight:4,margin:-.12,reason:'Contested: aiming assist active',trajectory:Array.from({length:25},(_,i)=>[i*4.7,Math.sin(i/24*Math.PI)*24+i/24*4])};
-      $('[data-ff3-dashboard]').innerHTML=ff3Dashboard();$('[data-ff3-dashboard]').scrollIntoView({block:'start'});await delay(200);
-      check($('.qb-flight-view svg').querySelectorAll('path').length===3&&$('.qb-badge').textContent==='CONTESTED','Live profile renders measured samples and contested status');
-      check((await hostAsk('testCapture',{name:'ff3-live'})).ok,'Redesigned throw dashboard captured');
-      ff3Live.margin=1.54;ff3Live.reason='Nearby catch placement';ff3Live.fitOffset=3;$('[data-ff3-dashboard]').innerHTML=ff3Dashboard();
-      check($('.qb-badge').textContent==='OPEN ESTIMATE'&&$('.qb-metrics').textContent.includes('st')&&$('.qb-status').textContent.includes('placement'),'Spatial clearance and nearby placement are visible');
-      ff3Live.ready=false;ff3Live.fitBlocked=true;$('[data-ff3-dashboard]').innerHTML=ff3Dashboard();
-      check($('.qb-badge').textContent==='FIT UNAVAILABLE','Unavailable physics or coverage is not presented as ready');ff3PreviewTest=false;ff3Live=previousLive;
+      check(!$('.qb-dashboard')&&!$('.qb-library')&&!$('.qb-flight-view')&&!!$('[data-ff3-summary]'),'QB dashboard and illustrated pass cards are removed');
+      check($$('.settings-section').map(n=>n.textContent).join(',')==='Throw,Placement,Controls,Visuals','QB controls have clear sections');
+      check(!buildIndex().some(item=>item.r?.type==='section'),'Section headings do not appear as fake settings in search');
+      const passButton=$('[data-key="ff3_qb.preset"][data-choice="4"]');syncDom();check(passButton===$('[data-key="ff3_qb.preset"][data-choice="4"]'),'Live updates preserve the compact pass selector');
+      passButton.click();check((await native()).ff3.ff3_qb.rows.preset===4,'Compact Slant selector reaches native mode');
+      const previousLive=ff3Live;ff3PreviewTest=true;ff3Live={ready:true,held:true,reason:'Ready: click to throw to Practice receiver'};
+      $('[data-ff3-summary]').innerHTML=ff3Summary();check($('[data-ff3-status]').textContent.includes('Practice receiver')&&!!$('.ff3-status-dot.ready'),'Compact status preserves live readiness');
+      for(const status of ['CLEAR','TIGHT','INTERCEPT']){ff3Live.check=status;$('[data-ff3-summary]').innerHTML=ff3Summary();check($('[data-ff3-check]').textContent===status&&$('[data-ff3-check]').classList.contains(status.toLowerCase()),'Visible throw check: '+status);}
+      ff3Live={ready:false,setupFailed:true,transportReady:false,setup:'Reconnect to finish setup',reason:'Not ready'};$('[data-ff3-summary]').innerHTML=ff3Summary();
+      check($('[data-ff3-status]').textContent.includes('Reconnect')&&!!$('[data-ff3-retry]')&&!$('.ff3-status-dot.ready'),'Compact status preserves setup errors and retry');
+      ff3PreviewTest=false;ff3Live=previousLive;$('[data-ff3-summary]').innerHTML=ff3Summary();
+      const previousNetworking=qbNetworking,qbBeforeNetwork=JSON.stringify((await native()).ff3);
+      onHostMessage({type:'qbNetworking',phase:'rejoin',requiresRejoin:true,detail:'Join schema missing'});
+      check(!$('.main>[data-qb-network]').hidden&&$('.main>[data-qb-network]').textContent.includes('without holding a football')&&$('.main>[data-qb-network]').textContent.includes('Keep Vanta open'),'Rejoin instruction appears independently of QBA');
+      check(!!$('.lg-body>[data-qb-network]')&&!!$('#reconnectIsland [data-qb-network]'),'Networking notice is available at startup and during reconnect');
+      await delay(100);check((await hostAsk('testCapture',{name:'networking-rejoin'})).ok,'Rejoin networking notice captured');
+      onHostMessage({type:'qbNetworking',phase:'ready',ready:true,editing:false});
+      check($('.main>[data-qb-network]').textContent.includes('QBA is off')&&!$('.main>[data-qb-network]').classList.contains('rejoin'),'Prepared networking clears the rejoin notice while QBA is off');
+      onHostMessage({type:'qbNetworking',phase:'failed',retryable:true,detail:'Administrator approval needed'});
+      check(!!$('.main>[data-qb-network] [data-ff3-retry]')&&$('.main>[data-qb-network]').textContent.includes('Administrator'),'Setup failure exposes a manual retry without toggling QBA');
+      check(JSON.stringify((await native()).ff3)===qbBeforeNetwork,'Networking messages do not enable or change QB settings');
+      qbNetworking=previousNetworking;renderQbNetworking();
+
+      const info=$('[data-row="ff3_qb.autoangle"] [data-help]'),beforeInfo=JSON.stringify((await native()).ff3);
+      check(!!info&&!$('.row-description')&&!$('#stack').textContent.includes(find('ff3_qb.autoangle').r.description),'Descriptions are not printed under settings');
+      info.scrollIntoView({block:'center'});await delay(100);info.dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'}));await until(()=>settingTip.node&&!settingTip.node.hidden);
+      check(settingTip.node.getAttribute('role')==='tooltip'&&settingTip.node.textContent===info.dataset.tip&&info.getAttribute('aria-describedby')===settingTip.node.id,'Hover opens a real accessible tooltip');
+      let tipBounds=settingTip.node.getBoundingClientRect();check(tipBounds.left>=0&&tipBounds.right<=innerWidth&&tipBounds.top>=0&&tipBounds.bottom<=innerHeight,'Tooltip stays inside the app viewport');
+      syncDom();check(settingTip.target===info&&!settingTip.node.hidden,'Live refresh preserves the hovered tooltip');
+      check((await hostAsk('testCapture',{name:'ff3-live'})).ok,'Compact settings and hover tooltip captured');
+      document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));check(settingTip.node.hidden,'Escape dismisses tooltip');
+      info.blur();info.focus();await until(()=>!settingTip.node.hidden);check(document.activeElement===info&&!settingTip.node.hidden,'Keyboard focus opens the same help tooltip');
+      info.blur();hideSettingTip();const cardHelp=$('[data-feature="ff3_qb"] .card-head [data-help]'),expanded=find('ff3_qb').f.open;
+      cardHelp.click();check(!settingTip.node.hidden&&find('ff3_qb').f.open===expanded&&JSON.stringify((await native()).ff3)===beforeInfo,'Help clicks do not expand cards or change native settings');
+      $('#scroll').dispatchEvent(new Event('scroll'));check(settingTip.node.hidden,'Scrolling dismisses a tooltip with an outdated anchor');
       await hostAsk('testConnection',{scenario:'wrong'});await until(()=>BBS.reconnecting);
       check(!(await native()).ff3.ff3_qb.on,'Connection loss turns QB aim off');
       check(!(await hostAsk('workspace')).ok,'Unsupported game remains blocked after FF3');
