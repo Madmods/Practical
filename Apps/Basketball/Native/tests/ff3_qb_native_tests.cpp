@@ -1,11 +1,97 @@
 #define NOMINMAX
 #include "../src/ff3_qb_overlay.hpp"
 #include "../src/ff3_packet_bridge.hpp"
+#include "../src/ff3_startup_preparation.hpp"
+#include "ff3_mouse_aim_checks.hpp"
+#include "ff3_qb_policy_checks.hpp"
+#include "ff3_direct_aim_checks.hpp"
+#include "ff3_click_flick_checks.hpp"
 #include <iostream>
 int main(){
  winrt::init_apartment();unsigned checks=0;
- auto check=[&](bool ok){++checks;if(!ok){std::cerr<<"Failed check "<<checks<<'\n';std::exit(1);}};
+ auto checkLine=[&](bool ok,int line){++checks;if(!ok){std::cerr<<"Failed check "<<checks<<" at line "<<line<<'\n';std::exit(1);}};
+ auto check=[&](bool ok){checkLine(ok,0);};
+#define check(...) checkLine(bool(__VA_ARGS__),__LINE__)
  using namespace ff3Native;
+ clickFlickChecks(check);
+ {ff3qb::PointerMovement pointer;ff3qb::CameraPreparation preparation;
+  check(pointer.update(1218,480));preparation.pauseUntil(150);
+  for(unsigned tick=1;tick<=160;++tick)if(pointer.update(1218,480))preparation.pauseUntil(tick+150);
+  check(preparation.canPrepare(160));check(pointer.update(1219,480));preparation.pauseUntil(310);check(!preparation.canPrepare(309));check(preparation.canPrepare(310));
+  check(pointer.update(1219,481));check(!pointer.update(1219,481));}
+ {for(auto key:{L"receivers",L"routes",L"window",L"race",L"threats",L"landing",L"future",L"highlight"}){const auto original=modules()[L"ff3_qb"][L"rows"][key].boolean();check(set(L"ff3_qb."+std::wstring(key),basketballUi::boolean(!original)));check(modules()[L"ff3_qb"][L"rows"][key].boolean()==!original);check(set(L"ff3_qb."+std::wstring(key),basketballUi::boolean(original)));}}
+
+ { // Real background preparation while no loader/login/workspace is running.
+  const bool previousSession=sessionUnlocked.exchange(false);
+  const auto helper=std::filesystem::temp_directory_path()/(L"vanta-startup-test-"+std::to_wstring(GetCurrentProcessId()));std::ofstream(helper).put('1');
+  std::atomic<int> stage{0};std::atomic<bool> discoveryRunning{true},discovered{false},networkingWanted{false};std::atomic<unsigned> launches{0},stopped{0};
+  std::vector<std::filesystem::path> sessions;std::filesystem::path listenerFolder;
+  auto sessionPath=[](const std::wstring& parameters){const auto a=parameters.find(L"--session \"")+11;return std::filesystem::path(parameters.substr(a,parameters.find(L'\"',a)-a));};
+  ff3Packets::EarlyListener listener(helper,[&](const auto&,const std::wstring& parameters){listenerFolder=sessionPath(parameters);auto state=basketballUi::object();state.o[L"listenerReady"]=basketballUi::boolean(true);state.o[L"heartbeat"]=basketballUi::number(double(GetTickCount64()));std::ofstream(listenerFolder/L"state.json")<<winrt::to_string(json::dump(state));return CreateEventW(nullptr,TRUE,FALSE,nullptr);});
+  ff3Packets::Service service(helper,[&](const auto&,const std::wstring& parameters){sessions.push_back(sessionPath(parameters));++launches;return CreateEventW(nullptr,TRUE,FALSE,nullptr);});
+  auto await=[&](auto condition){const auto until=GetTickCount64()+3000;while(!condition()&&GetTickCount64()<until)Sleep(5);return condition();};
+  auto connection=[&](){gameModules::Snapshot value;const int current=stage.load();if(!current)return value;value.pid=77;value.process=value.opened=true;value.version=current>=2;if(current>=3){value.placeId=1;value.universeId=1;}return value;};
+  {
+   ff3Packets::StartupPreparation startup(service,listener,[&](){discovered=true;while(discoveryRunning)Sleep(5);},[&](){++stopped;discoveryRunning=false;},connection,[&](){return networkingWanted.load();});
+   check(startup.start()&&startup.start());
+   check(await([&](){return discovered.load();}));Sleep(150);check(!launches&&listenerFolder.empty());
+   networkingWanted=true;
+   check(await([&](){return discovered&&service.networking()[L"listenerReady"].boolean();}));
+   check(!launches&&!enabled&&!sessionUnlocked);
+   stage=1;Sleep(150);check(!launches); // Unsupported clients are still rejected.
+   stage=2;check(await([&](){return service.networking()[L"phase"].str()==L"preparing";}));
+   check(launches==1&&!service.networking()[L"editing"].boolean()&&!service.inputReady());
+   check(std::filesystem::exists(sessions.front()/L"setup-only"));
+   Sleep(150);check(launches==1); // No duplicate helper on the next tick.
+   stage=3;check(await([&](){return service.networking()[L"phase"].str()==L"stopping";}));
+   check(std::filesystem::exists(sessions.front()/L"stop"));
+   networkingWanted=false;check(await([&](){return !service.networking()[L"listenerReady"].boolean()&&std::filesystem::exists(listenerFolder/L"stop");}));
+   // Destruction also covers a failed UI creation, before a message loop exists.
+  }
+  check(stopped==1&&!discoveryRunning);
+  const auto count=launches.load();Sleep(120);check(launches==count);
+  listener.stop();service.stop();for(const auto& path:sessions)std::filesystem::remove_all(path);std::filesystem::remove_all(listenerFolder);std::filesystem::remove(helper);
+  const auto mainPath=std::filesystem::path(__FILE__).parent_path()/L".."/L"src"/L"basketball_main.cpp";std::ifstream input(mainPath);const std::string source((std::istreambuf_iterator<char>(input)),{});
+  const auto createAt=source.find("!ui.Create(instance,info,cb)");
+  check(!source.empty()&&createAt!=std::string::npos&&source.find("!startup.start()")<createAt);
+  check(source.find("if(!test&&!studio&&ff3Native::packetMode){earlyListener.ensure();")!=std::string::npos);
+  // Click replacement ordering and cleanup are exercised by clickFlickChecks.
+  sessionUnlocked=previousSession;
+ }
+ { // Normal mouse dispatch requires the real displayed power, never a packet patch.
+  check(!packetMode);
+  auto status=inputNetworking();check(status[L"phase"].str()==L"input"&&!status[L"editing"].boolean()&&!status[L"requiresRejoin"].boolean());
+  Frame v;v.inputThrow=true;v.pid=1;v.model=2;v.own=3;v.tool=4;v.target=5;v.window=(HWND)6;v.ready=true;v.power=v.gamePower=73;v.gravity=28;v.aim={100,100,true};v.gameMouse={100,100,0};v.client={0,0,800,600};v.matrix[0]=v.matrix[5]=1;
+  check(dispatchConsistent(v,v,v,{100,100}));auto wrong=v;wrong.gamePower=75;check(!dispatchConsistent(v,v,wrong,{100,100}));
+  auto replaced=v;replaced.powerGui=999;check(!dispatchConsistent(v,v,replaced,{100,100}));
+  check(!anglePowerPlan(v));
+  v.gameMouse={320,240,0};v.aim.valid=false;
+  check(packetWheelConsistent(v,v,v,{320,240},{320,240}));
+  wrong=v;wrong.gamePower=75;check(!packetWheelConsistent(v,v,wrong,{320,240},{320,240}));
+  wrong=v;wrong.target=9;check(!packetWheelConsistent(v,v,wrong,{320,240},{320,240}));
+  wrong=v;wrong.window=(HWND)7;check(!packetWheelConsistent(v,v,wrong,{320,240},{320,240}));
+  wrong=v;wrong.gameMouse.x=100;check(!packetWheelConsistent(v,v,wrong,{320,240},{320,240}));
+  check(!packetWheelConsistent(v,v,v,{330,240},{320,240}));
+  check(!packetWheelConsistent(v,v,v,{900,240},{900,240}));
+  check(set(L"ff3_qb.movement",basketballUi::number(80))&&aimMovementMs==80);
+  check(!set(L"ff3_qb.movement",basketballUi::number(0)));check(!set(L"ff3_qb.movement",basketballUi::number(NAN)));aimMovementMs=70;
+ }
+ {using namespace ff3Input;
+  check(topWheel({{1,0,0,true,true},{2,0,1,true,true}})==2); // overlapping old 85/new 95 wheels
+  check(topWheel({{1,10,0,true,true},{2,0,1,true,true}})==1);
+  check(topWheel({{1,10,0,false,true},{2,0,1,true,true}})==2);
+  check(!topWheel({{1,10,0,true,false}}));
+
+  check(powerIndex("73")==73&&powerIndex("94")==94&&powerIndex("95")==95&&powerIndex("100")==100);
+  check(!powerIndex("nan")&&!powerIndex("101")&&!powerIndex("0"));
+  Point hit;std::uint64_t id=0;std::vector<Button> buttons{{1,73,1,1,{100,100},{40,10},90},{2,74,1,2,{104,100},{40,10},90}};
+  check(selectPower(buttons,73,800,600,hit,id)&&id==1&&contains(buttons[0],hit)&&!contains(buttons[1],hit,-.5));
+  buttons[1]=buttons[0];buttons[1].instance=2;buttons[1].power=74;buttons[1].order=2;
+  check(!selectPower(buttons,73,800,600,hit,id));check(!selectPower(buttons,0,800,600,hit,id));
+  buttons[0].rotation=NAN;check(!selectPower(buttons,73,800,600,hit,id));
+  double previous=-1;for(int i=0;i<=100;i++){auto point=interpolate({0,0},{100,50},i/100.);check(point.x>=previous&&point.x>=0&&point.x<=100&&std::abs(point.y-point.x/2)<1e-9);previous=point.x;}
+  check(blend(-1)==0&&blend(2)==1&&blend(0)==0&&blend(1)==1);
+ }
  {Frame f;f.head={0,8,0};f.targetPosition={70,8,0};f.targetVelocity={20,0,0};f.at=10;f.gravity=28;f.power=95;f.mode=0;f.minimumAngle=25;f.maximumAngle=50;f.selectedLob=false;f.solution=ff3qb::solve(f.head,f.targetPosition,f.targetVelocity,95,28,.05,false,5);
   const bool oldAngle=automaticAngle,oldPower=autoPower,oldBeam=force95;automaticAngle=autoPower=true;force95=true;
   auto prediction=predictedThrow(f,10.08);check(prediction.valid&&prediction.angle>=25-1e-6&&prediction.angle<=50+1e-6);
@@ -13,6 +99,19 @@ int main(){
   automaticAngle=oldAngle;autoPower=oldPower;force95=oldBeam;
  }
 
+ {
+  int stopped=0;packetStop=[&](){++stopped;};packetMode=false;enabled=true;clicks.down(true,now());const unsigned before=revision;
+  check(set(L"ff3_qb.method",basketballUi::number(1))&&packetMode&&!enabled&&!clicks.pending&&revision>before&&stopped==1);
+  check(modules()[L"ff3_qb"][L"rows"][L"method"].num()==1);check(clicks.up());
+  check(set(L"ff3_qb.method",basketballUi::number(2))&&visualOnly&&!packetMode&&!enabled&&!wheelMethod());check(!eligible(Frame{},now()));check(!set(L"ff3_qb.method",basketballUi::number(4)));check(!set(L"ff3_qb.method",basketballUi::boolean(true)));
+  enabled=true;check(set(L"ff3_qb.method",basketballUi::number(0))&&!packetMode&&!enabled&&stopped==3);packetStop={};
+  auto file=std::filesystem::temp_directory_path()/L"vanta-method-test.json";
+  check(set(L"ff3_qb.method",basketballUi::number(1))&&save(file));packetMode=false;load(file);check(packetMode&&!enabled);check(set(L"ff3_qb.method",basketballUi::number(2))&&save(file));visualOnly=false;load(file);check(visualOnly&&!packetMode&&!enabled&&!wheelMethod());std::filesystem::remove(file);
+  check(set(L"ff3_qb.method",basketballUi::number(0)));inputCancelled=false;
+  check(!set(L"ff3_qb.method",basketballUi::number(3))&&!cursorOnly);
+  {std::ofstream legacy(file);legacy<<"{\"method\":3}";}load(file);check(visualOnly&&!cursorOnly&&selectedMethod()==2&&!enabled&&!packetMode);std::filesystem::remove(file);
+  check(set(L"ff3_qb.method",basketballUi::number(0))&&!cursorOnly);inputCancelled=false;
+ }
  { // Real service lifecycle with an in-process event instead of an elevated helper.
   auto helper=std::filesystem::temp_directory_path()/(L"vanta-network-test-"+std::to_wstring(GetCurrentProcessId()));std::ofstream(helper).put('1');
   std::vector<std::filesystem::path> sessions;unsigned launches=0;HANDLE event=nullptr;
@@ -23,14 +122,38 @@ int main(){
    state(L"Running",true);Sleep(210);service.poll();check(service.inputReady());service.disableEdits();check(!service.inputReady()&&!service.networking()[L"editing"].boolean());
    {std::ifstream in(sessions.back()/L"plan.json");std::string bytes((std::istreambuf_iterator<char>(in)),{});check(!json::parse(std::wstring(winrt::to_hstring(bytes)))[L"active"].boolean());}
    check(service.prepare(77)&&launches==1&&!std::filesystem::exists(sessions.back()/L"setup-only"));check(service.start(77)&&service.inputReady());
+   {const bool oldBeam=force95,oldPower=autoPower,oldPacket=packetMode;force95=packetMode=true;autoPower=false;
+    Frame beam;beam.power=73;beam.gamePower=0;beam.selectedLob=true;beam.guarded=beam.coverageKnown=true;service.update(beam);
+    std::ifstream in(sessions.back()/L"plan.json");std::string bytes((std::istreambuf_iterator<char>(in)),{});const auto plan=json::parse(std::wstring(winrt::to_hstring(bytes)));
+    check(plan[L"autoPower"].boolean()&&!plan[L"anglePower"].boolean()&&plan[L"beam95"].boolean());
+    check(plan[L"plannedPower"].num()==73&&plan[L"lob"].boolean());
+    check(plan[L"smartFit"].boolean()&&plan[L"coverageKnown"].boolean());
+    check(!plan[L"requireWheelPower"].boolean()&&plan[L"confirmedPower"].type==json::Value::Null);
+    force95=oldBeam;autoPower=oldPower;packetMode=oldPacket;
+   }
+   {state(L"Running",true);const auto path=sessions.back()/L"state.json";
+    std::ifstream in(path);std::string bytes((std::istreambuf_iterator<char>(in)),{});in.close();auto root=json::parse(std::wstring(winrt::to_hstring(bytes)));auto history=basketballUi::array();
+    for(int i=0;i<10;i++){auto item=basketballUi::object();item.o[L"at"]=basketballUi::number(double(GetTickCount64()));item.o[L"outcome"]=basketballUi::string(L"normal");item.o[L"reason"]=basketballUi::string(L"Wheel not ready");history.a.push_back(item);}root.o[L"history"]=history;
+    {std::ofstream out(path);out<<winrt::to_string(json::dump(root));}Sleep(210);service.poll();const auto result=service.networking()[L"history"];
+    check(result.a.size()==8&&result.a.back()[L"reason"].str()==L"Wheel not ready");check(result.a.back()[L"ageMs"].num()>=0&&result.a.back()[L"ageMs"].num()<3000);
+   }
    state(L"Preparing",false,true);Sleep(210);service.poll();check(service.networking()[L"requiresRejoin"].boolean()&&!service.inputReady());
    state(L"Running",true,false,4000);Sleep(210);service.poll();check(!service.networking()[L"ready"].boolean()&&!service.inputReady()&&service.retryable());
    state(L"Stopped",false,true,4000);Sleep(210);service.poll();check(service.networking()[L"requiresRejoin"].boolean()&&service.retryable());
-   service.stop();check(std::filesystem::exists(sessions.back()/L"stop"));SetEvent(event);
+   check(!service.quiescent());service.stop();check(std::filesystem::exists(sessions.back()/L"stop"));check(!service.quiescent());
+   service.poll();check(!service.inputReady()&&service.networking()[L"phase"].str()==L"stopping");
+   SetEvent(event);check(service.quiescent());service.poll();check(service.networking()[L"phase"].str()==L"waiting");
   }
+  {ff3Packets::Service service(helper,launcher);check(service.prepare(99));auto root=basketballUi::object();root.o[L"capture"]=basketballUi::string(L"Stopped");root.o[L"phase"]=basketballUi::string(L"update-required");root.o[L"status"]=basketballUi::string(L"A compatible helper update is required");root.o[L"ready"]=basketballUi::boolean(false);root.o[L"heartbeat"]=basketballUi::number(double(GetTickCount64()));{std::ofstream out(sessions.back()/L"state.json");out<<winrt::to_string(json::dump(root));}SetEvent(event);service.poll();check(service.networking()[L"phase"].str()==L"update-required"&&!service.retryable()&&!service.inputReady());}
   launches=0;
   {ff3Packets::Service service(helper,[&](const std::filesystem::path&,const std::wstring& parameters)->HANDLE{++launches;auto a=parameters.find(L"--session \"")+11;sessions.push_back(parameters.substr(a,parameters.find(L'\"',a)-a));return nullptr;});check(!service.prepare(77));for(int i=0;i<5;++i)check(!service.prepare(77));check(launches==1&&service.retryable());check(!service.prepare(77,true)&&launches==2);check(!service.prepare(88)&&launches==3);}
   for(const auto& path:sessions)std::filesystem::remove_all(path);std::filesystem::remove(helper);
+ }
+ {auto helper=std::filesystem::temp_directory_path()/(L"vanta early listener test "+std::to_wstring(GetCurrentProcessId())+L".exe");std::ofstream(helper).put('1');std::filesystem::path folder,setup;unsigned starts=0;HANDLE event=nullptr;
+  {ff3Packets::EarlyListener listener(helper,[&](const auto&,const std::wstring& args)->HANDLE{++starts;check(args.find(L"--join-listener")!=std::wstring::npos&&args.find(L"--pid 0")!=std::wstring::npos);return event=CreateEventW(nullptr,TRUE,FALSE,nullptr);});check(listener.ensure()&&listener.ensure()&&starts==1);folder=listener.folder();auto state=basketballUi::object();state.o[L"listenerReady"]=basketballUi::boolean(true);state.o[L"heartbeat"]=basketballUi::number(double(GetTickCount64()));{std::ofstream out(folder/L"state.json");out<<winrt::to_string(json::dump(state));}check(listener.waitReady(20));
+   {ff3Packets::Service service(helper,[&](const auto&,const std::wstring& args)->HANDLE{check(args.find(L"--join-buffer \""+folder.wstring()+L"\"")!=std::wstring::npos);auto a=args.find(L"--session \"")+11;setup=args.substr(a,args.find(L'\"',a)-a);check(std::filesystem::exists(setup/L"setup-only"));return CreateEventW(nullptr,TRUE,FALSE,nullptr);});service.joinBuffer(folder,true);check(service.prepare(77)&&service.networking()[L"listenerReady"].boolean()&&!service.inputReady());service.stop();check(!std::filesystem::exists(folder/L"stop"));}
+   check(WaitForSingleObject(event,0)==WAIT_TIMEOUT);listener.stop();check(std::filesystem::exists(folder/L"stop"));
+  }std::filesystem::remove_all(folder);std::filesystem::remove_all(setup);std::filesystem::remove(helper);
  }
  {Frame practicePlan;practicePlan.practiceRange=true;auto p=basketballUi::object();ff3Packets::applyEnvironmentPolicy(p,practicePlan);
   check(p[L"environment"].str()==L"practice"&&!p[L"boundaryRequired"].boolean()&&!p[L"field"][L"known"].boolean());
@@ -61,15 +184,48 @@ int main(){
   auto automatic=ff3qb::planCoverageThrow({0,8,0},{60,8,0},{},28,.05,{},false,false,0,196.2,{},0,false,NAN,true,.1,&receiver,0,nullptr,0,0,50,throwBounds(practiceFrame));
   check(automatic.solution.valid&&catchAllowed(practiceFrame,automatic.solution,receiver,.05));
  }
+ {const bool power=autoPower,angle=automaticAngle,targets=practice;const int radius=selectionRadius,movement=aimMovementMs,oldArc=arc,reach=diveReach;autoPower=automaticAngle=practice=false;selectionRadius=10;aimMovementMs=180;arc=1;managedDefaults();check(autoPower&&automaticAngle&&practice&&selectionRadius==120&&aimMovementMs==70&&arc==0&&diveReach==12);autoPower=power;automaticAngle=angle;practice=targets;selectionRadius=radius;aimMovementMs=movement;arc=oldArc;diveReach=reach;}
  check(robloxClientPriority(false,2,false)>robloxClientPriority(false,0,true));
- check(robloxClientPriority(false,2,true)>robloxClientPriority(false,2,false));
+ check(robloxClientPriority(false,2,true)==robloxClientPriority(false,2,false));
  check(robloxClientPriority(true,0,false)>robloxClientPriority(false,2,true));
  check(robloxClientPriority(false,1,false)>robloxClientPriority(false,0,false));
+ check(robloxClientPriority(false,2,false,200)>robloxClientPriority(false,2,false,100));
+ check(robloxClientPriority(false,2,true,100)<robloxClientPriority(false,2,false,200));
+ check(robloxClientPriority(true,0,false,1)>robloxClientPriority(false,2,true,200));
+ check(robloxClientPriority(false,1,true)<robloxClientPriority(false,2,false));
+ check(robloxClientPriority(false,0,false,300)>robloxClientPriority(false,2,true,200)); // newest instance, even while loading
+ check(robloxClientPriority(false,2,false,200)==robloxClientPriority(false,2,true,200)); // alt-tab cannot retarget
+ check(!clientWindow(0));check(!clientWindow(MAXDWORD));
+ {auto foreground=GetForegroundWindow();HWND first=CreateWindowExW(0,L"STATIC",L"Vanta background viewport fixture",WS_OVERLAPPEDWINDOW,0,0,400,300,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+  check(first!=nullptr);ShowWindow(first,SW_SHOWNOACTIVATE);const auto found=clientWindow(GetCurrentProcessId());DWORD owner=0;GetWindowThreadProcessId(found,&owner);check(found&&owner==GetCurrentProcessId());check(GetForegroundWindow()==foreground);DestroyWindow(first);check(!clientWindow(GetCurrentProcessId()));}
+ {
+  gameModules::Snapshot candidate;candidate.pid=1;candidate.placeId=gameModules::registry[1].rootPlace;candidate.universeId=gameModules::registry[1].universe;candidate.model=100;
+  candidate.process=candidate.version=candidate.opened=candidate.loaded=candidate.player=candidate.world=candidate.renderer=true;
+  check(ff3Packets::autoPrepare(candidate,true));check(ff3Packets::autoPrepare(candidate,false));
+  candidate.version=false;check(!ff3Packets::autoPrepare(candidate,true));candidate.version=true;
+  candidate.universeId=1;check(!ff3Packets::autoPrepare(candidate,true));
+  check(ff3Packets::knownOtherGame(candidate));
+  candidate.placeId=candidate.universeId=0;candidate.player=candidate.loaded=candidate.world=candidate.renderer=false;candidate.model=0;
+  check(ff3Packets::autoPrepare(candidate,true));check(!ff3Packets::knownOtherGame(candidate));
+  candidate.opened=false;check(!ff3Packets::autoPrepare(candidate,true));candidate.opened=true;
+  candidate.studio=true;check(!ff3Packets::autoPrepare(candidate,true));
+ }
  check(install()&&inputPumpReady&&inputPumpId!=GetCurrentThreadId());
  auto pumpId=inputPumpId.load();check(install()&&inputPumpId==pumpId);
  uninstall();check(!inputPumpReady&&!inputPumpId&&!inputPump.joinable()&&!mouse&&!keyboard);
  const auto basketballBefore=json::dump(basketballUi::snapshot());
  check(!enabled&&!force95);check(!set(L"autotime",basketballUi::boolean(true)));
+ {
+  check(oobVisual&&set(L"ff3_qb.oobVisual",basketballUi::boolean(false))&&!oobVisual);
+  const unsigned visualRevision=revision;check(!set(L"ff3_qb.oobVisual",basketballUi::number(1))&&!oobVisual&&revision==visualRevision);
+  const unsigned before=revision;check(set(L"ff3_qb.oob",basketballUi::number(4.5))&&revision>before&&boundaryHalfStuds==9);
+  check(modules()[L"ff3_qb"][L"rows"][L"oob"].num()==4.5);
+  for(double invalid:{-.5,-4.5,20.5,1.25,double(NAN),double(INFINITY)})check(!set(L"ff3_qb.oob",basketballUi::number(invalid))&&boundaryHalfStuds==9);
+  check(!set(L"ff3_qb.oob",basketballUi::boolean(true)));
+  const auto settings=std::filesystem::temp_directory_path()/L"vanta-oob-setting-test.json";check(save(settings));boundaryHalfStuds=40;oobVisual=true;load(settings);check(boundaryHalfStuds==9&&!oobVisual);{std::ofstream legacy(settings);legacy<<"{\"oob\":-4.5}";}load(settings);check(boundaryHalfStuds==0&&oobVisual);std::filesystem::remove(settings);
+  Frame policy;policy.boundaryMargin=4.5;auto out=basketballUi::object();ff3Packets::applyEnvironmentPolicy(out,policy);check(out[L"boundaryMargin"].num()==4.5);
+  check(set(L"ff3_qb.oob",basketballUi::number(2)));
+ }
  check(!set(L"ff3_qb.arc",basketballUi::number(2)));check(!set(L"ff3_qb.arc",basketballUi::number(NAN)));
  check(!set(L"ff3_qb.power",basketballUi::number(1)));check(!set(L"ff3_qb.unknown",basketballUi::boolean(true)));
  check(set(L"ff3_qb.arc",basketballUi::number(1)));check(arc==1);
@@ -90,7 +246,12 @@ int main(){
  check(catchHeightAdjustment==4&&modules()[L"ff3_qb"][L"rows"][L"height"].num()==4);check(set(L"ff3_qb.height",basketballUi::number(0)));
  check(leadDistance==-5&&modules()[L"ff3_qb"][L"rows"][L"lead"].num()==-5);check(set(L"ff3_qb.lead",basketballUi::number(0)));
  check(set(L"ff3_qb.power",basketballUi::boolean(false)));check(save(file));autoPower=true;load(file);check(!autoPower);
- check(!set(L"ff3_qb.force95",basketballUi::number(1)));check(set(L"ff3_qb.force95",basketballUi::boolean(true)));check(force95&&passMode==0&&automaticAngle&&autoPower);
+ check(!set(L"ff3_qb.force95",basketballUi::number(1)));check(set(L"ff3_qb.force95",basketballUi::boolean(true)));check(force95&&passMode==0&&automaticAngle&&!autoPower);
+ check(wheelMethod()&&calculatesPower()&&!editsPacketPower());
+ packetMode=true;check(!wheelMethod()&&calculatesPower()&&editsPacketPower());
+ check(set(L"ff3_qb.power",basketballUi::boolean(false))&&force95&&!autoPower);
+ force95=false;check(!wheelMethod()&&!calculatesPower()&&!editsPacketPower());
+ force95=true;packetMode=false;
  check(selectedLead()==3&&selectedHeight()==0);
  check(set(L"ff3_qb.height",basketballUi::number(7))&&beamCatchHeight==7&&catchHeightAdjustment==0);
  check(save(file));beamCatchHeight=8;load(file);check(force95&&selectedHeight()==7&&selectedLead()==3);
@@ -99,13 +260,15 @@ int main(){
  check(json::dump(basketballUi::snapshot())==basketballBefore);
  Frame f;f.pid=5;f.model=100;f.own=200;f.tool=300;f.target=400;f.revision=revision;f.ready=true;f.power=95;f.gravity=28;f.aim={500,300,true};f.client={0,0,1920,1080};
  {
+  const bool previousPacket=packetMode;packetMode=true;
   physicalClickAt=GetTickCount64()-2000;physicalLeftHeld=true;heldTarget=f.target;requested=f;requestedAt=now();requested.at=requestedAt-.01;
   auto fresh=requested;fresh.at=now();fresh.head.x=9;fresh.menuOpen=false;publish(fresh);auto held=packetFrame(fresh);
   check(held.held&&held.retained&&held.frame.head.x==9&&held.clicked==physicalClickAt.load());
   physicalLeftHeld=false;physicalReleasedAt=GetTickCount64();held=packetFrame(fresh);check(!held.held&&held.retained&&held.released==physicalReleasedAt.load());
   physicalReleasedAt=GetTickCount64()-351;check(!packetFrame(fresh).retained);
-  {std::lock_guard<std::mutex> lock(mutex);cancelPress();requested={};requestedAt=0;current={};}
+  {std::lock_guard<std::mutex> lock(mutex);cancelPress();requested={};requestedAt=0;current={};}packetMode=previousPacket;
  }
+ {const bool previousPacket=packetMode;packetMode=false;requested=f;requested.head.x=4;physicalLeftHeld=true;auto live=f;live.head.x=9;live.menuOpen=false;publish(live);check(requested.head.x==4);{std::lock_guard<std::mutex> lock(mutex);cancelPress();requested={};current={};}packetMode=previousPacket;}
  {std::lock_guard<std::mutex> lock(mutex);traceInput("test-held-press",true,true,f);}
  {auto input=inputReport();check(input[L"action"].str()==L"test-held-press"&&input[L"blocked"].boolean()&&input[L"transport"].boolean());check(input[L"target"].num()==400&&input[L"sequence"].num()>0);flushInputTraces();std::lock_guard<std::mutex> lock(mutex);recentInput={};}
  {
@@ -187,12 +350,14 @@ int main(){
   cue.hudReachEstimated=false;cue.risk.margin=.5;check(std::wstring(ff3Visual::clearanceLabel(cue))==L"TIGHT"&&ff3Visual::accent(cue).GetValue()==tight.GetValue());
  }
  {ff3Visual::PreviewPlan preview;auto valid=f;valid.held=valid.solution.valid=true;
+  const bool priorVisual=visualOnly;visualOnly=true;
   check(preview.select(valid,10).ready);auto gap=valid;gap.ready=gap.solution.valid=false;
   check(preview.select(gap,10.05).ready);check(!gap.ready); // Only the renderer receives the retained plan.
   check(!preview.select(gap,10.2).ready);
   preview.select(valid,11);gap.held=false;check(!preview.select(gap,11.01).ready);
   preview.select(valid,12);gap.held=true;++gap.revision;check(!preview.select(gap,12.01).ready);
   preview.select(valid,13);gap=valid;gap.ready=false;++gap.target;check(!preview.select(gap,13.01).ready);
+  visualOnly=false;valid.at=14;check(preview.select(valid,14.01).ready);gap=valid;gap.ready=false;check(!preview.select(gap,14.02).ready);check(!preview.select(valid,14.101).ready);valid.committed=true;check(preview.select(valid,15).ready);visualOnly=priorVisual;
  }
  f.gameMouse={500,300,0};f.matrix[0]=f.matrix[5]=f.matrix[10]=f.matrix[15]=1;
  check(!eligible(f,now())); // No admitted session or game focus: always closed.
@@ -253,13 +418,23 @@ int main(){
  Frame keyFrame;keyFrame.target=456;keyFrame.solution.valid=true;keyFrame.solution.angle=32;lockedTarget=0;
  check(hotkey('Q',keyFrame,false)&&lockedTarget==456);check(hotkey('Q',keyFrame,true)&&lockedTarget==456);check(hotkey('Q',keyFrame,false)&&lockedTarget==0);
  passMode=5;check(hotkey('Z',keyFrame,false)&&passMode==0&&automaticAngle&&autoPower);check(hotkey('Z',keyFrame,true)&&passMode==0);
- force95=true;check(hotkey('R',keyFrame,false)&&manualAngle==33&&!automaticAngle&&autoPower&&!force95);check(hotkey('F',keyFrame,false)&&manualAngle==32);
+ const int previousAngle=manualAngle;force95=true;check(!hotkey('R',keyFrame,false)&&manualAngle==previousAngle);check(!hotkey('F',keyFrame,false)&&manualAngle==previousAngle);force95=false;
  check(set(L"ff3_qb.radius",basketballUi::number(600)));check(!set(L"ff3_qb.radius",basketballUi::number(701)));
  check(set(L"ff3_qb.trails",basketballUi::boolean(false))&&!ballTrails);check(set(L"ff3_qb.trails",basketballUi::boolean(true))&&ballTrails);
+ {const auto markerFile=std::filesystem::temp_directory_path()/(L"vanta-markers-"+std::to_wstring(GetCurrentProcessId())+L".json");
+  check(set(L"ff3_qb.looseMarkers",basketballUi::boolean(false))&&!looseMarkers);check(save(markerFile));looseMarkers=true;load(markerFile);check(!looseMarkers);
+  {std::ofstream old(markerFile);old<<"{}";}load(markerFile);check(looseMarkers);std::filesystem::remove(markerFile);
+ }
  check(set(L"ff3_qb.dive",basketballUi::number(16)));check(!set(L"ff3_qb.dive",basketballUi::number(25)));
  int stops=0;packetStop=[&](){++stops;};enabled=true;stop(false);check(!enabled&&stops==0);stop();check(stops==1);packetStop={};
  clicks.down(true,now());stop();check(!clicks.pending&&clicks.up());
  record(f,"Test input only",true);check(report()[L"throws"].num()==1);check(!mouse);
+ {const auto previous=throwHistory;const bool oldMethod=packetMode;packetMode=false;
+  for(int i=0;i<10;i++)record(f,"Throw cancelled: power wheel did not acknowledge selected power");
+  auto history=report()[L"throwHistory"];check(history.a.size()==8);check(history.a.back()[L"outcome"].str()==L"cancelled"&&history.a.back()[L"reason"].str()==L"power wheel did not acknowledge selected power");
+  check(history.a.back()[L"power"].num()==f.power&&history.a.back()[L"ageMs"].num()<3000);
+  packetMode=true;check(report()[L"throwHistory"].a.empty());record(f,"Throw input failed");history=report()[L"throwHistory"];check(history.a.size()==1&&history.a.back()[L"outcome"].str()==L"cancelled");packetMode=oldMethod;throwHistory=previous;
+ }
  std::cout<<checks<<" FF3 settings, persistence, session isolation and dispatch cancellation checks passed (no game inputs)\n";
  {
   using namespace Gdiplus;ULONG_PTR token=0;GdiplusStartupInput startup;check(GdiplusStartup(&token,&startup,nullptr)==Ok);
@@ -291,10 +466,14 @@ int main(){
    sample.ready=wasReady;ff3Visual::renderField(field,sample,false);
   }
   {Bitmap image(field.width,field.height,field.width*4,PixelFormat32bppPARGB,(BYTE*)field.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-field-blocked-preview.png",&png,nullptr)==Ok);}
+  {auto insights=sample;insights.ready=false;insights.receiverVisuals={{777,{10,5,0},{3,0,0},"Receiver",15,true}};const bool oldVisuals=visuals,oldReceivers=showReceivers,oldRoutes=showRoutes;visuals=false;showReceivers=true;showRoutes=true;ff3Visual::renderField(field,insights,false);const auto* pixels=static_cast<const unsigned char*>(field.bits);const auto bytes=size_t(field.width)*field.height*4;check(std::any_of(pixels,pixels+bytes,[](auto p){return p!=0;}));{Bitmap layer(field.width,field.height,field.width*4,PixelFormat32bppPARGB,static_cast<BYTE*>(field.bits));Bitmap review(field.width,field.height,PixelFormat32bppARGB);Graphics bg(&review);SolidBrush turf(Color(255,20,42,43));bg.FillRectangle(&turf,0,0,field.width,field.height);bg.DrawImage(&layer,0,0);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(review.Save(L"build/ff3-receiver-awareness-preview.png",&png,nullptr)==Ok);}showReceivers=false;ff3Visual::renderField(field,insights,false);check(std::none_of(pixels,pixels+bytes,[](auto p){return p!=0;}));visuals=oldVisuals;showReceivers=oldReceivers;showRoutes=oldRoutes;}
   field.close();PumpSurface balls;ff3qb::BallFlight flight;flight.position={60,22,0};flight.velocity={40,-8,0};flight.gravity=28;for(int i=30;i>=0;i--){double dt=i*.05;flight.trail.push_back(flight.position-flight.velocity*dt+ff3qb::Vec{0,-.5*28*dt*dt,0});}flight.model={true,0,28,0,flight.position,flight.velocity};sample.balls={flight};ff3Visual::renderBalls(balls,sample,false);check(balls.bits&&!balls.visible);
   {Bitmap image(balls.width,balls.height,balls.width*4,PixelFormat32bppPARGB,(BYTE*)balls.bits);CLSID png={0x557cf406,0x1a04,0x11d3,{0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e}};check(image.Save(L"build/ff3-balls-preview.png",&png,nullptr)==Ok);}
   balls.close();GdiplusShutdown(token);
  }
+ mouseAimChecks(check);
+ qbPolicyChecks(check);
+ directAimChecks(check);
  winrt::uninit_apartment();
  std::cout<<checks<<" total native and compositor checks passed\n";
 }

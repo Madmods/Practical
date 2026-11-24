@@ -23,7 +23,7 @@ def record_alignment(data,schema,mapping,direction):
             if body[0] not in (*REPLICATION_MODES,0xf8,0xe5):break
             if body[0] in REPLICATION_MODES:
                 selected=mapping if body[0]==0x83 else MAPS[REPLICATION_MODES[body[0]]]
-                if len(body)<2 or selected[body[1]]>35:break
+                if len(body)<2 or (selected[body[1]]>35 and selected[body[1]]!=257):break
                 try:event=bool(Wire(schema,selected).events(b'\x83'+body[1:],direction)) or event
                 except (DecodeError,UnicodeError):break
             pos+=4+size
@@ -44,19 +44,26 @@ class LiveDecoder:
             group=(row['connection'],row['direction'],row['cid'])
             if group not in self.groups:
                 if len(self.groups)>=16:continue
-                self.groups[group]={'context':None,'pending':[],'attempt':None}
+                self.groups[group]={'context':None,'pending':[],'attempt':None,'initial_attempt':None}
             state=self.groups[group]
             if state['context']:self.packet(row,state['context'])
-            elif len(state['pending'])<10000:state['pending'].append(row)
+            else:
+                state['pending'].append(row)
+                # Preserve initial join packets plus a rolling recent sample.
+                # A full queue must not freeze discovery on an obsolete epoch.
+                if len(state['pending'])>10000:del state['pending'][12:len(state['pending'])-9988]
         for group,state in self.groups.items():
             if state['context'] or len(state['pending'])<2:continue
-            attempt=(len(self.keys),min(len(state['pending']),12),len(state['pending'])//32)
+            attempt=(len(self.keys),min(len(state['pending']),12),state['pending'][-1]['frame']//32)
             if state['attempt']==attempt:continue
             state['attempt']=attempt;wrapper=31 if group[1]=='outgoing' else 23
             # Keep the initial sample for a late key scan, and periodically try
             # recent packets when the first captured key epoch is unavailable.
             # discover still requires two independently authenticated datagrams.
-            context=discover(state['pending'][:12],self.keys,wrapper)
+            initial=(len(self.keys),min(len(state['pending']),12))
+            context=None
+            if state['initial_attempt']!=initial:
+                context=discover(state['pending'][:12],self.keys,wrapper);state['initial_attempt']=initial
             if context is None and len(state['pending'])>12:
                 context=discover(state['pending'][-12:],self.keys,wrapper)
             if context:

@@ -6,6 +6,85 @@ from network_wire_lab import Schema
 import qb_packet_host as host
 
 class SetupTests(unittest.TestCase):
+    def test_listener_waits_for_a_late_join_without_scanning_or_timing_out(self):
+        connection=(('10.0.0.1',1000),('10.0.0.2',2000));cid=bytes(20);received=[0];tick=[0.];scanned_at=[]
+        class Live:
+            def __init__(self,keys,cached):self.groups={};self.schemas={};self.schema_packets={};self.counts=collections.Counter()
+            def ingest(self,rows):
+                self.schemas[connection]=Schema.from_packet(fixture_schema());self.schema_packets[connection]=fixture_schema()
+                self.groups={(connection,d,cid):{'context':True} for d in ('outgoing','incoming')}
+        class Thread:
+            def __init__(self,target):self.target=target
+            def start(self):
+                if self.target.__name__=='scan':self.target()
+            def join(self):pass
+        driver=Mock();driver.open.return_value=123;kernel=Mock();kernel.GetTickCount64=Mock(return_value=1000)
+        def clock():tick[0]+=3;return tick[0]
+        def scan(*args,**kwargs):scanned_at.append(received[0]);return [bytes(32)],{}
+        def row(raw,index):
+            if received[0]<=50:return None
+            return dict(frame=index,payload=b'',connection=connection,cid=cid,direction='outgoing' if index%2 else 'incoming')
+        with tempfile.TemporaryDirectory() as folder:
+            session=pathlib.Path(folder);(session/'setup-only').touch()
+            def receive(handle):
+                received[0]+=1
+                state=json.loads((session/'state.json').read_text())
+                if received[0]<=50:self.assertFalse(scanned_at)
+                if state['ready']:(session/'stop').touch();return None
+                if received[0]>70:raise AssertionError('Late join did not prepare')
+                return b'packet',None
+            driver.recv.side_effect=receive
+            with patch.object(host.ctypes,'windll',SimpleNamespace(kernel32=kernel)),patch.object(host,'Driver',return_value=driver),patch.object(host,'LiveDecoder',Live),patch.object(host,'candidates',side_effect=scan),patch.object(host,'ports',return_value={1000}),patch.object(host,'row',side_effect=row),patch.object(host.time,'monotonic',side_effect=clock),patch.object(host.threading,'Thread',Thread),patch.object(host.network_schema_cache,'identity',return_value={'pid':10,'created':20}):
+                self.assertEqual(host.run(session,10,0),0)
+            self.assertGreater(tick[0],120);self.assertTrue(scanned_at);self.assertTrue(all(n>50 for n in scanned_at))
+    def test_transport_diagnostic_keeps_both_directions_and_is_bounded(self):
+        rows=[dict(frame=i,direction='outgoing' if i<30 else 'incoming',connection=(('local',1),('server',2)),cid=bytes(20),payload=bytes(3000)) for i in range(60)]
+        snapshot=host.transport_sample(rows);self.assertEqual(len(snapshot['packets']),24)
+        self.assertEqual(sum(r['direction']=='incoming' for r in snapshot['packets']),12)
+        self.assertTrue(all(len(r['payload'])==4096 and r['truncated'] for r in snapshot['packets']));self.assertFalse(snapshot['keysWritten'])
+    def test_prepared_editor_does_not_require_a_calibration_throw(self):
+        e=SimpleNamespace(recovering=False,format_verified=False)
+        message,ready=host.control_status(e);self.assertTrue(ready);self.assertEqual(message,'QB throw control ready')
+        e.format_verified=True;self.assertTrue(host.control_status(e)[1])
+        e.recovering=True;self.assertFalse(host.control_status(e)[1])
+    def test_active_host_assists_the_first_user_throw(self):
+        from test_qb_packet_editor import payload,plan
+        connection=(('10.0.0.1',1000),('10.0.0.2',2000));cid=bytes(20);warm_stopped=[False];active_reads=[0];warm_reads=[0]
+        class Live:
+            def __init__(self,keys,cached):self.groups={};self.schemas={};self.schema_packets={};self.counts=collections.Counter()
+            def ingest(self,rows):
+                self.schemas[connection]=Schema.from_packet(fixture_schema());self.schema_packets[connection]=fixture_schema()
+                self.groups={(connection,d,cid):{'context':{'hp':bytes(32),'key':bytes(32),'largest':0}} for d in ('incoming','outgoing')}
+        class Thread:
+            def __init__(self,target):self.target=target
+            def start(self):
+                if self.target.__name__=='scan':self.target()
+            def join(self):pass
+        driver=Mock();driver.open.side_effect=lambda filter,sniff=False:1 if sniff else 2
+        driver.shutdown.side_effect=lambda handle:warm_stopped.__setitem__(0,True) if handle==1 else None
+        def receive(handle):
+            if handle==1:
+                if warm_stopped[0]:return None
+                warm_reads[0]+=1
+                if warm_reads[0]>50:raise AssertionError('Fixture did not finish setup')
+                return b'warm',None
+            active_reads[0]+=1
+            if active_reads[0]>1:return None
+            state=json.loads((session/'state.json').read_text())
+            self.assertTrue(state['ready']);self.assertEqual(state['status'],'QB throw control ready')
+            return b'throw',None
+        driver.recv.side_effect=receive
+        def row(raw,index):return dict(frame=index,payload=raw,udp_offset=0,connection=connection,cid=cid,direction='outgoing' if raw==b'throw' or index%2 else 'incoming')
+        tick=[0.]
+        def clock():tick[0]+=.1;return tick[0]
+        kernel=Mock();kernel.GetTickCount64.return_value=1010
+        with tempfile.TemporaryDirectory() as folder:
+            session=pathlib.Path(folder)/'session';session.mkdir();(session/'plan.json').write_text(json.dumps({**plan(),'pid':10}),encoding='utf-8')
+            with patch.object(host.ctypes,'windll',SimpleNamespace(kernel32=kernel)),patch.object(host,'Driver',return_value=driver),patch.object(host,'LiveDecoder',Live),patch.object(host,'candidates',return_value=([bytes(32)],{})),patch.object(host,'ports',return_value={1000}),patch.object(host,'row',side_effect=row),patch.object(host,'authenticated_plain',side_effect=lambda raw,ctx:(SimpleNamespace(packet_number=1),None,payload() if raw==b'throw' else b'')),patch.object(host,'unprotect',side_effect=host.DecodeError('fixture')),patch.object(host,'encrypt_changed',side_effect=lambda raw,u,nonce,changed,ctx:changed),patch.object(host.network_schema_cache,'identity',return_value={'pid':10,'created':20}),patch.object(host.time,'monotonic',side_effect=clock),patch.object(host.threading,'Thread',Thread):
+                self.assertEqual(host.run(session,10,0),0,(session/'state.json').read_text())
+            driver.send.assert_called_once()
+            self.assertNotEqual(driver.send.call_args.args[1],payload());self.assertTrue(driver.send.call_args.args[3])
+            state=json.loads((session/'state.json').read_text());self.assertEqual(state['stats']['modifiedThrows'],1)
     def test_scan_can_resume_where_previous_round_stopped(self):
         import threading
         result={}
@@ -50,7 +129,7 @@ class SetupTests(unittest.TestCase):
             def start(self):
                 if self.target.__name__=='scan':self.target()
             def join(self):pass
-        for cancel,resume,delay in ((False,True,0),(True,True,0),(False,False,21000),(True,False,0)):
+        for cancel,resume,delay in ((False,True,0),(True,True,0),(False,False,600),(True,False,0)):
             with tempfile.TemporaryDirectory() as folder:
                 session=pathlib.Path(folder)/'session';session.mkdir();(session/'setup-only').touch();continued=[False];opened=[];halt=[False];ready_packets=[0]
                 if resume:(session/'resume-after-join').touch()
@@ -67,7 +146,7 @@ class SetupTests(unittest.TestCase):
                     return b'packet',None
                 driver=Mock();driver.open.side_effect=open_handle;driver.recv.side_effect=receive;driver.shutdown.side_effect=lambda h:halt.__setitem__(0,True)
                 tick=[0.]
-                def clock():tick[0]+=.05;return tick[0]
+                def clock():tick[0]+=.5;return tick[0]
                 kernel=Mock();kernel.GetTickCount64=Mock(return_value=1000)
                 with patch.object(host.ctypes,'windll',SimpleNamespace(kernel32=kernel)),patch.object(host,'Driver',return_value=driver),patch.object(host,'LiveDecoder',Live),patch.object(host,'candidates',return_value=([bytes(32)],{})) as scan,patch.object(host,'ports',return_value={1000}),patch.object(host,'row',side_effect=lambda raw,index:dict(frame=index,payload=b'',connection=connection,cid=cid,direction='outgoing' if index%2 else 'incoming')),patch.object(host,'authenticated_plain',return_value=(None,None,b'')),patch.object(host,'unprotect',side_effect=host.DecodeError('fixture')),patch.object(host.network_schema_cache,'identity',return_value={'pid':10,'created':20}),patch.object(host.time,'monotonic',side_effect=clock),patch.object(host.threading,'Thread',Thread):
                     self.assertEqual(host.run(session,10,0),0,(session/'state.json').read_text())
@@ -162,6 +241,17 @@ class SetupTests(unittest.TestCase):
         driver.open('ip',True);driver.open('ip',False)
         calls=driver.dll.WinDivertOpen.call_args_list
         self.assertNotEqual(calls[0].args[2],calls[1].args[2])
+        self.assertEqual(driver.dll.WinDivertSetParam.call_count,3)
+        self.assertEqual([c.args[1:] for c in driver.dll.WinDivertSetParam.call_args_list],[(0,16384),(1,16000),(2,33554432)])
+    def test_startup_listener_setup_and_editor_do_not_compete_at_one_priority(self):
+        driver=host.Driver.__new__(host.Driver);driver.dll=Mock();driver.dll.WinDivertOpen.return_value=123
+        driver.open('ip',True,priority=1200);driver.open('ip',True);driver.open('ip',False)
+        self.assertEqual([call.args[2] for call in driver.dll.WinDivertOpen.call_args_list],[1200,1100,1000])
+        self.assertEqual([call.args[3] for call in driver.dll.WinDivertOpen.call_args_list],[5,5,0])
+    def test_setup_buffer_failure_closes_the_read_only_handle(self):
+        driver=host.Driver.__new__(host.Driver);driver.dll=Mock();driver.dll.WinDivertOpen.return_value=123;driver.dll.WinDivertSetParam.return_value=0
+        with self.assertRaises(OSError):driver.open('ip',True)
+        driver.dll.WinDivertClose.assert_called_once_with(123)
     def test_rejoin_rescans_and_saves_schema_without_enabling_interception(self):
         connection=(('10.0.0.1',1000),('10.0.0.2',2000));cid=bytes(20)
         class Live:

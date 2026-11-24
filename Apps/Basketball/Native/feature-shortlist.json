@@ -1,0 +1,12 @@
+{
+  "features": [
+    {
+      "id": "head_latch",
+      "name": "Head Latch",
+      "status": "shortlisted",
+      "implementationRequested": false,
+      "concept": "Keep the local player planted on a moving Big Head platform by matching the other player's movement. Release the activation bind or jump to leave the platform.",
+      "userPreference": "User called this interesting and explicitly asked to remember it. Continue brainstorming; do not implement yet."
+    }
+  ]
+}

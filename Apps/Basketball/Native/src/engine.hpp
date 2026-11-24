@@ -177,7 +177,7 @@ inline int supportedClientRank(HANDLE h,addr base,DWORD pid){
  auto candidate=inspectBasketball(h,base,pid);
  // connectRoblox has already checked process access and the client version.
  candidate.process=candidate.version=true;
- return gameModules::compatible(candidate)?2:gameModules::identify(candidate)?1:0;
+ return gameModules::compatible(candidate)?2:(gameModules::identify(candidate)||(candidate.opened&&(!candidate.placeId||!candidate.universeId)))?1:0;
 }
 // Geometry runs separately so scanning defenders cannot stall meter sampling.
 inline void updatePump(HANDLE h,addr root,addr own,addr player,addr visualEngine);
@@ -187,14 +187,14 @@ inline void contestWorker(){HANDLE h=nullptr;DWORD attached=0;while(running){DWO
 inline void engine(){
  PreciseWait meterWait;
  HANDLE h=nullptr;DWORD pid=0;addr base=0,m=0,ping=0,root=0,own=0,player=0;
- double lookup=-10,net=-10,lastPing=-10,start=0,threatSince=-1,connectionProbe=-10,unavailableSince=-1;bool tracking=false,initialized=false,falling=false;unsigned seen=0;int failures=0;unsigned seenPump=0;double ownedSince=0;
+ double lookup=-10,net=-10,lastPing=-10,start=0,threatSince=-1,connectionProbe=-10,unavailableSince=-1,clientProbe=-10;bool tracking=false,initialized=false,falling=false;unsigned seen=0;int failures=0;unsigned seenPump=0;double ownedSince=0;
  shooting::MeterTrend trend;auto& descent=trend.descent;shooting::PingFilter pingFilter;
  const double minimumPoll=meterWait.highResolution()?.006:.016;
  double lastMeterAt=-1,pollAhead=minimumPoll;
  timingReview::Tuning shotTuning;bool tuningCaptured=false,reviewWasActive=false;int shotBase=0;
  TimingWindow shotWindow;bool windowCaptured=false;
  auto stop=[&](int reason){if(pumpOwned.exchange(false)&&gameDown){sendRelease();gameDown=false;}tracking=false;activeMeter=false;fillPct=0;statusCode=reason;publishTimingWindow({});if(pendingUp&&gameDown){if(sendRelease()){pendingUp=false;gameDown=false;}else statusCode=12;}};
- auto disconnect=[&](){resetReviewer();stop(0);CloseHandle(h);h=nullptr;gamePid=0;linked=false;meterFound=false;livePing=false;m=ping=0;pingFilter.reset();pingMs=30;lastPing=-10;contestAt=-10;sceneRoot=0;sceneOwn=0;scenePlayer=0;sceneVisualEngine=0;heldBall=0;nearTarget=0;sceneAt=-10;connectionState=ConnectionState::Waiting;};
+ auto disconnect=[&](){if(basketballConnection::required){basketballConnection::Snapshot idle;idle.sampledAt=now();gameModules::publish(idle);}resetReviewer();stop(0);CloseHandle(h);h=nullptr;gamePid=0;linked=false;meterFound=false;livePing=false;m=ping=0;pingFilter.reset();pingMs=30;lastPing=-10;contestAt=-10;sceneRoot=0;sceneOwn=0;scenePlayer=0;sceneVisualEngine=0;heldBall=0;nearTarget=0;sceneAt=-10;connectionState=ConnectionState::Waiting;};
  while(running){double t=now();
   if(gameModules::studioMode){Sleep(100);continue;}
   const bool reviewActive=reviewOn&&sessionUnlocked;
@@ -202,6 +202,15 @@ inline void engine(){
   if(h&&WaitForSingleObject(h,0)!=WAIT_TIMEOUT){disconnect();}
   if(!h){if(!connectRoblox(h,pid,base,basketballConnection::required?supportedClientRank:nullptr)){if(basketballConnection::required)gameModules::publish(inspectBasketball(nullptr,0,0));Sleep(350);continue;}gamePid=pid;lookup=-10;net=-10;connectionProbe=-10;}
   if(basketballConnection::required&&t-connectionProbe>=.25){
+   // Check for newly opened clients even while Vanta or another app is active.
+   // disconnect publishes an empty session before the next process attaches,
+   // allowing each feature to retire its old process leases.
+   if(t-clientProbe>=1){
+    clientProbe=t;HANDLE alternate=nullptr;DWORD alternatePid=0;addr alternateBase=0;
+    if(connectRoblox(alternate,alternatePid,alternateBase,supportedClientRank)){
+     CloseHandle(alternate);if(alternatePid!=pid){disconnect();unavailableSince=-1;continue;}
+    }
+   }
    const auto previous=basketballConnection::state.get();auto connection=inspectBasketball(h,base,pid);
    gameModules::publish(connection);connectionProbe=now();
    if(!gameModules::compatible(connection)){

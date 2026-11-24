@@ -1,4 +1,6 @@
 import unittest,struct
+from unittest.mock import patch
+import qb_packet_editor as qb_editor
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from network_wire_lab import Schema,Wire
 from network_transport_lab import frames,decrypt,ecb,nonce_for
@@ -21,6 +23,169 @@ def arguments(plain):
     data=frames(plain)[0].data;b=data[11:];return Wire(Schema.from_packet(fixture_schema()),MAPS['3']).events(b,'outgoing')[0]['args']
 
 class Tests(unittest.TestCase):
+    def alternative_plan(self):
+        p=plan();p.update(targetPosition=[83,5,0],plannedPower=60,fitOffset=[5,0,0],smartFit=True,coverageKnown=True,catchers=[],boundaryRequired=True,boundaryMargin=0,
+            field=dict(known=True,center=[0,3,0],right=[1,0,0],forward=[0,0,1],halfWidth=80,halfLength=180),
+            receiver=dict(position=[78,5,0],velocity=[0,0,0],speed=0,jump=0,dive=0,radius=6,above=6,below=8),
+            rankedThrows=[dict(offset=[0,0,0],power=60,angle=20,lob=False)])
+        return p
+
+    def test_alternative_revalidated_at_release_preserves_wire_contract(self):
+        p=self.alternative_plan();e=editor();before=payload();after=e.process_plain(before,p,1010)
+        self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline)
+        self.assertEqual(e.last['alternativeRank'],1);self.assertEqual(e.last['primaryDecline'],'Catch point exceeds OOB limit')
+        self.assertEqual(e.last['target'],[78,5,0]);self.assertEqual(len(after),len(before))
+        old,new=arguments(before),arguments(after)
+        self.assertEqual(old[:2],new[:2]);self.assertEqual(len(old),len(new));self.assertEqual(new[3],int(new[3]))
+        self.assertEqual(e.decision_history()[-1]['detail'],'Validated alternative 1')
+
+    def test_alternatives_never_relax_expiry_schema_origin_or_reach(self):
+        for change,expected in ((dict(expires=1005),'expired'),(dict(environment='match'),'arguments changed'),(dict(head=[100,5,0]),'origin')):
+            p=self.alternative_plan();p.update(change);e=editor()
+            with patch.object(qb_editor,'_replacement',wraps=qb_editor._replacement) as attempt:
+                self.assertEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(attempt.call_count,1)
+            self.assertIn(expected,e.last_decline['reason'].lower());self.assertFalse(e.claimed)
+            self.assertEqual(e.decision_history()[-1]['detail'],e.last_decline['reason'])
+        p=self.alternative_plan();p['rankedThrows'][0]['offset']=[30,0,0];e=editor()
+        self.assertEqual(e.process_plain(payload(),p,1010),payload());self.assertFalse(e.claimed)
+
+    def test_alternatives_are_bounded_and_do_not_extend_click_lease(self):
+        p=self.alternative_plan();e=editor()
+        with patch.object(qb_editor.time,'perf_counter',side_effect=(0,.026)):
+            self.assertEqual(e.process_plain(payload(),p,1010),payload())
+        self.assertFalse(e.claimed)
+        p=self.alternative_plan();p['expires']=1010;e=editor()
+        self.assertEqual(e.process_plain(payload(),p,1010),payload());self.assertFalse(e.claimed)
+
+    def test_outside_boundary_margin_at_actual_release(self):
+        field=dict(known=True,center=[0,3,0],right=[1,0,0],forward=[0,0,1],halfWidth=80,halfLength=180)
+        for margin,target,receiver_x,accepted in ((0,80,78,True),(0,81,78,False),(2,83,78,False),(4,83,78,True),(0,79.5,78,True),(.5,80.5,78,True),(20,79.5,78,True),(20,83,81,False)):
+            with self.subTest(margin=margin,target=target,receiver=receiver_x):
+                receiver=dict(position=[receiver_x,5,0],velocity=[0,0,0],speed=0,jump=0,dive=0,radius=6,above=6,below=8)
+                p=plan();p.update(boundaryRequired=True,boundaryMargin=margin,field=field,receiver=receiver,targetPosition=[target,5,0],smartFit=False)
+                e=editor();after=e.process_plain(payload(),p,1010);self.assertEqual(e.stats['modifiedThrows'],int(accepted),e.last_decline)
+                if not accepted:self.assertEqual(after,payload());self.assertFalse(e.claimed)
+        for invalid in (None,True,'2',math.nan,math.inf,-.5,-5,20.5):
+            p=plan();p.update(boundaryRequired=True,boundaryMargin=invalid,field=field,receiver=dict(position=[78,5,0],velocity=[0,0,0],speed=0,jump=0,dive=0,radius=6,above=6,below=8),targetPosition=[78,5,0])
+            e=editor();self.assertEqual(e.process_plain(payload(),p,1010),payload());self.assertEqual(e.last_decline['reason'],'OOB limit bounds')
+        for margin in (0,2,20):
+            p=plan();p.update(environment='practice',boundaryRequired=False,boundaryMargin=margin,field=dict(known=False));self.assertNotEqual(editor().process_plain(payload(),p,1010),payload())
+
+    def test_boundary_margin_rotations_end_zones_and_corners(self):
+        for angle in (0,.45,math.pi/2):
+            right=[math.cos(angle),0,math.sin(angle)];forward=[-math.sin(angle),0,math.cos(angle)]
+            field=dict(known=True,center=[130,3,-90],right=right,forward=forward,halfWidth=80,halfLength=180)
+            def point(x,z):return [130+right[0]*x+forward[0]*z,8,-90+right[2]*x+forward[2]*z]
+            for axis in (0,1):
+                for sign in (-1,1):
+                    for margin in (0,.5,2,4,10,20):
+                        edge=lambda delta:point(sign*(80+delta),0) if axis==0 else point(0,sign*(180+delta))
+                        self.assertTrue(field_catch_allowed(field,edge(margin),margin));self.assertFalse(field_catch_allowed(field,edge(margin+.1),margin))
+            self.assertFalse(field_catch_allowed(field,point(81,181),1.4));self.assertTrue(field_catch_allowed(field,point(81,181),1.5))
+
+    def test_match_movement_prefix_and_dynamic_tail_edit_only_destination_and_power(self):
+        schema=Schema.from_packet(fixture_schema());schema.properties=[dict(name='MoveDirectionInternal',className='Humanoid',kind=22)]
+        for extra in ((60,1),(75,1),(75.5,-2)):
+            base=body();base=base[:9]+v(6)+base[10:-1]+b'\x0c'+struct.pack('<d',extra[0])+b'\x0c'+struct.pack('<d',extra[1])+base[-1:]
+            base=base.replace(b'\x16'+struct.pack('<fff',0,5,0),b'\x16'+struct.pack('<fff',-6000000,5,0),1)
+            movement=b'\x0d\x01'+(123).to_bytes(4,'little')+bytes(2)+b'\x00'+struct.pack('<fff',.8,0,.6)
+            raw=b'\xc3'+movement+bytes([MAPS['4'].index(7)])+base[2:]
+            framed=(0x80000000+len(raw)).to_bytes(4,'big')+raw;before=stream(bytes.fromhex('06010400000001')+framed)
+            e=Editor(schema);p=plan();p.update(environment='match',beam95=True,plannedPower=73.6)
+            after=e.process_plain(before,p,1010);self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline);self.assertTrue(e.format_verified)
+            changed_body=frames(after)[0].data[11:];calls=Wire(schema,MAPS['4']).events(b'\x83'+changed_body[1:],'outgoing');args=calls[0]['args']
+            self.assertEqual(args[1]['components'],[-6000000,5,0]);self.assertEqual(args[3],int(args[3]));self.assertEqual(args[4:],list(extra))
+            self.assertEqual(changed_body[1:22],movement);self.assertEqual(len(before),len(after));self.assertEqual(after[-19:],before[-19:])
+            aim=before.index(struct.pack('<fff',10000,5,0));power=aim+13;allowed=set(range(aim,aim+12))|set(range(power,power+8))
+            self.assertTrue(all(a==b or i in allowed for i,(a,b) in enumerate(zip(before,after))))
+
+    def test_first_throw_validates_and_assists_without_calibration(self):
+        from qb_packet_host import control_status
+        e=editor();p=plan();self.assertTrue(control_status(e)[1]);self.assertFalse(e.format_verified)
+        first=payload();self.assertNotEqual(e.process_plain(first,p,1010,True),first)
+        self.assertTrue(e.format_verified);self.assertTrue(control_status(e)[1]);self.assertEqual(e.stats['modifiedThrows'],1)
+        self.assertEqual(e.claimed,{p['clickAt']})
+
+    def test_parser_failure_stays_unready_and_diagnostic_is_bounded(self):
+        from unittest.mock import patch
+        from qb_packet_host import control_status
+        e=editor();raw=b'\xc3'+b'x'*5000;framed=(0x80000000+len(raw)).to_bytes(4,'big')+raw
+        before=stream(bytes.fromhex('06010400000001')+framed*32)
+        with patch.object(e,'_calls',side_effect=DecodeError('fixture parser failure')):
+            self.assertEqual(e.process_plain(before,plan(),1010,False),before)
+        self.assertFalse(e.format_verified);self.assertFalse(control_status(e)[1]);self.assertFalse(e.ledger)
+        self.assertEqual(len(e.throw_diagnostics),8);self.assertEqual(e.diagnostic_sequence,32)
+        self.assertTrue(all(len(d['recordHex'])==8192 and d['truncated'] for d in e.throw_diagnostics))
+        e=editor();e.process_plain(payload(),{},1010,False);self.assertFalse(e.throw_diagnostics)
+        e=editor();e.process_plain(payload(),plan(),4000,False);self.assertFalse(e.throw_diagnostics)
+
+    def test_throw_diagnostic_preserves_clicked_record_past_acknowledgements(self):
+        e=editor();p=plan()
+        for i in range(20):e._trace_throw(6,i,b'\xc3acknowledgement',p,1010)
+        e._trace_throw(6,21,b'\xc3Clicked',p,1010)
+        for i in range(22,50):e._trace_throw(6,i,b'\xc3acknowledgement',p,1010)
+        self.assertEqual(len(e.throw_diagnostics),8);self.assertEqual(sum(d['containsClicked'] for d in e.throw_diagnostics),1)
+
+    def test_packet_beam_changes_only_destination_and_whole_power(self):
+        for environment in ('practice','match'):
+            raw=body()
+            if environment=='match':raw=raw[:9]+v(6)+raw[10:-1]+b'\x0c'+struct.pack('<d',60)+b'\x0c'+struct.pack('<d',1)+raw[-1:]
+            before=stream(bytes.fromhex('06010400000001')+(0x80000000+len(raw)).to_bytes(4,'big')+raw)
+            for selected in (73,73.6,94.9):
+                with self.subTest(environment=environment,selected=selected):
+                    p=plan();p.update(environment=environment,beam95=True,plannedPower=selected)
+                    e=editor();after=e.process_plain(before,p,1010)
+                    self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline)
+                    old,new=arguments(before),arguments(after)
+                    self.assertEqual(len(new),len(old));self.assertEqual(new[:2],old[:2]);self.assertEqual(new[4:],old[4:])
+                    self.assertEqual(new[3],int(new[3]));self.assertGreaterEqual(new[3],1);self.assertLessEqual(new[3],95)
+                    self.assertNotEqual(new[2],old[2]);self.assertNotEqual(new[3],old[3])
+                    aim=before.index(struct.pack('<fff',10000,5,0));power=aim+12+1
+                    allowed=set(range(aim,aim+12))|set(range(power,power+8))
+                    self.assertEqual(len(after),len(before));self.assertTrue(all(a==b or i in allowed for i,(a,b) in enumerate(zip(before,after))))
+                    self.assertEqual(struct.unpack_from('<d',after,power)[0],int(new[3]))
+
+    def test_wheel_confirmation_matches_actual_power_before_destination_edit(self):
+        for environment in ('practice','match'):
+            raw=body()
+            if environment=='match':raw=raw[:9]+v(6)+raw[10:-1]+b'\x0c'+struct.pack('<d',60)+b'\x0c'+struct.pack('<d',1)+raw[-1:]
+            before=stream(bytes.fromhex('06010400000001')+(0x80000000+len(raw)).to_bytes(4,'big')+raw)
+            p=plan();p.update(environment=environment,requireWheelPower=True,confirmedPower=60,plannedPower=60,autoPower=False)
+            e=editor();after=e.process_plain(before,p,1010)
+            self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline);self.assertEqual(arguments(after)[3],60)
+            self.assertEqual(len(e.ledger),1) # Destination only; no power edit is staged.
+            aim=before.index(struct.pack('<fff',10000,5,0));allowed=set(range(aim,aim+12))
+            self.assertEqual(len(before),len(after));self.assertTrue(all(a==b or i in allowed for i,(a,b) in enumerate(zip(before,after))))
+            for confirmed,planned in ((73,73),(60,73),(True,60),(None,60),(float('nan'),60),(60.5,60.5),(0,0),(96,96)):
+                with self.subTest(environment=environment,confirmed=confirmed,planned=planned):
+                    bad={**p,'confirmedPower':confirmed,'plannedPower':planned};e=editor()
+                    self.assertEqual(e.process_plain(before,bad,1010),before);self.assertFalse(e.ledger);self.assertFalse(e.claimed)
+                    self.assertEqual(e.decision_history()[-1]['outcome'],'normal');self.assertEqual(e.decision_history()[-1]['reason'],'Wheel not ready')
+
+    def test_decision_history_distinguishes_skip_from_assist_and_deduplicates(self):
+        e=editor();p=plan();p.update(requireWheelPower=True,confirmedPower=73,plannedPower=73,autoPower=False)
+        before=payload();self.assertEqual(e.process_plain(before,p,1010),before)
+        self.assertEqual(e.decision_history()[0]['reason'],'Wheel not ready')
+        following=stream(record(),len(frames(before)[0].data));self.assertEqual(e.process_plain(following,p,1020),following)
+        self.assertEqual(len(e.decision_history()),1)
+        p.update(confirmedPower=60,plannedPower=60)
+        following=stream(record(),len(frames(before)[0].data)+len(record()))
+        self.assertNotEqual(e.process_plain(following,p,1030),following)
+        self.assertEqual([x['outcome'] for x in e.decision_history()],['normal','assisted'])
+        self.assertNotIn('_key',e.decision_history()[0]);self.assertEqual(e.decision_history()[-1]['power'],60)
+        self.assertEqual(e.process_plain(payload(),{},9000,False),before);self.assertEqual(len(e.decision_history()),2)
+
+    def test_history_is_bounded_and_expired_plan_has_clear_skip_reason(self):
+        e=editor();offset=0
+        for i in range(12):
+            p=plan();p.update(clickAt=980+i,expires=1005)
+            raw=record();data=(bytes.fromhex('06010400000001') if not i else b'')+raw
+            before=stream(data,offset);offset+=len(data)
+            self.assertEqual(e.process_plain(before,p,1010+i),before)
+        history=e.decision_history();self.assertEqual(len(history),8)
+        self.assertEqual(history[0]['sequence'],5);self.assertEqual(history[-1]['sequence'],12)
+        self.assertTrue(all(item['outcome']=='normal' and item['reason']=='Plan expired' for item in history))
+
     def test_live_match_union_ack_does_not_hide_the_following_throw(self):
         schema=Schema.from_packet(fixture_schema());schema.properties=[dict(name='CFrame',className='UnionOperation',kind=27)]
         for versioned in (0,1):
@@ -86,7 +251,8 @@ class Tests(unittest.TestCase):
                 self.assertGreaterEqual(elevation,25-1e-4);self.assertLessEqual(elevation,50+1e-4)
                 target=[71.8,5,0] # Measured route advanced by 80ms sample + 10ms dispatch.
                 launch,t,power=angle_velocity(origin,target,[20,0,0],25,28,.05,5)
-                self.assertAlmostEqual(args[3],power,places=4)
+                self.assertEqual(args[3],int(args[3]));self.assertLess(abs(args[3]-power),1)
+                t=e.last['flight']
                 end=[origin[i]+direction[i]*(5+args[3]*t)-(.5*28*t*t if i==1 else 0) for i in range(3)]
                 expected=[target[i]+[20,0,0][i]*(t+.05) for i in range(3)]
                 self.assertLess(length([a-b for a,b in zip(end,expected)]),.001)
@@ -108,7 +274,42 @@ class Tests(unittest.TestCase):
         p.update(environment='match',boundaryRequired=True)
         match=editor();self.assertEqual(match.process_plain(payload(),p,1010),payload())
         self.assertEqual(match.stats['modifiedThrows'],0)
-        self.assertEqual(match.last_decline['reason'],'Field boundaries unavailable')
+        self.assertIn('arguments changed',match.last_decline['reason'])
+
+    def test_environment_contracts_are_not_interchangeable(self):
+        raw=body();match=raw[:9]+v(6)+raw[10:-1]+b'\x0c'+struct.pack('<d',60)+b'\x0c'+struct.pack('<d',1)+raw[-1:]
+        for environment,count,accepted in (('practice',4,True),('practice',6,False),('match',4,False),('match',6,True),('unknown',4,False)):
+            with self.subTest(environment=environment,count=count):
+                raw=body() if count==4 else match
+                before=stream(bytes.fromhex('06010400000001')+(0x80000000+len(raw)).to_bytes(4,'big')+raw)
+                p=plan();p['environment']=environment;e=editor();after=e.process_plain(before,p,1010)
+                self.assertEqual(e.stats['modifiedThrows'],int(accepted),e.last_decline)
+                if not accepted:
+                    self.assertEqual(after,before);self.assertFalse(e.ledger);self.assertFalse(e.claimed)
+
+    def test_changed_argument_layouts_pass_through_without_consuming_click(self):
+        command=b'\x02'+s('Clicked');origin=b'\x16'+struct.pack('<fff',0,5,0)
+        destination=b'\x16'+struct.pack('<fff',10000,5,0);power=b'\x0c'+struct.pack('<d',60)
+        flag=b'\x0c'+struct.pack('<d',1)
+        original=[command,origin,destination,power]
+        changed=[original[:-1],original+[flag],original+[power,flag,flag],
+                 [command,power,origin,destination],[command,destination,origin,power],
+                 [command,origin,destination,b'\x0b'+struct.pack('<f',60)],
+                 original+[power,b'\x0b'+struct.pack('<f',1)],
+                 original+[b'\x09\x01',flag],
+                 original+[power,b'\x02'+s('1')]]
+        for args in changed:
+            with self.subTest(count=len(args),args=args):
+                raw=body()[:9]+v(len(args))+b''.join(args)+body()[-1:]
+                changed_record=(0x80000000+len(raw)).to_bytes(4,'big')+raw
+                data=bytes.fromhex('06010400000001')+changed_record;before=stream(data)
+                e=editor();self.assertEqual(e.process_plain(before,plan(),1010),before)
+                self.assertEqual(e.stats['modifiedThrows'],0);self.assertFalse(e.ledger);self.assertFalse(e.claimed)
+                self.assertIsNotNone(e.last_decline)
+                # A declined signature must not consume the user's throw intent.
+                following=stream(record(),len(data))
+                self.assertNotEqual(e.process_plain(following,plan(),1020),following)
+                self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline)
 
     def test_boundary_guard_at_actual_release_without_smart_fit(self):
         field=dict(known=True,center=[0,3,0],right=[1,0,0],forward=[0,0,1],halfWidth=80,halfLength=180)
@@ -144,6 +345,31 @@ class Tests(unittest.TestCase):
         rejected=editor();self.assertEqual(rejected.process_plain(before,invalid,1010),before)
         self.assertEqual(rejected.last_decline['reason'],'Unrecognized live-match origin encoding')
 
+    def test_match_contract_changes_only_destination_and_integer_power(self):
+        raw=body();raw=raw[:9]+v(6)+raw[10:-1]+b'\x0c'+struct.pack('<d',60)+b'\x0c'+struct.pack('<d',1)+raw[-1:]
+        before=stream(bytes.fromhex('06010400000001')+(0x80000000+len(raw)).to_bytes(4,'big')+raw)
+        for desired in (45.2,73.8,94.8477372608717):
+            p=plan();p.update(plannedPower=desired,targetPosition=[40,5,0])
+            e=editor();after=e.process_plain(before,p,1010)
+            self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline)
+            original,updated=arguments(before),arguments(after)
+            self.assertEqual(len(updated),6)
+            self.assertEqual(updated[0],original[0]);self.assertEqual(updated[1],original[1])
+            self.assertEqual(updated[4:],[60,1]);self.assertEqual(updated[4:],original[4:])
+            self.assertEqual(updated[3],int(updated[3]));self.assertTrue(1<=updated[3]<=95)
+            aim=before.index(struct.pack('<fff',10000,5,0));power=before.index(struct.pack('<d',60))
+            allowed=set(range(aim,aim+12))|set(range(power,power+8))
+            self.assertEqual(len(before),len(after))
+            self.assertTrue(all(a==b or i in allowed for i,(a,b) in enumerate(zip(before,after))))
+
+    def test_dynamic_match_trailing_values_are_preserved(self):
+        for extra in ((60,1),(75,1),(61,1),(60,2),(60.5,1),(75.5,-2),(0,123456)):
+            raw=body();raw=raw[:9]+v(6)+raw[10:-1]+b'\x0c'+struct.pack('<d',extra[0])+b'\x0c'+struct.pack('<d',extra[1])+raw[-1:]
+            before=stream(bytes.fromhex('06010400000001')+(0x80000000+len(raw)).to_bytes(4,'big')+raw)
+            e=editor();after=e.process_plain(before,plan(),1010)
+            self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline);self.assertEqual(arguments(after)[4:],list(extra))
+            self.assertEqual(after[-19:],before[-19:]);self.assertEqual(len(after),len(before))
+
     def test_live_match_preserves_two_additional_arguments(self):
         raw=body();count_at=9
         self.assertEqual(raw[count_at],4)
@@ -172,7 +398,7 @@ class Tests(unittest.TestCase):
         e=editor();args=arguments(e.process_plain(payload(),p,1010));self.assertEqual(e.stats['modifiedThrows'],1,e.last_decline)
         self.assertGreater(args[3],59);self.assertLessEqual(args[3],95)
         origin=args[1]['components'];aim=args[2]['components'];direction=tuple(a-b for a,b in zip(aim,origin));norm=length(direction);direction=tuple(v/norm for v in direction)
-        self.assertAlmostEqual(math.degrees(math.atan2(direction[1],math.hypot(direction[0],direction[2]))),angle,places=4)
+        self.assertAlmostEqual(math.degrees(math.atan2(direction[1],math.hypot(direction[0],direction[2]))),angle,delta=.5);self.assertEqual(args[3],int(args[3]))
         flight=e.last['flight'];landing=[origin[i]+direction[i]*(5+args[3]*flight)-(.5*28*flight*flight if i==1 else 0) for i in range(3)]
         self.assertLess(length(tuple(a-b for a,b in zip(landing,[74.28+20*(flight+.05),5,0]))),.001)
         p.update(targetPosition=[500,5,0]);self.assertEqual(editor().process_plain(payload(),p,1010),payload())
@@ -269,7 +495,10 @@ class Tests(unittest.TestCase):
         p=plan();p.update(plannedPower=power,lob=True,anglePower=False,maxAngle=50)
         e=editor();self.assertNotEqual(e.process_plain(payload(),p,1010),payload())
         launch=[a-b for a,b in zip(e.last['aim'],e.last['origin'])]
-        self.assertAlmostEqual(math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2]))),50)
+        self.assertLessEqual(math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2]))),50);self.assertEqual(e.last['newPower'],int(e.last['newPower']))
+        direction=[v/length(launch) for v in launch];t=e.last['flight'];power=e.last['newPower']
+        landing=[e.last['origin'][i]+direction[i]*(5+power*t)-(.5*28*t*t if i==1 else 0) for i in range(3)]
+        self.assertLess(length([a-b for a,b in zip(landing,[70,5,0])]),.001)
         self.assertEqual(e.last['target'],[70,5,0])
         for bad in (True,0,90,float('nan')):
             p['maxAngle']=bad;self.assertEqual(editor().process_plain(payload(),p,1010),payload())
@@ -286,7 +515,7 @@ class Tests(unittest.TestCase):
         # Advance the observed route, but never pull the planned placement back.
         expected=[x+v*.22 for x,v in zip(p['targetPosition'],p['targetVelocity'])]
         for a,b in zip(e.last['target'],expected):self.assertAlmostEqual(a,b)
-        self.assertAlmostEqual(e.last['newPower'],p['plannedPower'])
+        self.assertEqual(e.last['newPower'],int(e.last['newPower']));self.assertLess(abs(e.last['newPower']-p['plannedPower']),1)
 
     def test_auto_fixed_power_survives_origin_change_at_95(self):
         launch,t=velocity([0,5,0],[100,5,0],[0,0,0],95,28,.05,False,5)
@@ -512,7 +741,7 @@ class Tests(unittest.TestCase):
         p=plan();p.update(anglePower=True,angle=35)
         after=editor().process_plain(payload(),p,1010);args=arguments(after)
         self.assertLess(args[3],95);self.assertGreater(args[3],1)
-        aim=args[2]['components'];self.assertAlmostEqual(math.degrees(math.atan2(aim[1]-5,math.hypot(aim[0],aim[2]))),35,places=4)
+        aim=args[2]['components'];self.assertAlmostEqual(math.degrees(math.atan2(aim[1]-5,math.hypot(aim[0],aim[2]))),35,delta=.5);self.assertEqual(args[3],int(args[3]))
     def test_angle_solution_lands_on_receiver_and_stays_in_bounds(self):
         for angle in (12,35,55,75):
             launch,t,power=angle_velocity([0,5,0],[50,5,0],[4,0,2],angle,28,.05)

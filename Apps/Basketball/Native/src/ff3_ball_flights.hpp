@@ -1,7 +1,7 @@
 #pragma once
 #include "ff3_qb_logic.hpp"
 namespace ff3qb {
-struct BallObservation {std::uint64_t id=0;Vec position,velocity;double gravity=28;bool anchored=false;std::uint64_t thrower=0;};
+struct BallObservation {std::uint64_t id=0;Vec position,velocity;double gravity=28;bool anchored=false;std::uint64_t thrower=0;bool verifiedBall=false;double radius=.6;};
 struct FlightSample {double at=0;Vec position;};
 struct FlightModel {
  bool valid=false;double at=0,gravity=0,error=0;Vec origin,velocity;double startAt=0;
@@ -25,19 +25,19 @@ inline FlightModel fitFlight(const std::vector<FlightSample>& samples,double gra
  double squared=0;for(const auto& s:samples){auto delta=s.position-m.pointAt(m.observedTime(s.position));squared+=dot(delta,delta);}
  m.error=std::sqrt(squared/samples.size());m.valid=finite(m.origin)&&finite(m.velocity)&&length(m.velocity)<180&&m.error<.35;return m;
 }
-struct BallFlight {std::uint64_t id=0;Vec position,velocity;double gravity=28,at=0,born=0,quietAt=0,levelAt=0;bool ended=false;std::vector<Vec> trail;Vec measuredPosition{};double measuredAt=0,lastMotion=0;bool measured=false,airborne=false;std::vector<FlightSample> samples;FlightModel model;double mismatchAt=0,fieldY=NAN;std::uint64_t thrower=0;bool landed=false;};
+struct BallFlight {std::uint64_t id=0;Vec position,velocity;double gravity=28,at=0,born=0,quietAt=0,levelAt=0;bool ended=false;std::vector<Vec> trail;Vec measuredPosition{};double measuredAt=0,lastMotion=0;bool measured=false,airborne=false;std::vector<FlightSample> samples;FlightModel model;double mismatchAt=0,fieldY=NAN;std::uint64_t thrower=0;bool landed=false;double radius=.6;};
 struct FlightForecast {bool valid=false;double remaining=0;Vec landing;std::vector<Vec> path;};
 inline FlightForecast forecast(const BallFlight& f,double groundY){
  FlightForecast out;if(!f.model.valid||!std::isfinite(groundY)||!std::isfinite(f.gravity)||std::abs(f.gravity-f.model.gravity)>.01)return out;
- const auto position=f.model.pointAt(f.at),velocity=f.model.velocity+Vec{0,-f.gravity*(f.at-f.model.at),0};
- const double floor=(std::isfinite(f.fieldY)?f.fieldY:groundY)+.6,height=position.y-floor;
+ const double observed=f.measured?f.model.observedTime(f.position):f.at;const auto position=f.model.pointAt(observed),velocity=f.model.velocity+Vec{0,-f.gravity*(observed-f.model.at),0};
+ const double floor=(std::isfinite(f.fieldY)?f.fieldY:groundY)+f.radius,height=position.y-floor;
  if(height<-.1)return out;
  const double t=(velocity.y+std::sqrt(velocity.y*velocity.y+2*f.gravity*std::max(0.,height)))/f.gravity;
  if(!std::isfinite(t)||t<=.01||t>10)return out;
  out.valid=true;out.remaining=t;
  // Draw one complete world-space arc; advancing the ball does not slide or
  // redraw the curve from its tip. Only the remaining-time value changes.
- const double end=f.at+t,start=std::min(f.model.startAt,f.model.at);
+ const double end=observed+t,start=std::min(f.model.startAt,f.model.at);
  for(int i=0;i<=80;i++)out.path.push_back(f.model.pointAt(start+(end-start)*i/80.));
  out.landing=out.path.back();return out;
 }
@@ -46,17 +46,19 @@ struct FlightTracker {
  void clear(){flights.clear();}
  void update(const std::vector<BallObservation>& observations,double time,double groundY=NAN){
   if(!std::isfinite(time))return;
-  flights.erase(std::remove_if(flights.begin(),flights.end(),[&](const BallFlight& f){return time<f.at||time-f.at>.5||std::none_of(observations.begin(),observations.end(),[&](const BallObservation& o){return o.id==f.id;});}),flights.end());
+  flights.erase(std::remove_if(flights.begin(),flights.end(),[&](const BallFlight& f){return time<f.at||(time-f.at>.35&&std::none_of(observations.begin(),observations.end(),[&](const BallObservation& o){return o.id==f.id;}));}),flights.end());
   for(const auto& o:observations){
    if(!o.id||!finite(o.position)||!std::isfinite(o.gravity)||o.gravity<0||o.gravity>300)continue;
    auto it=std::find_if(flights.begin(),flights.end(),[&](const BallFlight& f){return f.id==o.id;});
-   if(it==flights.end()){if(flights.size()>=64)continue;BallFlight f;f.id=o.id;f.position=f.measuredPosition=o.position;f.gravity=o.gravity;f.at=f.measuredAt=f.lastMotion=time;f.trail.push_back(o.position);f.samples.push_back({time,o.position});flights.push_back(f);continue;}
-   auto& f=*it;f.position=o.position;f.gravity=o.gravity;f.thrower=o.thrower;f.at=time;if(f.ended)continue;
-   if(f.airborne&&f.measured&&f.velocity.y<0&&std::isfinite(groundY)&&o.position.y<=groundY+.7){f.ended=f.landed=true;f.trail.clear();continue;}
+   if(it==flights.end()){if(flights.size()>=64)continue;BallFlight f;f.id=o.id;f.position=f.measuredPosition=o.position;f.gravity=o.gravity;f.radius=std::isfinite(o.radius)?std::clamp(o.radius,.2,25.):.6;f.thrower=o.thrower;f.at=f.measuredAt=f.lastMotion=time;f.trail.push_back(o.position);f.samples.push_back({time,o.position});flights.push_back(f);continue;}
+   auto& f=*it;if(f.ended&&std::isfinite(groundY)&&o.position.y>groundY+o.radius+1&&length(o.position-f.position)>4){f={};f.id=o.id;f.measuredPosition=o.position;f.measuredAt=f.lastMotion=time;f.trail={o.position};f.samples={{time,o.position}};}
+   f.position=o.position;f.gravity=o.gravity;f.radius=std::isfinite(o.radius)?std::clamp(o.radius,.2,25.):.6;f.thrower=o.thrower;f.at=time;if(f.ended)continue;
+   if(f.airborne&&f.measured&&f.velocity.y<0&&std::isfinite(groundY)&&o.position.y<=groundY+f.radius+.15){f.ended=f.landed=true;f.trail.clear();continue;}
    double dt=time-f.measuredAt;auto delta=o.position-f.measuredPosition;
    if(dt>=.035&&length(delta)>.005){
     if(dt>.3&&!f.airborne){f.measuredPosition=o.position;f.measuredAt=f.lastMotion=time;f.trail={o.position};f.samples={{time,o.position}};continue;}
-    if(dt>.3||length(delta)>std::max(15.,dt*250)){f.ended=true;f.trail.clear();continue;}
+    if(length(delta)>std::max(15.,dt*250)){f.model={};f.samples={{time,o.position}};f.trail={o.position};f.measuredPosition=o.position;f.measuredAt=f.lastMotion=time;f.measured=false;continue;}
+    if(dt>.3){if(f.model.valid&&length(o.position-f.model.pointAt(f.model.observedTime(o.position)))>1)f.model={};f.measuredPosition=o.position;f.measuredAt=f.lastMotion=time;if(!f.model.valid){f.samples={{time,o.position}};f.measured=false;}continue;}
     // Position samples yield current velocity. The raw assembly velocity can
     // remain the launch value for script-driven footballs, including anchored ones.
     auto v=delta*(1/dt)+Vec{0,-.5*o.gravity*dt,0};
@@ -64,7 +66,7 @@ struct FlightTracker {
     bool level=std::abs(delta.y)<.08&&std::abs(v.y)<2;
     if(!level)f.levelAt=0;else if(!f.levelAt)f.levelAt=time;
     bool supported=f.levelAt&&time-f.levelAt>(o.gravity>0?std::max(.15,2/o.gravity+.05):.3);
-    if(f.airborne&&(contact||supported)){f.ended=true;f.trail.clear();continue;}
+    if(f.airborne&&(contact||supported)&&(!std::isfinite(groundY)||o.position.y<=groundY+f.radius+.5)){f.ended=true;f.trail.clear();continue;}
     f.velocity=f.measured?(f.velocity+Vec{0,-o.gravity*dt,0})*.6+v*.4:v;f.measured=true;f.measuredPosition=o.position;f.measuredAt=time;f.lastMotion=time;
     f.samples.push_back({time,o.position});while(f.samples.size()>24||(!f.samples.empty()&&time-f.samples.front().at>.65))f.samples.erase(f.samples.begin());
     if(f.model.valid){
@@ -79,7 +81,7 @@ struct FlightTracker {
     if(!f.airborne&&length(v)>4){f.airborne=true;f.born=time;}
     if(f.airborne){f.trail.push_back(o.position);if(f.trail.size()>300)f.trail.erase(f.trail.begin()+1);}
    }
-   if(f.airborne&&(time-f.lastMotion>.3||time-f.born>10)){f.ended=true;f.trail.clear();}
+   if(f.airborne&&((time-f.lastMotion>.3&&(!std::isfinite(groundY)||o.position.y<=groundY+f.radius+.5))||time-f.born>10)){f.ended=true;f.trail.clear();}
   }
  }
  std::vector<BallFlight> visible()const{std::vector<BallFlight> out;for(const auto& f:flights)if(f.airborne&&!f.ended)out.push_back(f);return out;}

@@ -2,29 +2,41 @@
 #include "ff3_qb_runtime.hpp"
 #include "ff3_reach_edits.hpp"
 #include "ff3_ball_edits.hpp"
+#include "ff3_hand_snap.hpp"
 #include "ff3_collision_groups.hpp"
 #include <sstream>
 namespace ff3Play {
 inline std::atomic<bool> catchOn{false},jumpOn{false},rushOn{false},magsOn{false},holdRush{true};
+inline std::atomic<bool> movementFrozen{false};
 inline std::atomic<int> catchBinding{0},jumpBinding{VK_SPACE},rushBinding{VK_XBUTTON2},rushRange{150},reachTenths{200};
 inline std::atomic<int> refreshMs{700},magDelayMs{0};
-inline std::atomic<bool> catchRefresh{false},magsVisual{true};
-inline std::array<std::atomic<bool>,256> physical{};inline std::mutex statusMutex;inline std::string status="Receiving and defense assists off";
+inline std::atomic<bool> catchRefresh{false},magsVisual{true},magsAutoCatch{false},magsPickup{false},magsFastPass{true};
+inline std::atomic<int> magsCatchLeadMs{250},magsCatchHoldMs{140};
+inline std::atomic<bool> navigationOwned{false};inline std::function<void()> extraStop;
+inline std::array<std::atomic<unsigned char>,256> keyOwners{};
+inline bool claimKey(int key,unsigned char owner){unsigned char expected=0;return keyOwners[key].compare_exchange_strong(expected,owner)||expected==owner;}
+inline void releaseKey(int key,unsigned char owner){unsigned char expected=owner;keyOwners[key].compare_exchange_strong(expected,0);}
+inline std::array<std::atomic<bool>,256> physical{};inline std::array<std::atomic<std::uint64_t>,256> pressSerial{};inline std::array<std::atomic<double>,256> pressTime{};inline std::mutex statusMutex;inline std::string status="Receiving and defense assists off";
 inline std::filesystem::path recoveryPath,stopPath,diagnosticPath;inline bool recoveryPending=false;
-struct BallVolumes {DWORD pid=0;addr model=0;double at=0;std::vector<CatchPart> parts;};
+struct BallVolumes {DWORD pid=0;addr model=0;double at=0;bool snap=false;std::uint64_t selected=0;std::vector<CatchPart> parts;std::map<std::uint64_t,double> additionalReach;};
 inline std::mutex volumesMutex;inline BallVolumes volumes;
 inline BallVolumes volumeSnapshot(){std::lock_guard<std::mutex> lock(volumesMutex);return volumes;}
 inline void publishVolumes(const Scene& scene,const ReachEdits& edits,bool active){BallVolumes next;next.pid=scene.pid;next.model=scene.model;next.at=now();if(active)for(const auto& edit:edits.edits)next.parts.push_back(edit.original);std::lock_guard<std::mutex> lock(volumesMutex);volumes=std::move(next);}
 inline void publishVolumes(const Scene& scene,const BallEdits& edits,bool active){BallVolumes next;next.pid=scene.pid;next.model=scene.model;next.at=now();if(active)for(const auto& edit:edits.edits)next.parts.push_back(edit.original.part);std::lock_guard<std::mutex> lock(volumesMutex);volumes=std::move(next);}
-inline void publishBallGuides(const Scene& scene,const BallEdits& edits,const std::vector<BallPart>& loose,bool active){BallVolumes next;next.pid=scene.pid;next.model=scene.model;next.at=now();if(active){for(const auto& e:edits.edits)next.parts.push_back(e.original.part);for(const auto& b:loose){if(std::any_of(next.parts.begin(),next.parts.end(),[&](const auto& p){return p.id==b.part.id;}))continue;auto p=b.part;p.guide=true;next.parts.push_back(p);}}std::lock_guard<std::mutex> lock(volumesMutex);volumes=std::move(next);}
+inline void publishBallGuides(const Scene& scene,const BallEdits& edits,const std::vector<BallPart>& loose,bool active){BallVolumes next;next.pid=scene.pid;next.model=scene.model;next.at=now();if(active){for(const auto& e:edits.edits){next.parts.push_back(e.original.part);next.additionalReach[e.original.part.id]=std::max(0.,.5*std::min({e.applied.x,e.applied.y,e.applied.z})-.5*std::max({e.original.part.size.x,e.original.part.size.y,e.original.part.size.z}));}for(const auto& b:loose){if(std::any_of(next.parts.begin(),next.parts.end(),[&](const auto& p){return p.id==b.part.id;}))continue;auto p=b.part;p.guide=true;next.parts.push_back(p);}}std::lock_guard<std::mutex> lock(volumesMutex);volumes=std::move(next);}
+inline void publishSnapGuides(const Scene& scene,const std::vector<BallPart>& parts,bool active,std::uint64_t selected){BallVolumes next;next.pid=scene.pid;next.model=scene.model;next.at=now();next.snap=true;next.selected=selected;if(active)for(const auto& b:parts){auto observation=std::find_if(scene.looseBalls.begin(),scene.looseBalls.end(),[&](const auto& value){return value.id==b.part.id;});if(observation!=scene.looseBalls.end()&&observation->thrower&&(observation->thrower==scene.player||observation->thrower==scene.own))continue;auto part=b.part;part.guide=true;next.parts.push_back(part);}std::lock_guard<std::mutex> lock(volumesMutex);volumes=std::move(next);}
 inline bool any(){return catchOn||jumpOn||rushOn||magsOn;}
-inline void physicalEdge(unsigned key,bool down){if(key&&key<256)physical[key]=down;}
+inline void physicalEdge(unsigned key,bool down){if(key&&key<256){const bool prior=physical[key].exchange(down);if(down&&!prior){pressTime[key]=now();++pressSerial[key];}}}
+inline std::uint64_t physicalSerial(int key){return key>0&&key<256?pressSerial[key].load():0;}
+inline double physicalPressedAt(int key){return key>0&&key<256?pressTime[key].load():0;}
+inline void pollPhysical(int key){if(key>0&&key<256&&!keyOwners[key])physicalEdge(key,(GetAsyncKeyState(key)&0x8000)!=0);}
 inline bool held(int key){return key>0&&key<256&&physical[key];}
 inline void syncPhysical(){for(int key=1;key<256;key++)physical[key]=(GetAsyncKeyState(key)&0x8000)!=0;}
-inline void stop(){catchOn=jumpOn=rushOn=magsOn=false;}
-inline Config config(){Config c;c.catchOn=catchOn;c.jumpOn=jumpOn;c.rushOn=rushOn;c.hold=holdRush;c.catchKey=catchBinding==0?VK_LBUTTON:catchBinding==1?'E':VK_MBUTTON;c.jumpKey=jumpBinding;c.rushKey=rushBinding;c.range=rushRange;c.refresh=catchRefresh;c.refreshPeriod=refreshMs.load()*.001;return c;}
+inline void stop(){catchOn=jumpOn=rushOn=magsOn=false;if(extraStop)extraStop();}
+inline Config config(){Config c;c.catchOn=catchOn||magsOn&&(magsAutoCatch||magsPickup);c.catchAir=catchOn||magsOn&&magsAutoCatch;c.catchLead=magsOn?magsCatchLeadMs.load()*.001:.55;c.catchGrace=magsOn?magsCatchHoldMs.load()*.001:.12;c.fastPass=magsOn&&magsFastPass;c.jumpOn=jumpOn;c.rushOn=rushOn;c.hold=holdRush;c.catchKey=catchBinding==0?VK_LBUTTON:catchBinding==1?'E':VK_MBUTTON;c.jumpKey=jumpBinding;c.rushKey=rushBinding;c.range=rushRange;c.refresh=catchRefresh;c.refreshPeriod=refreshMs.load()*.001;return c;}
 inline Vec magsDimensions(){double size=reachTenths.load()*.1;return {size,size,size};}
-inline std::string magsDescription(){std::ostringstream text;text<<"Ball Mags / "<<std::fixed<<std::setprecision(1)<<reachTenths.load()*.1<<" studs / "<<magDelayMs.load()<<" ms";return text.str();}
+inline double magsTeleportSize(){return combinedSnapSize(reachTenths.load()*.1);}
+inline std::string magsDescription(){std::ostringstream text;text<<"Ball Mags / size "<<std::fixed<<std::setprecision(1)<<reachTenths.load()*.1<<" / teleport "<<magsTeleportSize();return text.str();}
 inline void publish(std::string text){std::lock_guard<std::mutex> lock(statusMutex);status=std::move(text);}
 inline std::string detail(){std::lock_guard<std::mutex> lock(statusMutex);return status;}
 inline json::Value modules(){using namespace basketballUi;auto out=object();
@@ -32,9 +44,12 @@ inline json::Value modules(){using namespace basketballUi;auto out=object();
  out.o[L"ff3_catch"].o[L"rows"].o[L"input"]=number(catchBinding);out.o[L"ff3_jump"].o[L"rows"].o[L"input"]=keys(jumpBinding);
  out.o[L"ff3_rush"].o[L"rows"].o[L"input"]=keys(rushBinding);out.o[L"ff3_rush"].o[L"rows"].o[L"hold"]=basketballUi::boolean(holdRush);out.o[L"ff3_rush"].o[L"rows"].o[L"range"]=number(rushRange);
  out.o[L"ff3_catch"].o[L"rows"].o[L"refresh"]=basketballUi::boolean(catchRefresh);out.o[L"ff3_catch"].o[L"rows"].o[L"refreshMs"]=number(refreshMs);
- auto& m=out.o[L"ff3_mags"].o[L"rows"].o;m[L"studs"]=number(reachTenths.load()*.1);m[L"delay"]=number(magDelayMs);m[L"visual"]=basketballUi::boolean(magsVisual);return out;
+ auto& m=out.o[L"ff3_mags"].o[L"rows"].o;m[L"teleportSize"]=number(magsTeleportSize());m[L"studs"]=number(reachTenths.load()*.1);m[L"delay"]=number(magDelayMs);m[L"visual"]=basketballUi::boolean(magsVisual);m[L"autoCatch"]=basketballUi::boolean(magsAutoCatch);m[L"pickup"]=basketballUi::boolean(magsPickup);m[L"fastPass"]=basketballUi::boolean(magsFastPass);m[L"catchLead"]=number(magsCatchLeadMs);m[L"holdMs"]=number(magsCatchHoldMs);m[L"catchKey"]=number(catchBinding);return out;
 }
 inline bool set(const std::wstring& key,const json::Value& value){
+ if(key==L"ff3_mags.autoCatch"||key==L"ff3_mags.pickup"||key==L"ff3_mags.fastPass"){if(value.type!=json::Value::Bool)return false;if(key==L"ff3_mags.autoCatch")magsAutoCatch=value.b;else if(key==L"ff3_mags.pickup")magsPickup=value.b;else magsFastPass=value.b;return true;}
+ if(key==L"ff3_mags.catchKey"){if(value.type!=json::Value::Number||value.n<0||value.n>2||std::floor(value.n)!=value.n)return false;catchBinding=int(value.n);return true;}
+ if(key==L"ff3_mags.catchLead"||key==L"ff3_mags.holdMs"){if(value.type!=json::Value::Number||!std::isfinite(value.n)||std::floor(value.n)!=value.n||std::fmod(value.n,10)!=0)return false;if(key==L"ff3_mags.catchLead"){if(value.n<50||value.n>500)return false;magsCatchLeadMs=int(value.n);}else{if(value.n<60||value.n>300)return false;magsCatchHoldMs=int(value.n);}return true;}
  if(key==L"ff3_catch"||key==L"ff3_jump"||key==L"ff3_rush"||key==L"ff3_mags"||key==L"ff3_rush.hold"||key==L"ff3_catch.refresh"||key==L"ff3_mags.visual"){
   if(value.type!=json::Value::Bool)return false;
   if(key==L"ff3_catch")catchOn=value.b;else if(key==L"ff3_jump")jumpOn=value.b;else if(key==L"ff3_rush")rushOn=value.b;else if(key==L"ff3_mags")magsOn=value.b;else if(key==L"ff3_catch.refresh")catchRefresh=value.b;else if(key==L"ff3_mags.visual")magsVisual=value.b;else holdRush=value.b;return true;
@@ -57,11 +72,14 @@ inline bool set(const std::wstring& key,const json::Value& value){
 }
 inline bool save(const std::filesystem::path& file){auto temp=file;temp+=L".tmp";{std::ofstream out(temp,std::ios::binary);out<<winrt::to_string(json::dump(modules()));out.flush();if(!out)return false;}return MoveFileExW(temp.c_str(),file.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE;}
 inline void load(const std::filesystem::path& file){
- auto data=basketballUi::readConfig(file);reachTenths=200;magDelayMs=0;catchRefresh=false;magsVisual=true;refreshMs=700;
+ auto data=basketballUi::readConfig(file);reachTenths=200;magDelayMs=0;catchRefresh=false;magsVisual=true;refreshMs=700;magsAutoCatch=magsPickup=false;magsFastPass=true;magsCatchLeadMs=250;magsCatchHoldMs=140;
  auto rows=data[L"ff3_mags"][L"rows"],old=rows[L"reach"];
  if(rows[L"studs"].type==json::Value::Null&&old.type==json::Value::Number&&std::isfinite(old.n)&&old.n>=100&&old.n<=300)reachTenths=std::clamp(int(std::lround(old.n*.03))*5,10,100);
  for(const auto& entry:data.o)for(const auto& row:entry.second[L"rows"].o){if(entry.first==L"ff3_mags"&&(row.first==L"shape"||row.first==L"width"||row.first==L"height"||row.first==L"depth"))continue;set(entry.first+L"."+row.first,row.second);}
- stop();
+ // Hidden input preferences from the old Hand Snap mode never start sending
+ // catch inputs just because the two ball features are now combined.
+ if(rows[L"mode"].type==json::Value::Number&&rows[L"mode"].num()==1)magsAutoCatch=magsPickup=false;
+ magDelayMs=0;stop();
 }
 inline ff3qb::CatchGeometry receivingShape(Vec torso,Vec head,Vec arm,Vec left,Vec right){
  auto valid=[](Vec v,double limit){return ff3qb::finite(v)&&std::min({v.x,v.y,v.z})>.1&&std::max({v.x,v.y,v.z})<=limit;};
@@ -84,30 +102,30 @@ struct Inputs {
   if(cycleKey!=c.catchKey||!active||!c.catchOn||!catchKeyValid||held(c.catchKey)){catchDownAt=catchRestartAt=-1;refreshPending=false;cycleKey=c.catchKey;}
   if(!c.refresh){catchRestartAt=-1;refreshPending=false;}
   if(catchKeyValid&&!c.catchOn)until[c.catchKey]=0;if(jumpKeyValid&&!c.jumpOn)until[c.jumpKey]=0;
-  if(active){if(c.rushOn&&d.moving&&!s.manual&&!held('W')&&!held('A')&&!held('S')&&!held('D')&&(!c.hold||held(c.rushKey))){double f=ff3qb::dot(d.direction,s.cameraForward),r=ff3qb::dot(d.direction,s.cameraRight);want['W']=f>(owned['W']?.25:.38);want['S']=-f>(owned['S']?.25:.38);want['D']=r>(owned['D']?.25:.38);want['A']=-r>(owned['A']?.25:.38);}
-   if(c.catchOn&&catchKeyValid){if(d.catchHold)until[c.catchKey]=std::max(until[c.catchKey],time+.12);else if(d.catchNow)until[c.catchKey]=time+.12;}if(c.jumpOn&&d.jumpNow&&jumpKeyValid)until[c.jumpKey]=time+.065;
+  if(active){if(c.rushOn&&d.moving&&!navigationOwned&&!s.manual&&!held('W')&&!held('A')&&!held('S')&&!held('D')&&(!c.hold||held(c.rushKey))){double f=ff3qb::dot(d.direction,s.cameraForward),r=ff3qb::dot(d.direction,s.cameraRight);want['W']=f>(owned['W']?.25:.38);want['S']=-f>(owned['S']?.25:.38);want['D']=r>(owned['D']?.25:.38);want['A']=-r>(owned['A']?.25:.38);}
+   if(c.catchOn&&catchKeyValid){if(d.catchHold)until[c.catchKey]=std::max(until[c.catchKey],time+std::clamp(c.catchGrace,.06,.3));else if(d.catchNow)until[c.catchKey]=time+std::clamp(c.catchGrace,.06,.3);}if(c.jumpOn&&d.jumpNow&&jumpKeyValid)until[c.jumpKey]=time+.065;
   }else until.fill(0);
   if(active&&c.catchOn&&c.refresh&&catchKeyValid&&owned[c.catchKey]&&!held(c.catchKey)&&d.catchHold&&d.eta>.18&&catchDownAt>=0&&time-catchDownAt>=std::clamp(c.refreshPeriod,.3,1.5)){
    catchRestartAt=time+.05;catchDownAt=-1;refreshPending=true;until[c.catchKey]=0;
   }
   for(int key=1;key<255;key++){
-   if(held(key)){owned[key]=false;continue;}
+   if(held(key)){owned[key]=false;releaseKey(key,1);continue;}if((keyOwners[key]!=0&&keyOwners[key]!=1)){owned[key]=false;continue;}
    bool need=active&&(want[key]||until[key]>time)&&!(key==c.catchKey&&time<catchRestartAt);
-   if(need&&!owned[key]){if(send(key,true)){owned[key]=true;if(key==c.catchKey){catchDownAt=time;if(refreshPending){++refreshCount;refreshPending=false;}}}else ok=false;}
-   else if(!need&&owned[key]){if(send(key,false)){owned[key]=false;if(key==c.catchKey)catchDownAt=-1;}else ok=false;}
+   if(need&&!owned[key]&&claimKey(key,1)){if(send(key,true)){owned[key]=true;if(key==c.catchKey){catchDownAt=time;if(refreshPending){++refreshCount;refreshPending=false;}}}else{releaseKey(key,1);ok=false;}}
+   else if(!need&&owned[key]){if(send(key,false)){owned[key]=false;releaseKey(key,1);if(key==c.catchKey)catchDownAt=-1;}else ok=false;}
   }return ok;
  }
- void release(){until.fill(0);catchDownAt=catchRestartAt=-1;refreshPending=false;for(int key=1;key<255;key++)if(owned[key]){if(held(key)||send(key,false))owned[key]=false;}}
+ void release(){until.fill(0);catchDownAt=catchRestartAt=-1;refreshPending=false;for(int key=1;key<255;key++)if(owned[key]){if(held(key)||(keyOwners[key]!=0&&keyOwners[key]!=1)||send(key,false)){owned[key]=false;releaseKey(key,1);}}}
  ~Inputs(){release();}
 };
 struct Reader {
- HANDLE h=nullptr;DWORD pid=0;addr own=0,workspace=0;ff3Native::Reader flights;double ground=NAN,priorAt=0;Vec priorBody;
+ HANDLE h=nullptr;DWORD pid=0;addr own=0,workspace=0;ff3Native::Reader flights;double ground=NAN,standingHeadHeight=NAN,standingRootHeight=NAN,priorAt=0,groundFreezeUntil=0;Vec priorBody;
  std::vector<BallPart> magParts,groundParts,looseParts;
  ~Reader(){if(h)CloseHandle(h);}
  Scene read(const Config& c){
   magParts.clear();groundParts.clear();looseParts.clear();Scene s;s.at=now();auto session=gameModules::router.get();s.pid=session.pid;s.model=session.model;s.activation=held(c.rushKey);s.manual=held('W')||held('A')||held('S')||held('D');
-  if(!ff3Native::admitted()||session.studio)return s;s.focused=ff3Native::focused(s.pid);if(!s.focused&&!magsOn)return s;
-  if(pid!=s.pid){if(h)CloseHandle(h);h=OpenProcess(PROCESS_VM_READ|SYNCHRONIZE,FALSE,s.pid);pid=s.pid;own=workspace=0;priorAt=0;flights.flightTracker.clear();}
+  if(!ff3Native::admitted()||session.studio)return s;s.focused=ff3Native::focused(s.pid);
+  if(pid!=s.pid){if(h)CloseHandle(h);h=OpenProcess(PROCESS_VM_READ|SYNCHRONIZE,FALSE,s.pid);pid=s.pid;own=workspace=0;priorAt=0;flights.flightTracker.clear();flights.flightWorkspace=0;flights.ballCatalog.reset();}
   if(!h||WaitForSingleObject(h,0)!=WAIT_TIMEOUT)return s;
   auto root=s.model,ws=child(h,root,"Workspace"),players=child(h,root,"Players");s.player=rd<addr>(h,players+Offsets::Player::LocalPlayer);s.own=rd<addr>(h,s.player+Offsets::Player::ModelInstance);
   auto hum=child(h,s.own,"Humanoid"),head=child(h,s.own,"Head"),body=child(h,s.own,"HumanoidRootPart");
@@ -115,19 +133,19 @@ struct Reader {
   auto input=rd<addr>(h,child(h,root,"UserInputService")+Offsets::UserInputService::WindowInputState);s.typing=!input||rd<addr>(h,input+Offsets::WindowInputState::CurrentTextBox)!=0;
   s.menu=rd<unsigned char>(h,child(h,root,"GuiService")+Offsets::GuiService::MenuIsOpen,255)!=0;if((s.typing||s.menu)&&!magsOn)return s;
   s.head=ff3Native::position(h,head);s.velocity=ff3Native::velocity(h,body);s.speed=rd<float>(h,hum+Offsets::Humanoid::Walkspeed,NAN);s.worldGravity=rd<float>(h,ws+Offsets::Workspace::ReadOnlyGravity,NAN);
-  if(!ff3qb::finite(s.head)||!ff3qb::finite(s.velocity)||ff3qb::length(s.velocity)>120||!std::isfinite(s.speed)||s.speed<0||s.speed>60||!std::isfinite(s.worldGravity)||s.worldGravity<10||s.worldGravity>300)return s;
-  if(own!=s.own||workspace!=ws){priorAt=0;own=s.own;workspace=ws;ground=NAN;flights.flightTracker.clear();}
-  auto bodyPosition=ff3Native::position(h,body);if(!ff3qb::finite(bodyPosition))return s;
-  if(priorAt&&s.at-priorAt>.008&&s.at-priorAt<.15){auto measured=(bodyPosition-priorBody)*(1/(s.at-priorAt));if(ff3qb::finite(measured)&&ff3qb::length(measured)<100)s.velocity=measured*.7+s.velocity*.3;}priorBody=bodyPosition;priorAt=s.at;
-  int floor=rd<int>(h,hum+Offsets::Humanoid::FloorMaterial,1792);s.grounded=floor>0&&floor!=1792&&floor!=256&&std::abs(s.velocity.y)<3;
-  if(s.grounded){auto foot=child(h,s.own,"LeftFoot");if(!foot)foot=child(h,s.own,"Left Leg");auto p=ff3Native::position(h,foot),size=ff3Native::partSize(h,foot);if(ff3qb::finite(p)&&ff3qb::finite(size))ground=p.y-size.y*.5;}s.groundY=ground;
+  if(!ff3qb::finite(s.head)||!ff3qb::finite(s.velocity)||ff3qb::length(s.velocity)>200||!std::isfinite(s.speed)||s.speed<0||s.speed>60||!std::isfinite(s.worldGravity)||s.worldGravity<10||s.worldGravity>300)return s;
+  if(own!=s.own||workspace!=ws){priorAt=0;own=s.own;workspace=ws;ground=standingHeadHeight=standingRootHeight=NAN;flights.flightTracker.clear();}
+  auto bodyPosition=ff3Native::position(h,body);if(!ff3qb::finite(bodyPosition))return s;s.rootPosition=bodyPosition;
+  
+  int floor=rd<int>(h,hum+Offsets::Humanoid::FloorMaterial,1792);s.grounded=uprightGround(floor,s.velocity,rd<int>(h,rd<addr>(h,hum+Offsets::Humanoid::HumanoidState)+Offsets::Humanoid::HumanoidStateID,-1),rd<unsigned char>(h,hum+Offsets::Humanoid::PlatformStand,255),rd<unsigned char>(h,hum+Offsets::Humanoid::EvaluateStateMachine,255));
+  if(s.grounded&&now()>=groundFreezeUntil){auto foot=child(h,s.own,"LeftFoot");if(!foot)foot=child(h,s.own,"Left Leg");auto p=ff3Native::position(h,foot),size=ff3Native::partSize(h,foot);if(ff3qb::finite(p)&&ff3qb::finite(size)){ground=p.y-size.y*.5;const double height=s.head.y-ground;if(height>2&&height<12)standingHeadHeight=height;const double rootHeight=bodyPosition.y-ground;if(rootHeight>1&&rootHeight<8)standingRootHeight=rootHeight;}}s.groundY=ground;s.standingHeadHeight=standingHeadHeight;s.standingRootHeight=standingRootHeight;
   double jump=rd<float>(h,hum+Offsets::Humanoid::JumpHeight,NAN);if(rd<bool>(h,hum+Offsets::Humanoid::UseJumpPower))s.jumpVelocity=rd<float>(h,hum+Offsets::Humanoid::JumpPower,0);else if(std::isfinite(jump)&&jump>=0)s.jumpVelocity=std::sqrt(2*s.worldGravity*jump);
   if(!std::isfinite(s.jumpVelocity)||s.jumpVelocity<0||s.jumpVelocity>150)s.jumpVelocity=0;
   s.possessed=ff3Native::Reader::possessedBall(h,s.own)!=0;s.shape=receivingShape(h,s.own);s.naturalShape=s.shape;
   auto rotation=rd<defense::Matrix3>(h,rd<addr>(h,ws+Offsets::Workspace::CurrentCamera)+Offsets::Camera::Rotation);s.cameraForward=unit({-rotation.m[2],0,-rotation.m[8]});s.cameraRight=unit({rotation.m[0],0,rotation.m[6]});
   if(ff3qb::length(s.cameraForward)<.5||ff3qb::length(s.cameraRight)<.5||std::abs(ff3qb::dot(s.cameraForward,s.cameraRight))>.2)return s;
-  if(c.catchOn||c.jumpOn||magsOn){ff3Native::Frame frame;frame.at=s.at;frame.groundY=ground;flights.collectBalls(h,ws,frame,true);s.balls=std::move(frame.balls);s.at=frame.at;s.head=ff3Native::position(h,head);auto latest=ff3Native::velocity(h,body);if(ff3qb::finite(latest)&&ff3qb::length(latest)<100)s.velocity=latest;}
-  if(magsOn){
+  if(c.catchOn||c.jumpOn||magsOn||c.scanLoose){ff3Native::Frame frame;frame.at=s.at;frame.pid=s.pid;frame.head=s.head;frame.groundY=ground;flights.collectBalls(h,ws,frame,true);s.balls=std::move(frame.balls);s.looseBalls=std::move(frame.looseBalls);s.at=frame.at;s.head=ff3Native::position(h,head);auto latest=ff3Native::velocity(h,body);if(ff3qb::finite(latest)&&ff3qb::length(latest)<200)s.velocity=latest;}
+  if(magsOn||c.scanLoose){
    std::vector<addr> ids;for(const auto& flight:s.balls)if(receivingBallCandidate(s,flight,ground,now()))ids.push_back(flight.id);
    std::sort(ids.begin(),ids.end());ids.erase(std::unique(ids.begin(),ids.end()),ids.end());
    for(auto id:ids){if(!instanceClassIs(h,id,"Part")||!path(h,id,{"Configuration","Gravity"}))continue;auto primitive=rd<addr>(h,id+Offsets::BasePart::Primitive),parent=rd<addr>(h,id+Offsets::Instance::Parent);if(!primitive||!parent||(rd<unsigned char>(h,primitive+Offsets::Primitive::Flags)&Offsets::PrimitiveFlags::Anchored))continue;
@@ -137,18 +155,20 @@ struct Reader {
    std::sort(magParts.begin(),magParts.end(),[&](const auto& a,const auto& b){return ff3qb::length(a.position-s.head)<ff3qb::length(b.position-s.head);});if(magParts.size()>maxBallEdits)magParts.resize(maxBallEdits);
    // Resting balls are absent from the airborne tracker, so inspect its loose
    // discovery list separately for read-only ground diagnostics.
-   for(auto id:flights.flightParts){
-    if(!instanceClassIs(h,id,"Part")||!path(h,id,{"Configuration","Gravity"}))continue;
-    auto parent=rd<addr>(h,id+Offsets::Instance::Parent);if(!parent||instanceClassIs(h,parent,"Tool")||child(h,parent,"Humanoid"))continue;
-    auto ancestor=parent;for(int depth=0;depth<4&&ancestor&&ancestor!=ws;++depth)ancestor=rd<addr>(h,ancestor+Offsets::Instance::Parent);if(ancestor!=ws)continue;
+   auto nearby=s.looseBalls;std::stable_sort(nearby.begin(),nearby.end(),[&](const auto& a,const auto& b){return ff3qb::length(a.position-s.head)<ff3qb::length(b.position-s.head);});
+   for(const auto& observed:nearby){if(looseParts.size()>=maxBallEdits)break;const auto id=observed.id;
+    if(!instanceClassIs(h,id,"Part")||!path(h,id,{"Configuration","Gravity"})||!ff3Native::looseWorldBall(h,id,ws))continue;
+    auto parent=rd<addr>(h,id+Offsets::Instance::Parent);
     auto primitive=rd<addr>(h,id+Offsets::BasePart::Primitive);auto flags=rd<unsigned char>(h,primitive+Offsets::Primitive::Flags,255);auto p=ff3Native::position(h,id),v=ff3Native::velocity(h,id);
     if(!primitive||flags==255||(flags&Offsets::PrimitiveFlags::Anchored)||!ff3qb::finite(p)||!ff3qb::finite(v))continue;
     addr mesh=0;for(auto item:children(h,id))if(instanceClassIs(h,item,"SpecialMesh")&&!defense::textAt(h,item+Offsets::FileMesh::MeshId).empty()){mesh=item;break;}if(!mesh)continue;
-    auto scale=ff3Native::vector(rd<shooting::Vec>(h,mesh+Offsets::DataModelMesh::Scale,{NAN,NAN,NAN}));auto size=ff3Native::partSize(h,id);if(validMeshScale(scale)&&ff3qb::finite(size)&&std::min({size.x,size.y,size.z})>0&&std::max({size.x,size.y,size.z})<=maxMagSize){BallPart ball{{id,parent,primitive,size,true,mesh},scale,p,bool(flags&Offsets::PrimitiveFlags::CanCollide)};looseParts.push_back(ball);if(groundBallCandidate(p,v,ground))groundParts.push_back(ball);}
+    auto scale=ff3Native::vector(rd<shooting::Vec>(h,mesh+Offsets::DataModelMesh::Scale,{NAN,NAN,NAN}));auto size=ff3Native::partSize(h,id);if(validMeshScale(scale)&&ff3qb::finite(size)&&std::min({size.x,size.y,size.z})>0&&std::max({size.x,size.y,size.z})<=maxMagSize){BallPart ball{{id,parent,primitive,size,true,mesh},scale,p,bool(flags&Offsets::PrimitiveFlags::CanCollide)};looseParts.push_back(ball);if(groundBallCandidate(p,v,ground,std::max(2.5,size.y*.5+.75)))groundParts.push_back(ball);}
    }
   }
   if(c.rushOn){auto team=rd<addr>(h,s.player+Offsets::Player::Team);int count=0;for(auto player:children(h,players)){if(++count>128)break;auto otherTeam=rd<addr>(h,player+Offsets::Player::Team);if(player==s.player||!team||!otherTeam||team==otherTeam)continue;auto rig=rd<addr>(h,player+Offsets::Player::ModelInstance);auto ball=ff3Native::Reader::possessedBall(h,rig);if(!ball||rd<float>(h,child(h,rig,"Humanoid")+Offsets::Humanoid::Health,0)<=0)continue;auto part=child(h,rig,"HumanoidRootPart");auto p=ff3Native::position(h,part),v=ff3Native::velocity(h,part);if(ff3qb::finite(p)&&ff3qb::finite(v)&&ff3qb::length(v)<100)s.carriers.push_back({rig,ball,p,v});}}
-  s.valid=true;return s;
+  s.head=ff3Native::position(h,head);s.rootPosition=ff3Native::position(h,body);s.at=now();
+  s.rootVelocity=ff3Native::velocity(h,body);if(ff3qb::finite(s.rootVelocity)&&ff3qb::length(s.rootVelocity)<200)s.velocity=s.rootVelocity;
+  s.velocity=observedRootVelocity(priorBody,s.rootPosition,priorAt,s.at,s.velocity);priorBody=s.rootPosition;priorAt=s.at;s.valid=ff3qb::finite(s.head)&&ff3qb::finite(s.rootPosition);return s;
  }
  bool stillSafe(const Scene& s){return h&&ff3Native::admitted()&&ff3Native::focused(s.pid)&&WaitForSingleObject(h,0)==WAIT_TIMEOUT&&rd<addr>(h,s.player+Offsets::Player::ModelInstance)==s.own&&rd<float>(h,child(h,s.own,"Humanoid")+Offsets::Humanoid::Health,0)>0&&!ff3Native::Reader::possessedBall(h,s.own);}
 };
@@ -329,35 +349,56 @@ inline bool recoverBallReach(){
  }catch(...){return false;}
 }
 inline bool recoverReach(){return recoverBallReach()&&CatchGroupLease::recover();}
+}
+#include "ff3_hand_snap_access.hpp"
+#include "ff3_hand_snap_fast.hpp"
+namespace ff3Play {
 inline void worker(){
- Reader reader;Planner planner;Inputs inputs;Mags mags;double nextRecovery=0,nextDiagnostic=0;
+ Reader reader;Planner planner;Inputs inputs;Mags mags;HandSnap snap;FastHandSnap fastSnap;FastSnapStats snapAccess;double nextRecovery=0,nextDiagnostic=0;
  while(running){
-  if(!stopPath.empty()&&std::filesystem::exists(stopPath)){stop();inputs.release();if(recoveryPending)recoveryPending=!recoverReach();bool restored=mags.restore();if(!recoveryPending&&restored&&std::none_of(inputs.owned.begin(),inputs.owned.end(),[](bool v){return v;})){auto done=stopPath;done+=L".done";std::ofstream(done).put('1');}Sleep(20);continue;}
+  if(!stopPath.empty()&&std::filesystem::exists(stopPath)){stop();fastSnap.clear();snap.cancel("Hand Snap off");inputs.release();if(recoveryPending)recoveryPending=!recoverReach();bool restored=mags.restore();if(!recoveryPending&&restored&&std::none_of(inputs.owned.begin(),inputs.owned.end(),[](bool v){return v;})){auto done=stopPath;done+=L".done";std::ofstream(done).put('1');}Sleep(20);continue;}
   if(recoveryPending&&now()>=nextRecovery){recoveryPending=!recoverReach();nextRecovery=now()+1;}
-  if(!any()||!ff3Native::admitted()){publishVolumes(Scene{},mags.edits,false);inputs.release();planner.reset();bool restored=mags.restore();publish(restored?"Receiving and defense assists off":"Restoring catch reach; retrying");Sleep(20);continue;}
+  if(!any()||!ff3Native::admitted()){fastSnap.clear();publishVolumes(Scene{},mags.edits,false);snap.cancel("Hand Snap off");inputs.release();planner.reset();bool restored=mags.restore();publish(restored?"Receiving and defense assists off":"Restoring catch reach; retrying");Sleep(20);continue;}
   Config c=config();auto scene=reader.read(c);bool safe=observing(scene,now());std::string magStatus;
   scene.naturalShape=receivingShape(reader.h,scene.own);
-  const bool ballScene=observing(scene,now());
+  const bool ballScene=backgroundObserving(scene,now());
   const bool enabled=magsOn.load()&&!recoveryPending;
-  const bool ballOk=updateBallMags(mags,scene,reader.looseParts,enabled,now(),false);
+  auto selectedParts=reader.looseParts;
+  if(enabled&&snap.busy()&&std::none_of(selectedParts.begin(),selectedParts.end(),[&](const auto& b){return b.part.id==snap.ball;})){
+   const auto pinned=HandSnapAccess::observe(reader.h,scene,{},&snap);for(const auto& b:pinned){if(selectedParts.size()>=maxBallEdits)selectedParts.pop_back();selectedParts.push_back(b.part);}
+  }
+  const bool ballOk=updateBallMags(mags,scene,selectedParts,enabled,now(),false);
   if(magsOn){
    if(recoveryPending)magStatus="Previous ball/catch restoration pending";
    else if(!ballOk)magStatus=mags.edits.edits.empty()?"Ball Mags unavailable; restoration retrying":magsDescription()+" / "+std::to_string(mags.edits.edits.size())+" balls retained; retrying unavailable balls";
-   else if(!ballScene)magStatus="Ball Mags paused";
+   else if(!enabled)magStatus="Ball Mags unavailable";else if(!ballScene)magStatus="Ball Mags paused";
    else magStatus=magsDescription()+" / "+std::to_string(mags.edits.edits.size())+" ground + air balls / player collisions filtered"+(mags.skippedBalls?" / "+std::to_string(mags.skippedBalls)+" unsupported balls skipped":"");
   }
   else if(!ballOk)magStatus="Restoring normal ball physics; retrying";
+  if(magsOn&&ballScene)magStatus+=" / found "+std::to_string(scene.looseBalls.size())+" loose, "+std::to_string(selectedParts.size())+" selected, "+std::to_string(mags.edits.edits.size())+" applied"+(enabled&&!scene.focused?" / background active":"");
   if(safe)scene.shape=receivingShape(reader.h,scene.own);
-  publishBallGuides(scene,mags.edits,reader.looseParts,enabled&&ballScene);
-  auto decision=planner.step(c,scene,now());
+  publishBallGuides(scene,mags.edits,selectedParts,enabled&&ballScene);
+  if(safe&&c.catchOn&&!scene.shape.measured){const auto torso=ff3Native::partSize(reader.h,child(reader.h,scene.own,"Torso")),head=ff3Native::partSize(reader.h,child(reader.h,scene.own,"Head")),arm=ff3Native::partSize(reader.h,child(reader.h,scene.own,"Left Arm"));if(ff3qb::finite(torso)&&ff3qb::finite(head)&&ff3qb::finite(arm)&&std::min({torso.x,head.y,arm.y})>.1)scene.shape={torso.x*.5+arm.y+.75,arm.y+.5,arm.y+head.y+.75,true};}
+  if(enabled)for(const auto& edit:mags.edits.edits)scene.magReach[edit.original.part.id]=std::max(0.,.5*std::min({edit.applied.x,edit.applied.y,edit.applied.z})-.5*std::max({edit.original.part.size.x,edit.original.part.size.y,edit.original.part.size.z}));
+  auto decision=planner.step(c,scene,now());if(movementFrozen){decision.jumpNow=false;decision.moving=false;}
+  if(enabled&&magsPickup&&allowed(scene,now())&&scene.shape.measured)for(const auto& ball:reader.groundParts){if(!magsFloorContact(scene,ball))continue;decision.catchHold=true;decision.catchNow=now()-planner.lastCatch>=c.cooldown;decision.ball=ball.part.id;decision.spot=ball.position;decision.eta=0;decision.reason="Hands ready for floor pickup";if(decision.catchNow)planner.lastCatch=now();break;}
+
+  SnapCommand snapCommand;const auto snapTime=now();auto heldBall=ff3Native::Reader::possessedBall(reader.h,scene.own);const auto backpackBall=ff3Native::Reader::possessedBall(reader.h,child(reader.h,scene.player,"Backpack"));heldBall=snapPossessedBall(heldBall,backpackBall,snap);
+  if(enabled&&ballOk&&!ff3Native::inputBusy){const auto hand=HandSnapAccess::contact(reader.h,scene);const auto balls=HandSnapAccess::observe(reader.h,scene,selectedParts,&snap);snapCommand=snap.step(scene,balls,hand,magsTeleportSize(),snapTime,inputs.owned[c.catchKey]||held(c.catchKey),heldBall);magStatus=magsDescription()+" / "+snap.result;}
+  else {snap.cancel("Teleport paused: ball restoration, QB input or disabled");if(enabled)magStatus=ballOk?snap.result:"Mags: waiting for verified ball geometry";}
   auto inputScene=scene;if(!any()||!reader.stillSafe(scene))inputScene.valid=false;
-  if(!inputs.apply(config(),inputScene,decision,now()))decision.reason="Windows rejected an assist input";
+  const bool inputOk=inputs.apply(c,inputScene,decision,now());if(!inputOk)decision.reason="Windows rejected an assist input";
+  if(snapCommand.move){const bool current=magsOn&&!recoveryPending;if(!current||!fastSnap.submit(reader.h,scene,snapCommand,magsTeleportSize())){fastSnap.clear();magStatus="Hand Snap: verified fast tracking unavailable";}}
+  else fastSnap.clear();
+  snapAccess=fastSnap.snapshot();snap.writes=snapAccess.writes;snap.writeFailures=snapAccess.writeFailures;
+  if(snapAccess.lastBall==snap.ball&&snapAccess.lastWriteAt>0){snap.lastMoveAt=snapAccess.lastWriteAt;snap.lastDestination=snapAccess.lastDestination;}
+  if(snapCommand.move&&snapAccess.lastWriteAt>0&&now()-snapAccess.lastWriteAt<.1)magStatus=snapAccess.renderedNear?"Hand Snap: ball rendered near right hand; possession unconfirmed":"Hand Snap: fast tracking active; waiting for visible ball movement";
   publish(magStatus.empty()?decision.reason:magStatus+" · "+decision.reason);
   if(!diagnosticPath.empty()&&now()>=nextDiagnostic){nextDiagnostic=now()+.25;try{
-   using namespace basketballUi;auto data=object();data.o[L"at"]=number(now());data.o[L"pid"]=number(scene.pid);data.o[L"valid"]=basketballUi::boolean(scene.valid);data.o[L"focused"]=basketballUi::boolean(scene.focused);data.o[L"menu"]=basketballUi::boolean(scene.menu);data.o[L"typing"]=basketballUi::boolean(scene.typing);data.o[L"possessed"]=basketballUi::boolean(scene.possessed);data.o[L"grounded"]=basketballUi::boolean(scene.grounded);data.o[L"balls"]=number(double(scene.balls.size()));data.o[L"carriers"]=number(double(scene.carriers.size()));data.o[L"geometry"]=basketballUi::boolean(scene.shape.measured);data.o[L"handsRequested"]=basketballUi::boolean(decision.catchHold);data.o[L"catchInputHeld"]=basketballUi::boolean(inputs.owned[c.catchKey]);data.o[L"jumpRequested"]=basketballUi::boolean(decision.jumpNow);data.o[L"moving"]=basketballUi::boolean(decision.moving);data.o[L"studs"]=number(reachTenths.load()*.1);auto dimensions=magsDimensions();auto volume=array();for(double v:{dimensions.x,dimensions.y,dimensions.z})volume.a.push_back(number(v));data.o[L"dimensions"]=volume;data.o[L"ballVolumes"]=number(double(mags.edits.edits.size()));data.o[L"skippedBalls"]=number(mags.skippedBalls);data.o[L"ballOnly"]=basketballUi::boolean(true);data.o[L"groundBalls"]=number(double(reader.groundParts.size()));data.o[L"groundReachActive"]=basketballUi::boolean(false);data.o[L"catchReachActive"]=basketballUi::boolean(false);data.o[L"reachBalls"]=number(double(reader.looseParts.size()));data.o[L"reachVisual"]=basketballUi::boolean(magsVisual);data.o[L"visibleBall"]=basketballUi::boolean(false);data.o[L"delayMs"]=number(magDelayMs);data.o[L"catchRefreshes"]=number(inputs.refreshCount);data.o[L"reason"]=string(widen(detail()));auto temp=diagnosticPath;temp+=L".tmp";{std::ofstream out(temp,std::ios::binary);out<<winrt::to_string(json::dump(data));}MoveFileExW(temp.c_str(),diagnosticPath.c_str(),MOVEFILE_REPLACE_EXISTING);
+   using namespace basketballUi;auto data=object();data.o[L"at"]=number(now());data.o[L"pid"]=number(scene.pid);data.o[L"valid"]=basketballUi::boolean(scene.valid);data.o[L"focused"]=basketballUi::boolean(scene.focused);data.o[L"backgroundMags"]=basketballUi::boolean(enabled&&ballScene&&!scene.focused);data.o[L"menu"]=basketballUi::boolean(scene.menu);data.o[L"typing"]=basketballUi::boolean(scene.typing);data.o[L"possessed"]=basketballUi::boolean(scene.possessed);data.o[L"grounded"]=basketballUi::boolean(scene.grounded);data.o[L"balls"]=number(double(scene.balls.size()));data.o[L"discoveredBalls"]=number(double(scene.looseBalls.size()));data.o[L"carriers"]=number(double(scene.carriers.size()));data.o[L"geometry"]=basketballUi::boolean(scene.shape.measured);data.o[L"handsRequested"]=basketballUi::boolean(decision.catchHold);data.o[L"catchInputHeld"]=basketballUi::boolean(inputs.owned[c.catchKey]);data.o[L"jumpRequested"]=basketballUi::boolean(decision.jumpNow);data.o[L"moving"]=basketballUi::boolean(decision.moving);data.o[L"combinedMags"]=basketballUi::boolean(true);data.o[L"snapRange"]=number(magsTeleportSize());auto snapState=object();snapState.o[L"phase"]=number(int(snap.phase));snapState.o[L"ball"]=number(double(snap.ball));snapState.o[L"attempts"]=number(snap.attempts);snapState.o[L"localWrites"]=number(snap.writes);snapState.o[L"motionBufferWrites"]=number(snapAccess.motionWrites);snapState.o[L"motionBuffer"]=number(double(snapAccess.motionPointer));snapState.o[L"fastMeanIntervalMs"]=number(snapAccess.meanIntervalMs);snapState.o[L"fastMaxIntervalMs"]=number(snapAccess.maximumIntervalMs);snapState.o[L"fastLastWriteAt"]=number(snapAccess.lastWriteAt);snapState.o[L"writeFailures"]=number(snap.writeFailures);snapState.o[L"contactSamples"]=number(snap.contacts);snapState.o[L"movedAwaySamples"]=number(snap.corrections);snapState.o[L"possessionObserved"]=number(snap.possessions);snapState.o[L"unconfirmed"]=number(snap.unconfirmed);snapState.o[L"cancelled"]=number(snap.cancelled);snapState.o[L"readbackNearHand"]=basketballUi::boolean(snapAccess.readbackNear);snapState.o[L"renderedNearHand"]=basketballUi::boolean(snapAccess.renderedNear);auto renderedPosition=array();for(double v:{snapAccess.renderedPosition.x,snapAccess.renderedPosition.y,snapAccess.renderedPosition.z})renderedPosition.a.push_back(number(v));snapState.o[L"renderedPositionAfterWrite"]=renderedPosition;snapState.o[L"backpackBall"]=number(double(backpackBall));snapState.o[L"equippedBall"]=number(double(ff3Native::Reader::possessedBall(reader.h,scene.own)));snapState.o[L"distanceBeforeWrite"]=number(snapAccess.lastDistance);auto origin=array(),destination=array();for(double v:{snapAccess.lastOrigin.x,snapAccess.lastOrigin.y,snapAccess.lastOrigin.z})origin.a.push_back(number(v));for(double v:{snapAccess.lastDestination.x,snapAccess.lastDestination.y,snapAccess.lastDestination.z})destination.a.push_back(number(v));snapState.o[L"originBeforeWrite"]=origin;snapState.o[L"targetPosition"]=destination;snapState.o[L"detail"]=string(widen(snap.result));data.o[L"handSnap"]=snapState;data.o[L"studs"]=number(reachTenths.load()*.1);auto dimensions=magsDimensions();auto volume=array();for(double v:{dimensions.x,dimensions.y,dimensions.z})volume.a.push_back(number(v));data.o[L"dimensions"]=volume;data.o[L"ballVolumes"]=number(double(mags.edits.edits.size()));data.o[L"skippedBalls"]=number(mags.skippedBalls);data.o[L"ballOnly"]=basketballUi::boolean(true);data.o[L"groundBalls"]=number(double(reader.groundParts.size()));data.o[L"groundReachActive"]=basketballUi::boolean(false);data.o[L"catchReachActive"]=basketballUi::boolean(false);data.o[L"reachBalls"]=number(double(reader.looseParts.size()));data.o[L"reachVisual"]=basketballUi::boolean(magsVisual);data.o[L"visibleBall"]=basketballUi::boolean(false);data.o[L"delayMs"]=number(magDelayMs);data.o[L"catchRefreshes"]=number(inputs.refreshCount);data.o[L"reason"]=string(widen(detail()));auto temp=diagnosticPath;temp+=L".tmp";{std::ofstream out(temp,std::ios::binary);out<<winrt::to_string(json::dump(data));}MoveFileExW(temp.c_str(),diagnosticPath.c_str(),MOVEFILE_REPLACE_EXISTING);
   }catch(...){}}
   Sleep(8);
  }
- inputs.release();mags.restore();
+ fastSnap.clear();snap.cancel();inputs.release();mags.restore();
 }
 }

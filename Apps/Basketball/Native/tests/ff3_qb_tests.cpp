@@ -1,9 +1,34 @@
 #include "ff3_qb_logic.hpp"
 #include "ff3_throw_state.hpp"
+#include "ff3_qb_timing.hpp"
 #include <cassert>
 #include <iostream>
 using namespace ff3qb;
 int main(){int count=0;
+ {
+  // Automatic Smart Fit ranks arrival only after receiver/coverage checks.
+  // Explicit style selection retains its existing preferred-angle ordering.
+  Plan fast,slow;fast.solution.valid=slow.solution.valid=true;fast.solution.time=1;slow.solution.time=3;fast.solution.angle=10;slow.solution.angle=48;fast.power=95;slow.power=65;fast.margin=3;slow.margin=12;fast.deliveryMargin=fast.launchMargin=3;slow.deliveryMargin=slow.launchMargin=12;fast.coverageKnown=slow.coverageKnown=true;fast.robustMargin=.5;slow.robustMargin=2;fast.receiverMargin=1;slow.receiverMargin=3;
+  assert(rankedBetter(fast,slow,true,false,{},48,true));assert(rankedBetter(slow,fast,true,false,{},48,false));
+  fast.margin=fast.deliveryMargin=.1;assert(rankedBetter(slow,fast,true,false,{},48,true));
+  for(double distance:{35.,100.,180.})for(Vec movement:{Vec{},Vec{15,0,0},Vec{0,0,18}}){
+   const Vec origin{0,8,0},target{distance,8,0};Defender wr;wr.position=target;wr.velocity=movement;wr.speed=20;wr.jumpHeight=7;wr.radius=3;wr.above=2;wr.below=4;
+   auto low=solve(origin,target,movement,95,28,.06,false,5);
+   auto selected=planCoverageThrow(origin,target,movement,28,.06,{},false,false,7,196.2,{},0,false,NAN,true,.1,&wr,0,nullptr,0,NAN,85,nullptr,-30,2,0,48,.025,5,95,true);
+   assert(low.valid&&selected.solution.valid&&std::abs(selected.power-95)<1e-6&&selected.solution.time<=low.time+1e-6&&selected.solution.angle<50);
+   // A previously selected lob cannot hold the fast route hostage.
+   auto prior=solve(origin,target,movement,70,28,.06,true,5);BeamMemory memory;
+   auto quiet=planCoverageThrow(origin,target,movement,28,.06,{},false,false,7,196.2,{},70,true,prior.angle,false,.016,&wr,0,&memory,.1,NAN,85,nullptr,-30,2,0,48,.025,5,95,true);
+   assert(quiet.solution.valid&&quiet.solution.time<=low.time+1e-6);
+   ++count;
+  }
+  Defender wr;wr.position={100,8,0};wr.speed=20;wr.jumpHeight=7;wr.radius=3;wr.above=2;wr.below=4;
+  Defender db;db.position={45,8,0};db.speed=0;db.jumpHeight=5;db.diveReach=0;db.radius=3;db.above=2;db.below=4;
+  auto low=solve({0,8,0},wr.position,{},95,28,.05,false,5);
+  assert(coverageMargin(low,28,{db},.05)<=catchSafetyMargin);
+  auto clear=planCoverageThrow({0,8,0},wr.position,{},28,.05,{db},true,false,7,196.2,{},0,false,NAN,true,.1,&wr,0,nullptr,0,NAN,85,nullptr,-30,2,0,35,.025,5,95,true);
+  assert(clear.solution.valid&&estimatedClear(clear,true)&&clear.solution.time>low.time);
+ }
  {
   const Vec origin{0,8,0};const std::vector<Defender> none;
   assert(openAwayMinimum(origin,{70,8,0},{20,0,0},none,true)==25);
@@ -153,7 +178,9 @@ int main(){int count=0;
   assert(std::any_of(options.begin(),options.end(),[](Vec p){return p.x==14&&p.z==0;}));
   wr.position={35,8,0};wr.velocity={};wr.redirect=false;
   auto automatic=planCoverageThrow({0,8,0},wr.position,{},28,.05,{},true,false,wr.jumpHeight,196.2,{},0,false,NAN,true,.1,&wr,0,nullptr,0,0,50);
-  assert(automatic.solution.valid&&automatic.power>94.99&&automatic.solution.angle<5);
+  assert(automatic.solution.valid&&automatic.solution.angle>25&&automatic.solution.angle<45);
+  auto beam=planCoverageThrow({0,8,0},wr.position,{},28,.05,{},true,true,wr.jumpHeight,196.2,{},0,false,NAN,true,.1,&wr,0,nullptr,0,0,50);
+  assert(beam.solution.valid&&beam.power>94.99&&beam.solution.angle<5);
   assert(length(automatic.solution.catchPoint-wr.position)<1e-6);
  }
  {
@@ -466,7 +493,7 @@ int main(){int count=0;
  }
  assert(!planCoverageThrow({0,8,0},{500,8,0},{},28,.05,{},true,true,7,196.2).solution.valid);
  auto noJump=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,0,196.2);
- assert(noJump.solution.valid&&noJump.power==95&&noJump.offset.y==0);
+ assert(noJump.solution.valid&&noJump.power<95&&noJump.offset.y==0&&std::abs(noJump.solution.angle-35)<5);
  std::vector<Defender> underneath={{{45,8,20},{},22,10,12}};
  auto adaptive=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,false,7,196.2);
  auto forced95=planCoverageThrow({0,8,0},{150,8,0},{},28,.05,underneath,true,true,7,196.2);
@@ -504,17 +531,17 @@ int main(){int count=0;
  }
  auto nearLaunch=jump95.solution.origin;
  assert(coverageMargin(jump95.solution,28,{{nearLaunch,{},22,0,0}},.05)<=catchSafetyMargin);
- // Open regular throws prioritize power; close covered throws can loft at lower power.
+ // Open regular throws retain a balanced arc; Beam has its separate fast-pass preference.
  auto open=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,7,196.2);
- assert(open.solution.valid&&open.power>=90&&open.solution.angle<20);
+ assert(open.solution.valid&&open.power<95&&std::abs(open.solution.angle-35)<5);
  auto touch=planCoverageThrow({0,8,0},{20,8,0},{},28,.05,{{{19,8,0},{},22,9,12}},true,true,7,196.2);
  assert(touch.solution.valid&&touch.margin<=catchSafetyMargin&&!estimatedClear(touch,true));
  auto closeRegular=planCoverageThrow({0,8,0},{20,8,0},{},28,.05,{{{19,8,0},{},22,9,12}},true,false,7,196.2);
  assert(closeRegular.solution.valid&&closeRegular.margin<=catchSafetyMargin&&!estimatedClear(closeRegular,true));
  auto resetArc=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,7,196.2,{},50,true,60);
  for(int i=0;i<30;i++){double before=resetArc.solution.angle;resetArc=planCoverageThrow({0,8,0},{100,8,0},{},28,.05,{},true,false,7,196.2,resetArc.offset,resetArc.power,resetArc.lob,resetArc.solution.angle);assert(resetArc.solution.valid&&std::abs(resetArc.solution.angle-before)<=4.01);}
- if(!(resetArc.power>=90&&resetArc.solution.angle<20))std::cerr<<"Reset arc: "<<resetArc.power<<" / "<<resetArc.solution.angle<<'\n';
- assert(resetArc.power>=90&&resetArc.solution.angle<20);
+ if(!(resetArc.power<95&&std::abs(resetArc.solution.angle-35)<5))std::cerr<<"Reset arc: "<<resetArc.power<<" / "<<resetArc.solution.angle<<'\n';
+ assert(resetArc.power<95&&std::abs(resetArc.solution.angle-35)<5);
  // Smooth comparable paths, but do not retain a worse/unsafe path solely to
  // satisfy the angle limiter when the defender moves into it.
  auto switching=solveAngle({0,8,0},{150,8,0},{},35,28,.05,5);
@@ -594,9 +621,10 @@ int main(){int count=0;
  assert(std::abs(observed[0].velocity.x-40)<.01&&std::abs(observed[0].velocity.y-(20-28*1.25))<.01);
  assert(observed[0].trail.size()>10); // Survives the apex with constant raw velocity.
  auto landed=observed[0].position;
- for(int i=1;i<=8;i++)flights.update({{1,landed,{40,20,0},28,true}},2.25+i*.05);
- assert(flights.visible().empty());
- flights.update({},3);assert(flights.flights.empty()); // Catch/removal clears history.
+ for(int i=1;i<=8;i++)flights.update({{1,landed,{40,20,0},28,true}},2.25+i*.05,0);
+ assert(!flights.visible().empty()); // Frozen replication above the field must not end the arc.
+ flights.update({{1,{72,.6,0},{},28,true}},2.8,0);assert(flights.visible().empty());
+ flights.update({},3.2);assert(flights.flights.empty()); // Catch/removal clears history.
  for(int i=0;i<8;i++)flights.update({{3,{i*1.25,1,0},{25,-20,0},28,false}},4+i*.05);
  assert(flights.visible().empty()); // Level rolling motion is no longer airborne.
  // Replication jitter must not rotate the full predicted landing each frame.
@@ -720,19 +748,20 @@ int main(){int count=0;
  assert(length(display.points.back()-oldEnd)<length(point(shifted,28,shifted.time)-oldEnd)*.2);
 
 
- for(bool visible:{false,true})for(bool right:{false,true})for(bool first:{false,true})assert(cursorModeAllowed(visible,right,first)==(visible&&!right&&!first));
+ for(bool visible:{false,true})for(bool right:{false,true})for(bool first:{false,true})for(bool confined:{false,true})assert(cursorModeAllowed(visible,right,first,confined)==(!right&&!first&&!confined));
  const float identity[]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};float tilted[]={1,0,0,0,0,.8f,.6f,0,0,0,1,0,0,0,0,1};
  assert(cameraStable(identity,identity));assert(!cameraStable(identity,tilted));tilted[4]=NAN;assert(!cameraStable(identity,tilted));
- // Real repro: hidden old wheel 70 and current visible wheel 75.
- assert(readPower(true,{{1,0,"70"},{1,2,"75"}})==75);
- assert(readPower(true,{{1,2,"75"},{1,0,"70"}})==75);
+ // Live UI booleans: Visible is 1, hidden is 0; stale invalid flags are rejected.
+ assert(readPower(true,{{1,2,"75"}})==0);
+ assert(readPower(true,{{1,0,"70"},{1,1,"75"}})==75);
+ assert(readPower(true,{{1,1,"75"},{1,0,"70"}})==75);
  assert(readPower(true,{{1,0,"70"}})==0);
- assert(readPower(false,{{1,2,"75"}})==0);
- assert(readPower(true,{{0,2,"75"},{1,2," 95 "}})==95);
- assert(readPower(true,{{1,2,"70"},{1,2,"75"}})==-2);
- for(const auto* text:{"96","0","95x","","nan","-5","100"})assert(readPower(true,{{1,2,text}})==-1);
+ assert(readPower(false,{{1,1,"75"}})==0);
+ assert(readPower(true,{{0,1,"75"},{1,1," 95 "}})==95);
+ assert(readPower(true,{{1,1,"70"},{1,1,"75"}})==-2);
+ for(const auto* text:{"96","0","95x","","nan","-5","100"})assert(readPower(true,{{1,1,text}})==-1);
  assert(powerAvailable(true,true,0));assert(powerAvailable(true,true,-2));assert(!powerAvailable(true,false,0));assert(!powerAvailable(true,false,-2));assert(powerAvailable(true,false,75));assert(!powerAvailable(false,true,75));
- assert(readPower(true,{{1,2,"45"}})==45);assert(readPower(false,{{1,2,"45"}})==0);
+ assert(readPower(true,{{1,1,"45"}})==45);assert(readPower(false,{{1,1,"45"}})==0);
 
  for(double speed:{50.,75.,95.})for(double gravity:{28.,40.})for(double distance:{20.,50.,80.})for(double drift:{-12.,0.,12.})for(bool lob:{false,true}){
   Vec origin{0,8,0},target{distance,7,10},v{0,0,drift};auto s=solve(origin,target,v,speed,gravity,.05,lob);

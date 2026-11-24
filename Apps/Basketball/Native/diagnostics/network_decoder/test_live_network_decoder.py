@@ -4,6 +4,23 @@ from network_decoder_host import publish
 from test_network_wire_lab import fixture_schema,v,s
 
 class Tests(unittest.TestCase):
+    def test_failed_initial_sample_is_not_rechecked_until_candidate_set_changes(self):
+        from unittest.mock import patch
+        decoder=LiveDecoder([bytes(32)]);rows=[dict(frame=i,connection='current',direction='outgoing',cid=bytes(20)) for i in range(1,97)]
+        with patch('live_network_decoder.discover',return_value=None) as discover:
+            decoder.ingest(rows[:32]);self.assertEqual(discover.call_count,2)
+            decoder.ingest(rows[32:64]);self.assertEqual(discover.call_count,3)
+            decoder.keys.append(bytes([1])*32);decoder.ingest(rows[64:]);self.assertEqual(discover.call_count,5)
+    def test_full_authentication_queue_keeps_recent_packets_and_retries(self):
+        from unittest.mock import patch
+        decoder=LiveDecoder([bytes(32)]);connection='current';cid=bytes(20);context={'verified':True}
+        rows=[dict(frame=i,connection=connection,direction='outgoing',cid=cid) for i in range(1,10041)]
+        def discover(sample,keys,wrapper):return context if sample[0]['frame']>=10020 else None
+        with patch('live_network_decoder.discover',side_effect=discover) as probe,patch.object(decoder,'packet'):
+            decoder.ingest(rows[:10000]);state=decoder.groups[(connection,'outgoing',cid)]
+            self.assertIsNone(state['context']);self.assertEqual(len(state['pending']),10000);attempts=probe.call_count
+            decoder.ingest(rows[10000:]);self.assertGreater(probe.call_count,attempts);self.assertIs(state['context'],context)
+
     def test_new_dictionary_invalidates_existing_event_readers(self):
         from network_wire_lab import Wire
         decoder=LiveDecoder([]);connection='current';packet=fixture_schema()

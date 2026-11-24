@@ -45,12 +45,12 @@ Copy the complete `build/network_decoder/runtime` folder to `Apps/Basketball/net
 ## Current application
 
 - Practical Basketball and Football Fusion 3 have separate workspaces and verified game/version admission. The current offset profile targets `version-2c6fd5e09aaf4cfa`.
-- FF3 networking prepares automatically after a compatible client is detected, including before opening the workspace. QBA stays off until enabled. When instructed, rejoin FF3 without holding a football and keep Vanta open.
+- QBA provides Packet and Mouse / UI methods with a saved selector. Switching cancels pending work and turns QB aim off. With Packets selected, read-only networking prepares as soon as FF3 is detected, including with QB aim off, so it can observe the next join. Mouse mode uses the game power wheel.
 - Automatic throws to confirmed open receivers running away use at least a 25-degree arc, with power and route interception solved together. Reach, field, coverage and actual-release checks still apply. Explicit manual settings retain their policy.
 - Practice range has its own boundary policy. Ordinary matches retain field checks. The decoder accepts the verified UnionOperation CFrame acknowledgement format and maintains parser state across warm-up, fresh schemas and bounded recovery.
 - Ball Mags uses a simple spherical display with fresh transform sampling. Receiving controls include Mags, Auto Catch and Auto Jump; defense includes Auto Rush. Collision edits have identity-bound restoration journals.
 - The throw capsule keeps receiver context through aim, release, flight and result transitions. Released beam presentation survives brief observation gaps and clears on observed completion.
-- The Network page separates recorded calls from remote-instance catalogs. Diagnostic transport keys remain in memory; captures and logs are not repository content.
+- FF3 uses Quarterback, Receiving, Defense, Movement, Kicking and Match tools in the sidebar. The Network page is removed; the QB transport helper remains a background service. Diagnostic transport keys remain in memory; captures and logs are not repository content.
 
 Use the controls and information tooltips in the app. Features and offsets depend on the supported client build; unsupported clients remain blocked. Offline checks and local observations do not establish guaranteed catches or successful throws on every connection.
 
@@ -88,3 +88,21 @@ This creates a ZIP with fresh settings, the complete runtime, setup instructions
 `Native/studio_lab` and `src/studio_connection.hpp` support a separate local Studio connection. Its generated connection token/configuration is private local data and is excluded from Git. See `studio_lab/README.txt`.
 
 Third-party headers, fonts and dependencies retain their accompanying license notices. No project-wide license is added by this upload.
+
+The build also produces `Native/build/Vanta-Basketball-UiTest.exe` for automated UI/HUD checks. This separate executable forces synthetic test mode at compile time, uses caller permissions and never enables real game assists. The production app embeds `requireAdministrator` with `uiAccess=false`; the build verifies both embedded manifests.
+
+Packet Beam calculates its power and updates only the existing destination and power fields. Power is always a whole-number value from 1 to 95. This path uses no executor or Luau companion and does not move the cursor. Origin, argument count and both original live-match trailing numeric values are preserved byte for byte, even when their values change. Unrecognized argument layouts pass through unchanged. Mouse / UI retains its normal power-wheel input.
+
+With Packets selected, setup now starts its read-only listener while Roblox is still loading, before player/world admission. It waits for owned game traffic before starting a key scan, so opening Vanta well before joining does not exhaust setup retries. Known unrelated experiences stop preparation. Startup diagnostics include timings measured from the first owned game packet; idle waiting is recorded separately. Gameplay admission and throw validation remain required before edits.
+
+QB aim > Placement > Anti OOB limit controls the planned catch-point margin from 0 to 20 studs in half-stud steps (default 2). Zero allows no outside distance; increasing the limit only extends the outside allowance and never adds an inward inset. Saved negative limits from earlier builds load as zero. Preview, planning, and packet release checks use the same saved value. Receiver reach and legal receiver body positions still apply; practice range ignores field boundaries.
+
+QB aim > Visuals > OOB boundary draws the measured full field perimeter in cyan and the selected outside allowance in violet, with a translucent strip and a compact distance legend. The corners use the same radial limit as the throw checks. This saved toggle starts enabled, works without a selected receiver or held football while QB aim is on, and stays hidden in practice, game menus, and unknown fields. It shares the existing camera-sampled overlay and does not alter throws.
+
+## FF3 extended controls
+
+The selected receiving preview includes standing/jump/dive reach, a takeoff location and an approach guide. Pocket escape is visual only. Twenty new modules are available for review, with two kicking modules explicitly deferred. Defaults, input bindings and ranges are defined in `Apps/Basketball/Native/src/ff3_assist_catalog.json`; the native build generates its embedded catalog and supplies the same definitions to the UI.
+
+New feature masters start off on every launch. Normal inputs share ownership with existing Catch/Jump/Rush controls and yield to physical input. Temporary jump, contact-group and action-hitbox edits restore through an identity-bound journal. Missing hitboxes, unavailable collision filters, unknown action bindings and unconfirmed captain ownership are reported rather than replaced by guessed game objects. Physics and match behavior require live review; the current practice check is read-only. Kicker Aim and Auto Kick Walk remain disabled until the next requested kicking session.
+
+Run `scripts\test-ff3-assists.cmd`, `scripts\test-ff3-play.cmd` and `scripts\check-webui.ps1` from Native for the relevant checks. `scripts\probe-ff3-features.cmd` records a read-only layout/capability snapshot, skipping chats and script contents. Private diagnostics remain under Native/build and do not belong in a public archive.

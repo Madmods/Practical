@@ -3,6 +3,7 @@
 #include "ff3_qb_overlay.hpp"
 #include "ff3_mags_visual_logic.hpp"
 #include "ff3_ball_reach_renderer.hpp"
+#include "ff3_snap_visual.hpp"
 namespace ff3MagsVisual {
 inline bool draw(PumpSurface& surface,const ff3Native::Frame& f,const std::vector<Box>& boxes,bool clear=true){
  using namespace Gdiplus;const int width=f.client.right,height=f.client.bottom;if(width<=0||height<=0||width>8000||height>5000||!surface.prepare(width,height))return false;
@@ -27,32 +28,33 @@ inline bool sampleBallTransform(HANDLE handle,addr primitive,BallRange& ball){
  return valid(volume(ball));
 }
 struct Source {
- DWORD pid=0;addr model=0,own=0,gui=0,input=0;double scanned=-10;
+ DWORD pid=0;addr model=0,own=0,gui=0,input=0,palmPart=0,palmPrimitive=0;bool r6Palm=false;Vec palmSize;double scanned=-10;
  std::pair<addr,addr> catches;
  bool render(PumpSurface& surface,const ff3Native::Frame& f,HANDLE h,bool clear){
-  if(!ff3Play::magsOn||!ff3Play::magsVisual||!ff3Native::admitted()||!ff3Native::focused(f.pid)||!h||!f.own||rd<addr>(h,f.localPlayer+Offsets::Player::ModelInstance)!=f.own)return false;
-  if(pid!=f.pid||model!=f.model||own!=f.own||now()-scanned>.25){pid=f.pid;model=f.model;own=f.own;gui=child(h,model,"GuiService");input=child(h,model,"UserInputService");catches=ff3Native::catchParts(h,f.own);scanned=now();}
+  if(!ff3Play::magsOn||!ff3Play::magsVisual.load()||!ff3Native::admitted()||!ff3Native::focused(f.pid)||!h||!f.own||rd<addr>(h,f.localPlayer+Offsets::Player::ModelInstance)!=f.own)return false;
+  if(pid!=f.pid||model!=f.model||own!=f.own||now()-scanned>.25){pid=f.pid;model=f.model;own=f.own;gui=child(h,model,"GuiService");input=child(h,model,"UserInputService");catches=ff3Native::catchParts(h,f.own);palmPart=child(h,f.own,"RightHand");r6Palm=!palmPart;if(!palmPart)palmPart=child(h,f.own,"Right Arm");palmPrimitive=rd<addr>(h,palmPart+Offsets::BasePart::Primitive);palmSize=ff3Native::partSize(h,palmPart);scanned=now();}
   auto state=rd<addr>(h,input+Offsets::UserInputService::WindowInputState);if(!state||rd<addr>(h,state+Offsets::WindowInputState::CurrentTextBox)!=0||rd<unsigned char>(h,gui+Offsets::GuiService::MenuIsOpen,255)!=0)return false;
   const auto snapshot=ff3Play::volumeSnapshot();if(snapshot.pid!=f.pid||snapshot.model!=f.model||now()<snapshot.at||now()-snapshot.at>.3)return false;
-  struct Identity {addr id,primitive,mesh;};
+  struct Identity {addr id,primitive,mesh,rig;};
   std::vector<BallRange> balls;std::vector<Identity> identities;std::vector<Box> hands;
   for(auto part:{catches.first,catches.second}){if(!part||rd<addr>(h,part+Offsets::Instance::Parent)!=f.own)continue;auto primitive=rd<addr>(h,part+Offsets::BasePart::Primitive);Box box;box.center=ff3Native::position(h,part);box.size=ff3Native::partSize(h,part);defense::Matrix3 invalid;for(auto& x:invalid.m)x=NAN;auto rotation=rd<defense::Matrix3>(h,primitive+Offsets::Primitive::Rotation,invalid);for(int i=0;i<9;i++)box.rotation[i]=rotation.m[i];if(valid(box))hands.push_back(box);}
   auto measure=[&](BallRange& ball){ball.inRange=false;ball.hand={NAN,NAN,NAN};auto box=volume(ball);double nearest=INFINITY;for(const auto& hand:hands){const bool contact=overlaps(box,hand);double gap=ff3qb::length(hand.center-closestPoint(box,hand.center));if((contact&&!ball.inRange)||(contact==ball.inRange&&gap<nearest)){nearest=gap;ball.hand=hand.center;}ball.inRange=ball.inRange||contact;}};
   for(const auto& part:snapshot.parts){
    auto parent=rd<addr>(h,part.id+Offsets::Instance::Parent);if(!parent||rd<addr>(h,part.id+Offsets::BasePart::Primitive)!=part.primitive)continue;
-   auto center=ff3Native::position(h,part.id),size=ff3Native::partSize(h,part.id);
+   auto center=ff3Play::snapRenderedPosition(h,part),size=ff3Native::partSize(h,part.id);
    if(!ff3qb::finite(center)||!ff3qb::finite(size))continue;
    if(part.guide){if(!ff3Play::sameSize(size,part.size))continue;}
    else if(!ff3Play::validCatchSize(size)||!ff3Play::sameSize(size,ff3Play::magsDimensions()))continue;
    if(!part.ball||!part.mesh||rd<addr>(h,part.mesh+Offsets::Instance::Parent)!=part.id)continue;
    BallRange ball{center,part.guide?ff3Play::magsDimensions():size,!part.guide};defense::Matrix3 invalid;for(auto& x:invalid.m)x=NAN;auto rotation=rd<defense::Matrix3>(h,part.primitive+Offsets::Primitive::Rotation,invalid);for(int i=0;i<9;i++)ball.rotation[i]=rotation.m[i];auto box=volume(ball);if(part.guide)box.size=size;if(!valid(box))continue;
-   measure(ball);balls.push_back(ball);identities.push_back({part.id,part.primitive,part.mesh});
+   measure(ball);balls.push_back(ball);identities.push_back({part.id,part.primitive,part.mesh,part.rig});
   }
   ff3Native::Frame display;display.client=f.client;display.groundY=f.groundY;display.at=now();std::copy(std::begin(f.matrix),std::end(f.matrix),display.matrix);
   return drawBalls(surface,display,balls,clear,[&](size_t index,BallRange& ball,float* projection){
    const auto& part=identities[index];
    if(!rd<addr>(h,part.id+Offsets::Instance::Parent)||rd<addr>(h,part.id+Offsets::BasePart::Primitive)!=part.primitive||rd<addr>(h,part.mesh+Offsets::Instance::Parent)!=part.id)return false;
    if(!sampleBallTransform(h,part.primitive,ball)||!ff3Visual::ViewReader::matrix(h,f.cameraMatrix,projection))return false;
+   ball.center=ff3Play::snapRenderedPosition(h,{part.id,part.rig,part.primitive,ball.size,true,part.mesh});if(!ff3qb::finite(ball.center))return false;
    measure(ball);return true;
   });
  }

@@ -34,12 +34,14 @@ try{
     function Install-NetworkRuntime {$script:networkInstalls++;$script:state.Driver='existing-runtime'}
     $script:state=[pscustomobject]@{VsRoot=(Join-Path $testRoot 'Build Tools');Compiler=$true;Sdk=$true;Python='python.exe';WebView=$true;Driver='existing-runtime'}
     $script:installs=@();$script:networkInstalls=0;$script:pythonPrepares=0
-    $result=Ensure-Prerequisites
+    $result=Ensure-Prerequisites -RequireNetworking
     Assert ($script:installs.Count -eq 0 -and $script:networkInstalls -eq 0 -and $script:pythonPrepares -eq 0) 'Existing prerequisites must skip all installers/downloads'
     $script:state.Compiler=$false;$script:state.Sdk=$false;$script:state.Python=$null;$script:state.WebView=$false;$script:state.Driver=$null
-    $result=Ensure-Prerequisites -CheckOnly
+    $inputResult=Ensure-Prerequisites -CheckOnly
+    Assert ($script:networkInstalls -eq 0) 'Read-only input-method check never downloads a driver'
+    $result=Ensure-Prerequisites -RequireNetworking -CheckOnly
     Assert ($script:installs.Count -eq 0 -and $script:networkInstalls -eq 0 -and $script:pythonPrepares -eq 0) 'CheckOnly must stay read-only even when everything is missing'
-    $result=Ensure-Prerequisites
+    $result=Ensure-Prerequisites -RequireNetworking
     Assert ($script:installs.Count -eq 2 -and $script:networkInstalls -eq 1 -and $script:pythonPrepares -eq 1) 'Install each missing prerequisite once'
     Assert ($result.Compiler -and $result.Sdk -and $result.Python -and $result.WebView -and $result.Driver) 'Recheck installed state'
     Assert ($script:installs[0][3] -contains '--norestart') 'C++ installer cannot restart Windows automatically'
@@ -51,14 +53,18 @@ try{
     New-Item -ItemType Directory -Path $devFolder -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $devFolder 'VsDevCmd.bat'),'fixture')
     $script:state.Sdk=$false;$script:installs=@();$script:networkInstalls=0;$script:pythonPrepares=0
-    $result=Ensure-Prerequisites
+    $result=Ensure-Prerequisites -RequireNetworking
     Assert ($script:installs.Count -eq 1 -and $script:installs[0][3][0] -eq 'modify') 'Modify an existing Build Tools installation when only its SDK is missing'
     Assert ($script:networkInstalls -eq 0) 'Keep existing networking files during an SDK installation'
+    $script:state.Driver=$null
+    $inputResult=Ensure-Prerequisites
+    Assert ($script:networkInstalls -eq 0 -and !$inputResult.Driver) 'Input-method setup succeeds without downloading networking files'
+    $script:state.Driver='existing-runtime'
 
     # A successful installer exit is insufficient unless detection succeeds too.
     function Install-BuildPython {}
     $script:state.Python=$null
-    Assert-Throws {Ensure-Prerequisites | Out-Null} 'Python 3.12 is still unavailable'
+    Assert-Throws {Ensure-Prerequisites -RequireNetworking | Out-Null} 'Python 3.12 is still unavailable'
     $script:state.Python='python.exe'
 
     Set-Item Function:Install-SetupProgram $originals['Install-SetupProgram']

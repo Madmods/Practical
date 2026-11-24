@@ -14,7 +14,7 @@ def ecb(key: bytes, block: bytes, decrypt=False):
 
 def xor(a,b):
     if len(a)!=len(b): raise DecodeError('XOR dimensions')
-    return bytes(x^y for x,y in zip(a,b))
+    return (int.from_bytes(a,'little')^int.from_bytes(b,'little')).to_bytes(len(a),'little')
 
 def nonce_for(iv: bytes, pn: int):
     if len(iv)!=12 or not 0<=pn<(1<<62): raise DecodeError('Nonce dimensions')
@@ -56,25 +56,41 @@ def decrypt(udp: bytes, hp: bytes, payload: bytes, iv: bytes, wrapper: int, larg
     except Exception as exc: raise DecodeError('Packet authentication failed') from exc
     return u,plain
 
-def recover_nonce(u: Unprotected, payload_key: bytes):
-    """Validate a 96-bit GCM nonce candidate using known ciphertext/AAD/tag.
+class NonceVerifier:
+    """Prepared candidate verifier, private to one discovery pass.
 
-    This is a key-candidate verifier, not key recovery: the AES key is required.
-    An independent packet must authenticate under the same derived session IV.
+    Only zero-nonce keystream is cached, bounded to 64 KiB per candidate. Real
+    packets still require full AEAD authentication and independent confirmation.
     """
-    c,tag=u.encrypted[:-16],u.encrypted[-16:]
-    if not c or len(payload_key)!=32: return None
-    aes=AESGCM(payload_key); zero=bytes(12)
-    keystream=aes.encrypt(zero,bytes(len(c)),b'')[:-16]
-    synthetic_plain=xor(c,keystream)
-    synthetic=aes.encrypt(zero,synthetic_plain,u.header)
-    if synthetic[:-16]!=c: raise DecodeError('GCM verification construction failed')
-    j0=ecb(payload_key,xor(xor(tag,synthetic[-16:]),ecb(payload_key,bytes(15)+b'\x01')),True)
-    if j0[12:]!=b'\0\0\0\x01': return None
-    nonce=j0[:12]
-    try: plain=aes.decrypt(nonce,u.encrypted,u.header)
-    except Exception: return None
-    return nonce,plain
+    def __init__(self,key):
+        if len(key)!=32:raise DecodeError('AES-256 dimensions')
+        self.aes=AESGCM(key);self.zero=bytes(12)
+        self.mask=ecb(key,bytes(15)+b'\x01')
+        self.inverse=Cipher(algorithms.AES(key),modes.ECB()).decryptor()
+        self.streams={};self.stream_bytes=0
+    def recover(self,u):
+        c,tag=u.encrypted[:-16],u.encrypted[-16:]
+        if not c:return None
+        size=len(c);keystream=self.streams.get(size)
+        if keystream is None:
+            keystream=self.aes.encrypt(self.zero,bytes(size),b'')[:-16]
+            if size<=65536:
+                while self.streams and (len(self.streams)>=4 or self.stream_bytes+size>65536):
+                    old=self.streams.pop(next(iter(self.streams)));self.stream_bytes-=len(old)
+                self.streams[size]=keystream;self.stream_bytes+=size
+        synthetic=self.aes.encrypt(self.zero,xor(c,keystream),u.header)
+        if synthetic[:-16]!=c:raise DecodeError('GCM verification construction failed')
+        j0=self.inverse.update(xor(xor(tag,synthetic[-16:]),self.mask))
+        if j0[12:]!=b'\0\0\0\x01':return None
+        nonce=j0[:12]
+        try:plain=self.aes.decrypt(nonce,u.encrypted,u.header)
+        except Exception:return None
+        return nonce,plain
+
+def recover_nonce(u: Unprotected, payload_key: bytes):
+    """Validate a candidate key; independent packets must confirm its IV."""
+    if len(payload_key)!=32 or len(u.encrypted)<=16:return None
+    return NonceVerifier(payload_key).recover(u)
 
 def varint(data: bytes, pos: int):
     if pos<0 or pos>=len(data): raise DecodeError('Truncated varint')

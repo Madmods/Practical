@@ -33,6 +33,25 @@ int main(){
  check(!inBoundsCatch({true,{0,8,0},{},{82,8,182},1,0},receiver,.05,field),"corner shares one diagonal reach budget");
  check(!inBoundsCatch({true,{0,8,0},{},{78,35,178},1,0},receiver,.05,field),"in-bounds but vertically unreachable throw rejected");
  auto unknown=field;unknown.known=false;check(!inBoundsCatch({true,{0,8,0},{},{78,8,178},1,0},receiver,.05,unknown),"missing field blocks assistance");
+ for(double angle:{0.,.45,1.57079632679}){
+  Vec right{std::cos(angle),0,std::sin(angle)},forward{-std::sin(angle),0,std::cos(angle)},translation{130,3,-90};
+  auto transform=[&](Vec p){return translation+right*p.x+Vec{0,p.y-3,0}+forward*p.z;};
+  FieldBounds rotated{true,translation,right,forward,80,180};
+  for(int axis:{0,1})for(double sign:{-1.,1.}){
+   auto point=[&](double distance){return transform(axis?Vec{0,8,sign*(180+distance)}:Vec{sign*(80+distance),8,0});};
+   for(double margin:{0.,.5,2.,4.,10.,20.}){
+    check(boundaryAllows(point(margin),rotated,margin),"slider includes its exact edge on rotated sidelines and end zones");
+    check(!boundaryAllows(point(margin+.1),rotated,margin),"slider rejects beyond its edge on rotated sidelines and end zones");
+   }
+  }
+  check(!boundaryAllows(transform({81,8,181}),rotated,1.4)&&boundaryAllows(transform({81,8,181}),rotated,1.5),"positive corner distance uses one radial budget");
+ }
+ for(double invalid:{double(NAN),double(INFINITY),-.5,20.5})check(!boundaryAllows({0,8,0},field,invalid),"invalid boundary limit rejected");
+ receiver.position={78,8,0};receiver.velocity={};
+ auto nearEdge=Solution{true,{0,8,0},{},{83,8,0},1,0};
+ check(!inBoundsCatch(nearEdge,receiver,.05,field,2)&&inBoundsCatch(nearEdge,receiver,.05,field,4),"extended limit permits a reachable outside catch");
+ receiver.position={81,8,0};check(!inBoundsCatch(nearEdge,receiver,.05,field,20),"extended limit does not permit out-of-bounds receiver bodies");
+ for(double margin:{0.,.5,2.,10.,20.})check(boundaryAllows({79.9,8,0},field,margin),"slider never adds an inward catch inset");
  receiver.position={77,8,0};receiver.redirect=false;
  auto recovered=planThrow({0,8,0},{84,8,0},{},28,.05,0,false,20,true,95,false,false,{},20,{},false,5,3,50,&field,&receiver);
  check(recovered.solution.valid&&inBoundsCatch(recovered.solution,receiver,.05,field)&&recovered.offset.x<0,"planner brings excessive lead back to a legal reachable catch even with Smart fit off");

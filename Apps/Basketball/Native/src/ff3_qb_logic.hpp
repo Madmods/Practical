@@ -1,4 +1,5 @@
 #pragma once
+#include "ff3_power_steps.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -19,7 +20,7 @@ inline int readPower(bool held,const std::vector<PowerDisplay>& displays){
  if(!held)return 0;
  int power=0;bool invalid=false;
  for(const auto& display:displays){
-  if(display.enabled!=1||!(display.flags&2))continue;
+  if(display.enabled!=1||display.flags!=1)continue;
   auto text=display.text;auto first=text.find_first_not_of(" \r\n\t"),last=text.find_last_not_of(" \r\n\t");text=first==std::string::npos?"":text.substr(first,last-first+1);
   if(text.empty()||text.size()>2||text.find_first_not_of("0123456789")!=std::string::npos){invalid=true;continue;}
   int value=0;for(char c:text)value=value*10+(c-'0');
@@ -29,7 +30,9 @@ inline int readPower(bool held,const std::vector<PowerDisplay>& displays){
  return invalid?-1:power;
 }
 inline bool powerAvailable(bool held,bool automatic,int gamePower){return held&&(automatic||gamePower>0);}
-inline bool cursorModeAllowed(bool visible,bool rightHeld,bool firstPerson){return visible&&!rightHeld&&!firstPerson;}
+// Roblox may draw its own cursor with the Windows cursor hidden. Visibility
+// does not identify a locked pointer; confinement and camera mode do.
+inline bool cursorModeAllowed(bool visible,bool rightHeld,bool firstPerson,bool confined=false){return !rightHeld&&!firstPerson&&!confined;}
 inline bool cameraStable(const float* a,const float* b){
  for(int row:{0,4}){
   double na=0,nb=0,dot=0;
@@ -361,16 +364,20 @@ inline double receiverGap(const Defender& receiver,Vec point,double horizon,cons
  }
  return routeGap;
 }
-inline bool inBoundsCatch(const Solution& s,const Defender& receiver,double latency,const FieldBounds& field){
+inline bool validBoundaryMargin(double margin){return std::isfinite(margin)&&margin>=0&&margin<=20;}
+inline bool boundaryAllows(Vec point,const FieldBounds& field,double margin=2){
+ if(!field.valid()||!finite(point)||!validBoundaryMargin(margin))return false;
+ auto outside=point-field.closest(point,0);outside.y=0;return length(outside)<=margin+1e-6;
+}
+inline bool inBoundsCatch(const Solution& s,const Defender& receiver,double latency,const FieldBounds& field,double boundaryMargin=2){
  if(!s.valid||!field.valid()||!finite(s.catchPoint)||!std::isfinite(s.time)||s.time<=0||!std::isfinite(latency)||latency<0||latency>.3||!field.contains(s.origin,-3))return false;
  // Permit hands/ball over the line, but never substitute an out-of-bounds
  // receiver pose or a stadium-sized catch radius. Corners share one budget.
- auto nearest=field.closest(s.catchPoint,1.);auto outside=s.catchPoint-nearest;outside.y=0;
- if(!field.contains(s.catchPoint,1.)&&length(outside)>3.)return false;
+ if(!boundaryAllows(s.catchPoint,field,boundaryMargin))return false;
  return receiverGap(receiver,s.catchPoint,s.time+latency,&field)<=-.25;
 }
-inline void addBoundaryOffsets(std::vector<Vec>& offsets,Vec target,Vec movement,const FieldBounds* field){
- if(!field||!field->valid())return;
+inline void addBoundaryOffsets(std::vector<Vec>& offsets,Vec target,Vec movement,const FieldBounds* field,double boundaryMargin=2){
+ if(!field||!field->valid()||!validBoundaryMargin(boundaryMargin))return;
  for(double t:{.25,.5,1.,1.5,2.,3.,4.}){auto future=target+movement*t;auto offset=field->closest(future,2.)-future;offset.y=0;if(length(offset)>.01&&length(offset)<=24)offsets.push_back(offset);}
 }
 inline Solution groundFlight(const Solution& catchFlight,double gravity,double ground){
@@ -523,7 +530,7 @@ inline double openAwayMinimum(Vec origin,Vec target,Vec movement,const std::vect
  for(const auto& d:defenders){const double gap=reachGap(d,target,.15);if(!std::isfinite(gap)||gap<=6)return -30.;}
  return 25.;
 }
-inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,int mode,bool automaticAngle,double manualAngle,bool automaticPower,double gamePower,bool lob,bool fit,const std::vector<Defender>& defenders,double preferredAngle=NAN,Vec previousOffset={},bool powerFirst=false,double spawn=0,double ground=NAN,double maxAngle=75,const FieldBounds* field=nullptr,const Defender* receiver=nullptr,double minAngle=-30){
+inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,int mode,bool automaticAngle,double manualAngle,bool automaticPower,double gamePower,bool lob,bool fit,const std::vector<Defender>& defenders,double preferredAngle=NAN,Vec previousOffset={},bool powerFirst=false,double spawn=0,double ground=NAN,double maxAngle=75,const FieldBounds* field=nullptr,const Defender* receiver=nullptr,double minAngle=-30,double boundaryMargin=2){
  Plan best;double bestScore=-1e9;
  const bool fixedPower=automaticPower&&automaticAngle&&powerFirst;
  const bool stationary=length(movement)<.5;if(stationary)movement={};
@@ -537,7 +544,7 @@ inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double l
   for(int step=1;step<=70&&!found;step++)for(int sign:{1,-1}){double candidate=desired+sign*step;if(candidate<floor||candidate>maxAngle)continue;if(solveAngle(origin,target,movement,candidate,gravity,latency,spawn).valid){angle=candidate;found=true;break;}}
   if(!found)return best;
  }
- auto offsets=fitOffsets(origin,target,movement,defenders);if(!fit||defenders.empty())offsets.resize(1);addBoundaryOffsets(offsets,target,movement,field);
+ auto offsets=fitOffsets(origin,target,movement,defenders);if(!fit||defenders.empty())offsets.resize(1);addBoundaryOffsets(offsets,target,movement,field,boundaryMargin);
  for(size_t index=0;index<offsets.size();++index){
   auto offset=offsets[index];Solution s;if(!placementAllowed(offset,movement,8)||!preservesCatchHeight(offset))continue;
   if(fixedPower)s=solve(origin,target+offset,movement,95,gravity,latency,false,spawn);
@@ -545,7 +552,7 @@ inline Plan planThrow(Vec origin,Vec target,Vec movement,double gravity,double l
    s=solveAngle(origin,target+offset,movement,angle,gravity,latency,spawn);
   }else s=solve(origin,target+offset,movement,gamePower,gravity,latency,lob||mode==2,spawn);
   if(!s.valid||s.angle<minAngle-1e-6||s.angle>maxAngle||!placementAllowed(offset,movement,s.time)||(!field&&!receiverCanReach(offset,movement,s.time,0)))continue;
-  if(field&&(!receiver||!inBoundsCatch(s,*receiver,latency,*field)))continue;
+  if(field&&(!receiver||!inBoundsCatch(s,*receiver,latency,*field,boundaryMargin)))continue;
   const double margin=defenders.empty()?0:coverageMargin(s,gravity,defenders,latency,nullptr,-INFINITY,ground);
   double score=(defenders.empty()?0:std::min(margin,1.5))*10-length(offset)*.12-length(offset-previousOffset)*.15-s.time*.03-std::abs(s.angle-desired)*.012;
   if(score>bestScore){bestScore=score;best={s,offset,length(s.velocity),margin,!defenders.empty()};}
@@ -564,7 +571,7 @@ inline double launchClearance(const Plan& p){return std::isfinite(p.launchMargin
 // One transitive ordering for every evaluated candidate. Pairwise deadbands
 // can form preference cycles; stability is applied after choosing this goal.
 using PlanRank=std::array<double,17>;
-inline PlanRank rankPlan(const Plan& p,bool fit,bool beam,Vec previousOffset={}){
+inline PlanRank rankPlan(const Plan& p,bool fit,bool beam,Vec previousOffset={},double preferredAngle=35,bool fastest=false){
  if(!p.solution.valid)return {};
  const bool assessed=fit&&p.coverageKnown;
  const bool delivery=!assessed||deliveryClearance(p)>catchSafetyMargin;
@@ -572,16 +579,24 @@ inline PlanRank rankPlan(const Plan& p,bool fit,bool beam,Vec previousOffset={})
  const bool whole=!assessed||estimatedClear(p,true);
  auto bucket=[](double value,double step){return std::floor(std::clamp(std::isfinite(value)?value:-1000.,-1000.,1000.)/step);};
  const double effort=std::hypot(p.offset.x,p.offset.z)*.03+std::max(0.,p.offset.y)*.04;
- const double cost=(95-p.power)*.055+p.solution.time*.65+std::max(0.,p.solution.angle-30)*.012+length(p.offset-previousOffset)*.02+effort;
+ const double style=beam?(95-p.power)*.055+p.solution.time*.65+std::max(0.,p.solution.angle-30)*.012:std::abs(p.solution.angle-std::clamp(preferredAngle,5.,75.))*.18+p.solution.time*.08;
+ const double cost=style+length(p.offset-previousOffset)*.02+effort;
+ // Auto Smart Fit minimizes arrival time once the path and receiver have
+ // clearance. Extra unused clearance must not buy an unnecessary sky lob.
+ // Unsafe candidates retain the existing clearance-first ordering.
+ if(fastest&&whole&&delivery){
+  const bool robust=!fit||!std::isfinite(p.robustMargin)||p.robustMargin>=0;
+  return {1.,1.,1.,0.,1.,0.,0.,double(robust),0.,-p.solution.time,0.,-effort,p.power,-length(p.offset),-std::max(0.,p.offset.y),-p.offset.x,-p.offset.z};
+ }
  return {1.,double(delivery),delivery?1.:double(launch),delivery?0.:bucket(deliveryClearance(p),.25),double(whole),whole?0.:bucket(std::min(p.margin,deliveryClearance(p)),.25),whole?0.:-bucket(p.penetration,.5),fit&&std::isfinite(p.robustMargin)?bucket(std::min(1.5,p.robustMargin),.5):0.,fit&&std::isfinite(p.receiverMargin)?bucket(std::min(2.,p.receiverMargin),.5):0.,beam?bucket(p.power,.5):0.,beam&&whole?-bucket(p.solution.angle,.5):0.,-cost,p.power,-length(p.offset),-std::max(0.,p.offset.y),-p.offset.x,-p.offset.z};
 }
-inline bool rankedBetter(const Plan& a,const Plan& b,bool fit,bool beam,Vec previousOffset={}){return rankPlan(a,fit,beam,previousOffset)>rankPlan(b,fit,beam,previousOffset);}
-inline void retainRanked(std::vector<Plan>& pool,const Plan& p,bool fit,bool beam,Vec previousOffset={}){
+inline bool rankedBetter(const Plan& a,const Plan& b,bool fit,bool beam,Vec previousOffset={},double preferredAngle=35,bool fastest=false){return rankPlan(a,fit,beam,previousOffset,preferredAngle,fastest)>rankPlan(b,fit,beam,previousOffset,preferredAngle,fastest);}
+inline void retainRanked(std::vector<Plan>& pool,const Plan& p,bool fit,bool beam,Vec previousOffset={},double preferredAngle=35,bool fastest=false){
  if(!p.solution.valid)return;
- if(pool.size()==8&&!rankedBetter(p,pool.back(),fit,beam,previousOffset))return;
+ if(pool.size()==8&&!rankedBetter(p,pool.back(),fit,beam,previousOffset,preferredAngle,fastest))return;
  auto same=std::find_if(pool.begin(),pool.end(),[&](const Plan& q){return q.lob==p.lob&&std::abs(q.power-p.power)<1&&length(q.offset-p.offset)<.75;});
- if(same!=pool.end()){if(!rankedBetter(p,*same,fit,beam,previousOffset))return;*same=p;}else pool.push_back(p);
- std::sort(pool.begin(),pool.end(),[&](const Plan& a,const Plan& b){return rankedBetter(a,b,fit,beam,previousOffset);});
+ if(same!=pool.end()){if(!rankedBetter(p,*same,fit,beam,previousOffset,preferredAngle,fastest))return;*same=p;}else pool.push_back(p);
+ std::sort(pool.begin(),pool.end(),[&](const Plan& a,const Plan& b){return rankedBetter(a,b,fit,beam,previousOffset,preferredAngle,fastest);});
  if(pool.size()>8)pool.resize(8);
 }
 inline const std::vector<int>& powerSearchOrder(){
@@ -647,20 +662,23 @@ struct BeamMemory {
   pending={};goal=desired;return desired;
  }
 };
-inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool beam,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN,bool search=true,double elapsed=.1,const Defender* receiver=nullptr,double heightAdjustment=0,BeamMemory* memory=nullptr,double time=0,double ground=NAN,double maxAngle=beamMaxAngle,const FieldBounds* field=nullptr,double minAngle=-30){
- if(!std::isfinite(receiverJump)||receiverJump<0||receiverJump>40||!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300)return {};
+inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,double latency,const std::vector<Defender>& defenders,bool fit,bool beam,double receiverJump,double worldGravity,Vec previousOffset={},double previousPower=0,bool previousLob=false,double previousAngle=NAN,bool search=true,double elapsed=.1,const Defender* receiver=nullptr,double heightAdjustment=0,BeamMemory* memory=nullptr,double time=0,double ground=NAN,double maxAngle=beamMaxAngle,const FieldBounds* field=nullptr,double minAngle=-30,double boundaryMargin=2,double fixedPower=0,double preferredAngle=35,double timingTolerance=.025,int powerStep=1,double powerAnchor=0,bool fastest=false){
+ if(!std::isfinite(receiverJump)||receiverJump<0||receiverJump>40||!std::isfinite(worldGravity)||worldGravity<10||worldGravity>300||!std::isfinite(fixedPower)||fixedPower<0||fixedPower>95||!std::isfinite(preferredAngle)||!std::isfinite(timingTolerance)||timingTolerance<.025||timingTolerance>.15)return {};
+ if(!powerGridValid(powerStep,powerAnchor))return {};
  if(length(movement)<.5)movement={};
  const bool redirect=fit&&receiver&&receiver->redirect;
  const double jump=std::max(0.,(receiver?std::max(0.,receiver->jumpHeight+receiver->above-.75):std::min(8.,receiverJump*.85))-heightAdjustment);
  std::vector<Plan> ranked;unsigned considered=0,evaluated=0;
  auto better=[&](const Plan& a,const Plan& b){
-  return rankedBetter(a,b,fit,beam,previousOffset);
+  return rankedBetter(a,b,fit,beam,previousOffset,preferredAngle,fastest);
  };
  auto candidate=[&](const Solution& solution,Vec offset,bool lob,const Plan* incumbent=nullptr,double selectedPower=0){
   ++considered;
   Plan p;
+  if(powerStep>1&&!powerReachable(selectedPower>0?selectedPower:length(solution.velocity),powerStep,powerAnchor))return p;
+  if(fixedPower>0&&std::abs((selectedPower>0?selectedPower:length(solution.velocity))-fixedPower)>.001)return p;
   if(!solution.valid||!placementAllowed(offset,movement,solution.time,redirect)||!preservesCatchHeight(offset)||solution.angle<std::max(-30.,minAngle)-1e-6||solution.angle>maxAngle||offset.y<0||offset.y>jump+.001||(defenders.empty()&&offset.y>0))return p;
-  if(field&&(!receiver||!inBoundsCatch(solution,*receiver,latency,*field)))return p;
+  if(field&&(!receiver||!inBoundsCatch(solution,*receiver,latency,*field,boundaryMargin)))return p;
   if(defenders.empty()&&!receiver&&length(offset)>.001)return p;
   if(receiver){if(receiverGap(*receiver,solution.catchPoint,solution.time+latency)>-.25)return p;}
   else{if(!receiverCanReach(offset,movement,solution.time,jump))return p;
@@ -676,7 +694,7 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
    // as alternative futures. These bounds are assumptions, not calibration.
    for(const auto& axis:{along,across})for(double sign:{-1.,1.}){
     auto perturbed=*receiver;perturbed.velocity=perturbed.velocity+axis*(sign*.75);
-    for(double timing:{-.025,.025}){
+    for(double timing:{-timingTolerance,timingTolerance}){
      const double horizon=std::max(0.,solution.time+latency+timing);
      p.robustMargin=std::min(p.robustMargin,-receiverGap(perturbed,solution.catchPoint,horizon)-.35);
     }
@@ -704,11 +722,11 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
   if(!defenders.empty()&&std::isfinite(ground)){auto full=groundFlight(solution,gravity,ground);if(!full.valid)return Plan{};p.margin=std::min(p.margin,coverageMargin(full,gravity,defenders,latency));}
   if(fit&&!defenders.empty()){
    const double fastest=45.;
-   const double coverageReserve=p.margin-catchSafetyMargin-.35-fastest*.025;
+   const double coverageReserve=p.margin-catchSafetyMargin-.35-fastest*timingTolerance;
    p.robustMargin=std::isfinite(p.robustMargin)?std::min(p.robustMargin,coverageReserve):coverageReserve;
   }
   if(fit&&!defenders.empty()&&p.margin<=catchSafetyMargin)p.penetration=coveragePenetration(solution,gravity,defenders,latency,ground);
-  ++evaluated;retainRanked(ranked,p,fit,beam,previousOffset);
+  ++evaluated;retainRanked(ranked,p,fit,beam,previousOffset,preferredAngle,fastest);
   return p;
  };
  auto replan=[&](double power,Vec offset,bool lob,const Plan* incumbent=nullptr){if(!placementAllowed(offset,movement,8,redirect))return Plan{};return candidate(solve(origin,target+offset,movement,power,gravity,latency,lob,5),offset,lob,incumbent,power);};
@@ -716,6 +734,15 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  // roots and transitions from contested to clear. Coverage is recomputed for
  // the intermediate arc; it is never labelled clear merely because the goal is.
  auto stable=[&](Plan desired){
+  if(fastest){
+   // Keep small search noise quiet, but never ease through a slower loft.
+   // The retained route is freshly solved and rescored at this observation.
+   if(previousPower>=1&&previousPower<=95){
+    auto held=replan(previousPower,previousOffset,previousLob);
+    if(held.solution.valid&&desired.solution.valid&&held.lob==desired.lob&&length(held.offset-desired.offset)<.75&&held.solution.time<=desired.solution.time+.025&&estimatedClear(held,fit)==estimatedClear(desired,fit)&&continuitySafe(held,desired,fit))return held;
+   }
+   return desired;
+  }
   if(memory&&desired.solution.valid){
    double angle=memory->elevation.update(desired.solution.angle,time);
    if(std::abs(angle-desired.solution.angle)>.001){
@@ -784,15 +811,22 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
   return chosen;
  };
  Plan best=held;
+ auto seedAngle=[&](double angle){
+  auto solved=solveAngle(origin,target,movement,angle,gravity,latency,5);
+  if(!solved.valid)return;
+  if(powerStep>1){for(double power:powerNeighbors(length(solved.velocity),powerStep,powerAnchor))if(power>0)for(bool high:{false,true}){auto p=replan(power,{},high,&best);if(better(p,best))best=p;}}
+  else{auto high=solved.valid?solve(origin,target,movement,length(solved.velocity),gravity,latency,true,5):Solution{};auto p=candidate(solved,{},high.valid&&std::abs(high.time-solved.time)<1e-5,&best);if(better(p,best))best=p;}
+ };
+ if(!beam&&!fastest&&fixedPower==0)for(double angle:{preferredAngle,preferredAngle-5,preferredAngle+5}){
+  if(angle<std::max(5.,minAngle)||angle>maxAngle)continue;
+  seedAngle(angle);
+ }
  // Seed real fixed-angle interceptions immediately, including quiet frames.
  // Filtering shallow arcs alone could leave a live three-tier sweep waiting
  // for a lower-power band. These solves choose power and lead together.
  if(minAngle>=5)for(double angle:{minAngle,minAngle+5,minAngle+10}){
   if(angle>maxAngle)continue;
-  auto solved=solveAngle(origin,target,movement,angle,gravity,latency,5);
-  auto high=solved.valid?solve(origin,target,movement,length(solved.velocity),gravity,latency,true,5):Solution{};
-  auto p=candidate(solved,{},high.valid&&std::abs(high.time-solved.time)<1e-5,&best);
-  if(better(p,best))best=p;
+  seedAngle(angle);
  }
  if(memory){
   // Re-solve and re-score retained alternatives on every frame. Old positions,
@@ -801,10 +835,10 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
   if(memory->goal.solution.valid){auto goal=replan(memory->goal.power,memory->goal.offset,memory->goal.lob,&best);if(better(goal,best))best=goal;}
   for(const auto& old:previous){auto p=replan(old.power,old.offset,old.lob,&best);if(better(p,best))best=p;}
   // A newly opened 95-power window should not wait for a sweep to complete.
-  for(const auto& offset:{previousOffset,Vec{}})for(bool high:{false,true}){auto p=replan(95,offset,high,&best);if(better(p,best))best=p;}
+  if(fixedPower==0)for(const auto& offset:{previousOffset,Vec{}})for(bool high:{false,true}){auto p=replan(95,offset,high,&best);if(better(p,best))best=p;}
  }
- if(!search&&best.solution.valid)return finish(best);
- auto offsets=fitOffsets(origin,target,movement,defenders,redirect);if(!fit||(!receiver&&defenders.empty()))offsets.resize(1);addBoundaryOffsets(offsets,target,movement,field);
+ if(fixedPower==0&&!search&&best.solution.valid)return finish(best);
+ auto offsets=fitOffsets(origin,target,movement,defenders,redirect);if(!fit||(!receiver&&defenders.empty()))offsets.resize(1);addBoundaryOffsets(offsets,target,movement,field,boundaryMargin);
  const auto& powerOrder=powerSearchOrder();size_t scanIndex=0;
  if(memory){
   bool reuse=memory->scanActive&&time>=memory->scanAt&&time-memory->scanAt<4&&length(origin-memory->scanOrigin)<6&&length(target-(memory->scanTarget+memory->scanMovement*(time-memory->scanAt)))<3&&length(movement-memory->scanMovement)<3;
@@ -852,14 +886,16 @@ inline Plan planCoverageThrow(Vec origin,Vec target,Vec movement,double gravity,
  // Three complete tiers per live cycle keep the work bounded; no narrow
  // high-power window is permanently skipped by the coarse initial probes.
  int tiers=0;
+ if(fixedPower>0){auto selected=atPower(fixedPower);if(better(selected,best))best=selected;if(memory){memory->tiersVisited=1;memory->scanActive=false;}return finish(best);}
  for(;scanIndex<powerOrder.size();){
   const double power=powerOrder[scanIndex++];
+  if(!powerReachable(power,powerStep,powerAnchor))continue;
   if(memory)++memory->tiersVisited;
   auto tier=atPower(power);if(better(tier,best))best=tier;
-  if(scanIndex==1)rescue();
+  if(scanIndex==1&&(!fastest||!memory))rescue();
   // A clear maximum-power low arc needs no slower/lower-power sweep.
-  if(beam&&power==95&&best.power>=94.999&&estimatedClear(best,fit)&&best.solution.angle<=35){scanIndex=powerOrder.size();break;}
-  if(memory&&++tiers>=3){
+  if((beam||fastest)&&power==95&&best.power>=94.999&&estimatedClear(best,fit)&&(!fastest||!std::isfinite(best.robustMargin)||best.robustMargin>=0)&&best.solution.angle<=35){scanIndex=powerOrder.size();break;}
+  if(memory&&++tiers>=(fastest?1:3)){
    break;
   }
  }

@@ -2,6 +2,11 @@
 #include "ff3_reach_edits.hpp"
 namespace ff3Play {
 struct BallPart {CatchPart part;Vec meshScale,position;bool canCollide=true;unsigned physicsGroup=0;};
+inline bool magsFloorContact(const Scene& scene,const BallPart& ball){
+ auto applied=scene.magReach.find(ball.part.id);if(applied==scene.magReach.end()||!scene.shape.measured||!ff3qb::finite(ball.position)||!ff3qb::finite(ball.part.size)||!std::isfinite(scene.groundY))return false;
+ if(ball.position.y<scene.groundY-1||ball.position.y>scene.groundY+std::max(2.5,ball.part.size.y*.5+.75))return false;
+ return catchGap(scene,ball.position,0,false,false,applied->second)<=.2;
+}
 inline unsigned char collisionFlag(unsigned char flags,unsigned char mask,bool on){return on?static_cast<unsigned char>(flags|mask):static_cast<unsigned char>(flags&~mask);}
 inline bool sameBall(const BallPart& a,const BallPart& b){return a.part.id==b.part.id&&a.part.primitive==b.part.primitive&&a.part.mesh==b.part.mesh;}
 inline bool validMeshScale(Vec v){return ff3qb::finite(v)&&std::min({v.x,v.y,v.z})>0&&std::max({v.x,v.y,v.z})<=100000;}
@@ -76,7 +81,7 @@ inline std::vector<BallPart> eligibleFilteredBalls(const std::vector<BallPart>& 
 // Shared runtime gate: restoring takes priority over any new ball modification.
 template<class Editor>
 bool updateBallMags(Editor& editor,const Scene& scene,const std::vector<BallPart>& balls,bool enabled,double time,bool restoreAllOnFailure=true){
- if(!enabled||!observing(scene,time))return editor.restore();
+ if(!enabled||!backgroundObserving(scene,time))return editor.restore();
  if(editor.apply(scene,balls))return true;
  if(restoreAllOnFailure)editor.restore();return false;
 }

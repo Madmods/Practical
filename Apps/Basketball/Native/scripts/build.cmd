@@ -4,6 +4,8 @@ call "%~dp0build-webui.cmd"
 if errorlevel 1 exit /b 1
 call "%~dp0test-network-inspector.cmd"
 if errorlevel 1 exit /b 1
+call "%~dp0test-network-launch.cmd"
+if errorlevel 1 exit /b 1
 call "%~dp0test-webui.cmd"
 if errorlevel 1 exit /b 1
 call "%~dp0test-game-modules.cmd"

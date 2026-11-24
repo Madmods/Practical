@@ -211,11 +211,14 @@ function Install-NetworkRuntime {
     }
 }
 
-function Ensure-Prerequisites([switch]$CheckOnly){
+function Ensure-Prerequisites([switch]$CheckOnly,[switch]$RequireNetworking){
     $state=Get-PrerequisiteState
-    foreach($item in @(@('C++ Build Tools',$state.Compiler),@('Windows SDK',$state.Sdk),@('64-bit Python 3.12',[bool]$state.Python),@('WebView2 Runtime',$state.WebView),@('Networking files',[bool]$state.Driver))){
+    $checks=@(@('C++ Build Tools',$state.Compiler),@('Windows SDK',$state.Sdk),@('64-bit Python 3.12',[bool]$state.Python),@('WebView2 Runtime',$state.WebView))
+    if($RequireNetworking){$checks+=,@('Networking files',[bool]$state.Driver)}
+    foreach($item in $checks){
         if($item[1]){Write-Host "OK: $($item[0])"}else{Write-Host "MISSING: $($item[0])" -ForegroundColor Yellow}
     }
+    if(!$RequireNetworking){Write-Host 'Mouse-input throwing does not require networking files.'}
     if($CheckOnly){return $state}
     if(!$state.Compiler -or !$state.Sdk){
         Write-Host 'Installing C++ tools and Windows SDK. Allow the normal installer prompt; this can take several minutes.'
@@ -235,7 +238,7 @@ function Ensure-Prerequisites([switch]$CheckOnly){
         $state=Get-PrerequisiteState
         if(!$state.WebView){throw 'WebView2 Runtime is still unavailable. Rerun setup after the installer completes.'}
     }
-    if(!$state.Driver){
+    if($RequireNetworking -and !$state.Driver){
         Install-NetworkRuntime
         $state=Get-PrerequisiteState
         if(!$state.Driver){throw 'Networking files are still missing. Check the Windows security notification. Setup does not bypass blocked files.'}

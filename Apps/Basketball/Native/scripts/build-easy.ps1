@@ -22,7 +22,7 @@ try {
     Write-Host 'Keep the entire extracted GitHub folder together.'
     $state=Ensure-Prerequisites -CheckOnly:$CheckOnly
     if($CheckOnly){
-        if(!$state.Compiler -or !$state.Sdk -or !$state.Python -or !$state.WebView -or !$state.Driver){
+        if(!$state.Compiler -or !$state.Sdk -or !$state.Python -or !$state.WebView){
             Write-Host 'Run 1 - Setup Vanta.bat to install the missing prerequisites.'
             exit 2
         }
@@ -30,8 +30,6 @@ try {
         exit 0
     }
     $python=$state.Python
-    $driverFolder=$state.Driver
-    $builtRuntime=Join-Path $native 'build\network_decoder\runtime'
 
     $exe=Join-Path $app 'Vanta.exe'
     $open=@(Get-Process Vanta -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq $exe})
@@ -44,20 +42,19 @@ try {
             Write-Host "`nSETUP FINISHED. Double-click 2 - Build Vanta.bat." -ForegroundColor Green
             exit 0
         }
-        $venv=Join-Path $native '.venv\Scripts\python.exe'
         Invoke-BuildStep 'Build and check Vanta (this can take a few minutes)' (Join-Path $PSScriptRoot 'build.cmd')
-        Invoke-BuildStep 'Build native networking components' (Join-Path $PSScriptRoot 'build-network-decoder-lab.cmd')
-        $helperArguments=@('-B',(Join-Path $PSScriptRoot 'build-network-host.py'))
-        if($driverFolder -and $driverFolder -ne $builtRuntime){$helperArguments+=@('--windivert-dir',$driverFolder)}
-        Invoke-BuildStep 'Package networking helper' $venv $helperArguments
+        Invoke-BuildStep 'Build networking components for Packet mode' (Join-Path $PSScriptRoot 'build-network-decoder-lab.cmd')
+        $venv=Join-Path $native '.venv\Scripts\python.exe'
         $builtRuntime=Join-Path $native 'build\network_decoder\runtime'
-        $networkReady=(Test-Path -LiteralPath (Join-Path $builtRuntime 'WinDivert.dll')) -and (Test-Path -LiteralPath (Join-Path $builtRuntime 'WinDivert64.sys'))
-        if(!$networkReady){throw 'Networking files are missing from the built runtime. Check the Windows security notification, then rerun setup.'}
-        Invoke-BuildStep 'Check networking runtime (no capture)' (Join-Path $builtRuntime 'vanta-network-host.exe') @('--self-test')
+        $helperArguments=@('-B',(Join-Path $PSScriptRoot 'build-network-host.py'))
+        if($state.Driver -and $state.Driver -ne $builtRuntime){$helperArguments+=@('--windivert-dir',$state.Driver)}
+        Invoke-BuildStep 'Package Packet mode helper' $venv $helperArguments
+        Invoke-BuildStep 'Check helper imports (no capture)' (Join-Path $builtRuntime 'vanta-network-host.exe') @('--self-test')
         $network=Join-Path $app 'network_decoder'
         New-Item -ItemType Directory -Path $network -Force | Out-Null
-        try{Copy-Item -LiteralPath $builtRuntime -Destination $network -Recurse -Force}
-        catch{throw 'Could not install the networking folder. Close Vanta and its networking helper, then run this build again.'}
+        Copy-Item -LiteralPath $builtRuntime -Destination $network -Recurse -Force
+        if(!$state.Driver){Write-Host 'Mouse mode is ready. Packet mode still needs an approved WinDivert runtime; no driver was downloaded.' -ForegroundColor Yellow}
+
         Write-Host "`nBUILD FINISHED. Double-click 3 - Start Vanta.bat." -ForegroundColor Green
         Write-Host 'Login: username 1, password 1. Join a supported game and click Continue.'
     }finally{Pop-Location}

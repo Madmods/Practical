@@ -9,6 +9,24 @@ def fixture_schema():
     raw=b'\x03'+bytes(8)+b'\0'+v(1)+v(0)+v(1)+s('RemoteEvent')+b'\0\0\0'+v(1)+s('FireServer')+v(1)+b'\x1d\0\0'+b'\0\0'
     compressed=zstandard.ZstdCompressor().compress(raw);return len(compressed).to_bytes(4,'little')+len(raw).to_bytes(4,'little')+compressed
 class Tests(unittest.TestCase):
+    def movement_event(self):
+        from live_network_decoder import MAPS
+        schema=Schema.from_packet(fixture_schema());schema.properties=[dict(name='MoveDirectionInternal',className='Humanoid',kind=22)]
+        prefix=b'\x0d\x01'+(123).to_bytes(4,'little')+bytes(2)+b'\x00'+struct.pack('<fff',.8,0,.6)
+        event=bytes([MAPS['4'].index(7)])+b'\x01'+(456).to_bytes(4,'little')+bytes(2)+v(1)+b'\x02'+s('Clicked')+b'\0'
+        return schema,b'\x83'+prefix+event,MAPS['4']
+    def test_verified_movement_prefix_does_not_hide_following_event(self):
+        schema,body,mapping=self.movement_event();calls=Wire(schema,mapping).events(body,'outgoing')
+        self.assertEqual(len(calls),1);self.assertEqual(calls[0]['args'],['Clicked']);self.assertEqual(calls[0]['recordOffset'],22)
+    def test_movement_prefix_requires_exact_schema_and_observed_version(self):
+        schema,body,mapping=self.movement_event()
+        for field,value in (('name','Other'),('className','Part'),('kind',12)):
+            altered=Schema.from_packet(fixture_schema());altered.properties=[{**schema.properties[0],field:value}]
+            with self.assertRaisesRegex(DecodeError,'movement update schema'):Wire(altered,mapping).events(body,'outgoing')
+        with self.assertRaisesRegex(DecodeError,'movement update version'):Wire(schema,mapping).events(body[:9]+b'\x01'+body[10:],'outgoing')
+        with self.assertRaisesRegex(DecodeError,'movement update header'):Wire(schema,mapping).events(body,'incoming')
+        with self.assertRaises(DecodeError):Wire(schema,mapping).events(body[:10]+struct.pack('<f',float('nan'))+body[14:],'outgoing')
+        with self.assertRaisesRegex(DecodeError,'direction bounds'):Wire(schema,mapping).events(body[:10]+struct.pack('<f',2)+body[14:],'outgoing')
     def test_invalid_record_does_not_poison_cached_arguments(self):
         schema=Schema.from_packet(fixture_schema());schema.properties=[dict(name='CFrame',className='Camera',kind=27)]
         wire=Wire(schema);wire.cache[7]='Original'

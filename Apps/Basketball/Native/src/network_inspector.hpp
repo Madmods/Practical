@@ -6,7 +6,7 @@
 #include <thread>
 #include <mutex>
 #ifndef NETWORK_INSPECTOR_MODEL_ONLY
-#include <shellapi.h>
+#include "network_launch.hpp"
 #endif
 
 namespace networkInspector {
@@ -131,9 +131,9 @@ public:
   try{
    auto session=std::filesystem::temp_directory_path()/L"VantaNetworkInspector"/(std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));std::filesystem::create_directories(session);
    auto parameters=L"--session \""+session.wstring()+L"\" --pid "+std::to_wstring(game.pid)+L" --parent "+std::to_wstring(GetCurrentProcessId())+L" --seconds 60";
-   SHELLEXECUTEINFOW launch{sizeof launch};launch.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;launch.lpVerb=L"runas";launch.lpFile=helper_.c_str();launch.lpParameters=parameters.c_str();launch.nShow=SW_HIDE;
-   if(!ShellExecuteExW(&launch)||!launch.hProcess){std::lock_guard<std::mutex> lock(mutex_);error_=L"Capture did not start. The helper needs Windows administrator approval.";return;}
-   {std::lock_guard<std::mutex> lock(mutex_);session_=session;host_=launch.hProcess;lastState_={};capture_=L"Starting";decoder_=L"Waiting for capture helper";status_=L"Capture stops automatically after 60 seconds. Rejoin once to collect the schema.";error_.clear();calls_=array();}
+   HANDLE process=vantaNetwork::startHidden(helper_,parameters);
+   if(!process){std::lock_guard<std::mutex> lock(mutex_);error_=L"Capture did not start. Restart Vanta with administrator permission and retry.";return;}
+   {std::lock_guard<std::mutex> lock(mutex_);session_=session;host_=process;lastState_={};capture_=L"Starting";decoder_=L"Waiting for capture helper";status_=L"Capture stops automatically after 60 seconds. Rejoin once to collect the schema.";error_.clear();calls_=array();}
   }catch(...){std::lock_guard<std::mutex> lock(mutex_);error_=L"Could not create a capture session.";}
   post_(report());
  }

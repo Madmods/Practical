@@ -163,6 +163,17 @@ class Wire:
             if not any(body[r.pos:]):break
             start=r.pos;op=self.mapping[r.byte()]
             if op==35:r.take(4)
+            elif op==257:
+                # Observed C3 outgoing prefix: a schema-identified Humanoid
+                # movement update followed by a normal remote event. Never
+                # scan ahead for an event through an unknown property layout.
+                peer,ident=r.ref();property_id=r.integer(2)
+                if direction!='outgoing' or not peer or not self.schema or property_id>=len(self.schema.properties):raise DecodeError('Invalid movement update header')
+                prop=self.schema.properties[property_id]
+                if prop['name']!='MoveDirectionInternal' or prop['className']!='Humanoid' or prop['kind']!=22:raise DecodeError('Unsupported movement update schema')
+                if r.byte()!=0:raise DecodeError('Unsupported movement update version')
+                movement=[r.float(4) for _ in range(3)]
+                if sum(v*v for v in movement)>1.05**2:raise DecodeError('Movement direction bounds')
             elif op==10:
                 peer,ident=r.ref();property_id=r.integer(2);versioned=r.byte()
                 if not peer or not self.schema or property_id>=len(self.schema.properties) or versioned>1:raise DecodeError('Invalid property acknowledgement header')

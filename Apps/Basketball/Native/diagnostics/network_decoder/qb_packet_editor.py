@@ -4,7 +4,7 @@ No driver, process access or networking in this module. All other bytes remain
 unchanged. Reliable stream edits are pinned for retransmissions, even when the
 current aim plan is inactive. Fragmented fields are left to the game's aim.
 """
-import math,struct,collections
+import math,struct,collections,time
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from network_transport_lab import DecodeError,Stream,frames,unprotect,recover_nonce,ecb
 from network_wire_lab import Reader,Wire
@@ -80,8 +80,12 @@ def angle_velocity(origin,target,movement,angle,gravity,latency,spawn=0):
         previous,prior=next_time,current
     raise DecodeError('Selected angle exceeds available power')
 
-def throw_fields(body,call):
+def throw_fields(body,call,environment=None):
     if call['method']!='FireServer' or len(call['args']) not in (4,6) or call['args'][0]!='Clicked':return None
+    # These are separate observed contracts, not interchangeable fallbacks.
+    # A changed layout passes through; never infer or repair a new signature.
+    expected={'practice':4,'match':6}.get(environment)
+    if environment is not None and (expected is None or len(call['args'])!=expected):return None
     r=Reader(body);r.pos=call['recordOffset']+1;r.ref();r.integer(2)
     if r.uint()!=len(call['args']) or r.byte()!=2 or r.string()!='Clicked':return None
     if r.byte()!=22:return None
@@ -94,6 +98,8 @@ def throw_fields(body,call):
     for _ in range(len(call['args'])-4):
         if r.byte()!=12 or not math.isfinite(struct.unpack('<d',r.take(8))[0]):return None
     if r.pos!=call['consumed'] or not math.isfinite(power) or not 1<=power<=95:return None
+    # Match tail values belong to the game and may vary. Their numeric wire
+    # fields were validated above; preserve every byte without fixed constants.
     return origin,aim_offset,power_offset,power
 
 def jump_rise(jump,gravity,horizon,vertical_speed=0):
@@ -143,6 +149,11 @@ def field_closest(field,point,inset=1):
     x=max(-field['halfWidth']+inset,min(field['halfWidth']-inset,sum(a*b for a,b in zip(delta,field['right']))))
     z=max(-field['halfLength']+inset,min(field['halfLength']-inset,sum(a*b for a,b in zip(delta,field['forward']))))
     return [field['center'][0]+field['right'][0]*x+field['forward'][0]*z,point[1],field['center'][2]+field['right'][2]*x+field['forward'][2]*z]
+
+def field_catch_allowed(field,point,margin=2):
+    if isinstance(margin,bool) or not isinstance(margin,(int,float)) or not math.isfinite(margin) or not 0<=margin<=20:raise DecodeError('OOB limit bounds')
+    nearest=field_closest(field,point,0)
+    return math.hypot(point[0]-nearest[0],point[2]-nearest[2])<=margin+1e-6
 
 def receiver_gap(receiver,point,horizon,field=None):
     if field is not None and not field_contains(field,receiver['position'],.5):return math.inf
@@ -205,9 +216,12 @@ def catch_path_margin(origin,launch,flight,power,gravity,latency,catchers,ground
             margin=min(margin,reach_gap(d,p,t+latency))
     return margin
 
-def replacement(body,call,plan,tick):
-    fields=throw_fields(body,call)
-    if not fields:return None
+def _replacement(body,call,plan,tick):
+    fields=throw_fields(body,call,plan.get('environment'))
+    if not fields:
+        if call['method']=='FireServer' and call['args'] and call['args'][0]=='Clicked':
+            raise DecodeError('Throw arguments changed or unsupported; passed through unchanged')
+        return None
     if plan.get('active') is not True or plan.get('mode')!='ff3-qb':raise DecodeError('No active assisted plan at throw')
     issued,expires,clicked=plan.get('issued',0),plan.get('expires',0),plan.get('clickAt',0)
     released=plan.get('releasedAt',0);held=plan.get('physicalHeld') is True
@@ -228,6 +242,12 @@ def replacement(body,call,plan,tick):
         for key in ('targetPosition','routePosition'):
             if key in plan:plan[key]=[p+v*sample_delay for p,v in zip(vector(plan[key]),movement)]
     origin,aim_offset,power_offset,old_power=fields
+    if plan.get('requireWheelPower') is True:
+        confirmed=plan.get('confirmedPower')
+        if isinstance(confirmed,bool) or not isinstance(confirmed,(int,float)) or not math.isfinite(confirmed) or not 1<=confirmed<=95 or confirmed!=int(confirmed):
+            raise DecodeError('Wheel power confirmation unavailable')
+        if confirmed!=plan.get('plannedPower') or old_power!=confirmed:
+            raise DecodeError('Wheel power differs from outgoing throw power')
     wire_origin=origin
     if len(call['args'])==6:
         head=vector(plan['head'])
@@ -236,7 +256,7 @@ def replacement(body,call,plan,tick):
         # Confirm against this client's native head before interpreting it.
         decoded=(origin[0]+6000000,origin[1],origin[2])
         if distance(origin)>16:
-            if call['args'][4:]!=[60,1] or distance(decoded)>16:raise DecodeError('Unrecognized live-match origin encoding')
+            if distance(decoded)>16:raise DecodeError('Unrecognized live-match origin encoding')
             origin=decoded
 
     if length(tuple(a-b for a,b in zip(vector(origin),vector(plan['head']))))>12:raise DecodeError('Throw origin disagrees with held character')
@@ -281,6 +301,24 @@ def replacement(body,call,plan,tick):
     if elevation<min_angle-1e-6:
         if plan.get('autoPower') is not True or min_angle<5:raise DecodeError('Throw below route angle minimum')
         launch,flight,power=angle_velocity(origin,plan['targetPosition'],plan['targetVelocity'],min_angle,float(plan['gravity']),float(plan['latency']),spawn=5)
+    # Select an integer power and solve again at that exact value. Merely
+    # rounding the encoded number would leave destination/flight inconsistent.
+    if plan.get('autoPower') is True:
+        preferred=math.degrees(math.atan2(launch[1],math.hypot(launch[0],launch[2])))
+        options=[]
+        for integer in sorted({math.floor(power),math.ceil(power)}):
+            if not 1<=integer<=95:continue
+            for high in (False,True):
+                try:
+                    candidate,t=velocity(origin,plan['targetPosition'],plan['targetVelocity'],integer,float(plan['gravity']),float(plan['latency']),high,spawn=5)
+                except DecodeError:continue
+                angle=math.degrees(math.atan2(candidate[1],math.hypot(candidate[0],candidate[2])))
+                if min_angle-1e-6<=angle<=max_angle+1e-6:
+                    options.append((abs(angle-preferred),abs(integer-power),integer,candidate,t))
+        if not options:raise DecodeError('No whole-power throw within angle bounds')
+        _,_,power,launch,flight=min(options,key=lambda option:option[:2])
+    elif power!=math.floor(power):
+        raise DecodeError('Original power is not a whole number')
     offset=None
     anchor=plan.get('routePosition')
     if anchor is None and isinstance(plan.get('receiver'),dict):anchor=plan['receiver'].get('position')
@@ -304,8 +342,8 @@ def replacement(body,call,plan,tick):
         receiver['position']=[p+v*sample_delay for p,v in zip(vector(receiver['position']),vector(receiver['velocity']))]
         landing=[origin[i]+launch[i]*(5/power+flight)-(.5*float(plan['gravity'])*flight*flight if i==1 else 0) for i in range(3)]
         start=[origin[i]+launch[i]*5/power for i in range(3)]
-        nearest=field_closest(field,landing);outside=math.hypot(landing[0]-nearest[0],landing[2]-nearest[2])
-        if not field_contains(field,start,-3) or (not field_contains(field,landing,1) and outside>3) or receiver_gap(receiver,landing,flight+float(plan['latency']),field)>-.25:raise DecodeError('No receiver-reachable catch in bounds')
+        if not field_catch_allowed(field,landing,plan.get('boundaryMargin',2)):raise DecodeError('Catch point exceeds OOB limit')
+        if not field_contains(field,start,-3) or receiver_gap(receiver,landing,flight+float(plan['latency']),field)>-.25:raise DecodeError('No receiver-reachable catch in bounds')
     if plan.get('smartFit') is True or plan.get('strictFit') is True:
         if plan.get('coverageKnown') is not True:raise DecodeError('Incomplete catcher coverage')
         # Recompute coverage at the actual origin. The app explicitly permits
@@ -320,7 +358,53 @@ def replacement(body,call,plan,tick):
             landing=[origin[i]+launch[i]*(5/power+flight)-(.5*float(plan['gravity'])*flight*flight if i==1 else 0) for i in range(3)]
             if receiver_gap(receiver,landing,flight+float(plan['latency']))>-.25:raise DecodeError('Receiver cannot reach updated throw')
     aim=tuple(origin[i]+launch[i]*(10000/power) for i in range(3))
-    return [(aim_offset,struct.pack('<fff',*aim)),(power_offset,struct.pack('<d',power))],dict(oldPower=old_power,newPower=power,origin=origin,wireOrigin=wire_origin,argumentCount=len(call['args']),aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],routeOffset=offset,instance=call['instance'],clickAt=clicked,coverageMargin=margin,contested=margin is not None and margin<=1.0,coverageUnits='studs')
+    edits=[(aim_offset,struct.pack('<fff',*aim))]
+    if plan.get('autoPower') is True:edits.append((power_offset,struct.pack('<d',power)))
+    return edits,dict(oldPower=old_power,newPower=power,origin=origin,wireOrigin=wire_origin,argumentCount=len(call['args']),aim=aim,flight=flight,spawnOffset=5,target=plan['targetPosition'],movement=plan['targetVelocity'],routeOffset=offset,instance=call['instance'],clickAt=clicked,coverageMargin=margin,contested=margin is not None and margin<=1.0,coverageUnits='studs')
+
+# A changed release origin can invalidate the first native trajectory. Retry
+# only the bounded alternatives already ranked by Smart Fit, each through the
+# exact same contract, click expiry, angle, reach and boundary checks. Unknown
+# arguments, parser failures and stale plans are never candidates for recovery.
+_TRAJECTORY_DECLINES=frozenset((
+    'Receiver outside throw range','Selected angle exceeds available power',
+    'Receiver outside capped automatic throw range','Receiver outside planned Beam range',
+    'No whole-power throw within angle bounds','Throw exceeds angle limit',
+    'Throw below route angle minimum','Placement leaves receiver route',
+    'Catch point exceeds OOB limit','No receiver-reachable catch in bounds',
+    'No clear window at actual throw origin','Receiver cannot reach updated throw'))
+
+def replacement(body,call,plan,tick):
+    started=time.perf_counter()
+    try:return _replacement(body,call,plan,tick)
+    except DecodeError as original:
+        if str(original) not in _TRAJECTORY_DECLINES or plan.get('smartFit') is not True or plan.get('autoPower') is not True:raise
+        ranked=plan.get('rankedThrows')
+        if not isinstance(ranked,list) or not 1<=len(ranked)<=3:raise
+        try:
+            target=vector(plan['targetPosition']);current=vector(plan['fitOffset'])
+        except (DecodeError,KeyError,TypeError,ValueError):raise original
+        attempted=set()
+        for index,alternative in enumerate(ranked):
+            elapsed=(time.perf_counter()-started)*1000
+            if elapsed>=25:break
+            if not isinstance(alternative,dict):continue
+            power,angle,lob=alternative.get('power'),alternative.get('angle'),alternative.get('lob')
+            if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) for v in (power,angle)):continue
+            if not 1<=power<=95 or not -30<=angle<=85 or not isinstance(lob,bool):continue
+            try:offset=vector(alternative['offset'])
+            except (DecodeError,KeyError,TypeError,ValueError):continue
+            identity=(offset,power,angle,lob)
+            if identity in attempted:continue
+            attempted.add(identity);retry=dict(plan)
+            retry.update(targetPosition=[p-c+a for p,c,a in zip(target,current,offset)],fitOffset=list(offset),plannedPower=power,angle=angle,lob=lob)
+            try:
+                proposal=_replacement(body,call,retry,tick+int(math.ceil(elapsed)))
+                if proposal is None:continue
+                if (time.perf_counter()-started)*1000>=25:break
+                edits,detail=proposal;detail.update(alternativeRank=index+1,primaryDecline=str(original));return edits,detail
+            except (DecodeError,KeyError,TypeError,ValueError):continue
+        raise original
 
 class RecordTracker:
     def __init__(self,schema):self.schema=schema;self.streams={}
@@ -365,6 +449,32 @@ class Editor:
     def __init__(self,schema):
         self.schema=schema;self._reset_reader();self.ledger=[];self.claimed=set();self.stats=collections.Counter();self.last=None;self.last_decline=None;self.covered=set()
         self.recent=collections.deque();self.recent_bytes=0;self.parser_failures=collections.Counter();self.last_recovery=-10000;self.recovering=False
+        self.history=collections.deque(maxlen=8);self.decision_sequence=0
+        self.format_verified=False;self.throw_diagnostics=collections.deque(maxlen=8);self.diagnostic_sequence=0;self.diagnostic_seen=collections.deque(maxlen=32)
+    def _trace_throw(self,stream,start,body,plan,tick):
+        clicked=plan.get('clickAt')
+        if plan.get('mode')!='ff3-qb' or isinstance(clicked,bool) or not isinstance(clicked,(int,float)) or not math.isfinite(clicked) or clicked<=0 or not 0<=tick-clicked<=2000:return
+        identity=(clicked,stream,start)
+        if identity in self.diagnostic_seen:return
+        self.diagnostic_seen.append(identity);self.diagnostic_sequence+=1
+        context={k:plan[k] for k in ('environment','plannedPower','head','targetPosition','targetVelocity','angle','gravity','latency','clickAt','issued') if k in plan}
+        entry=dict(sequence=self.diagnostic_sequence,at=tick,stream=stream,offset=start,recordMode=REPLICATION_MODES.get(body[0]) if body else None,recordBytes=len(body),recordHex=body[:4096].hex(),truncated=len(body)>4096,containsClicked=b'Clicked' in body,plan=context)
+        # Preserve a throw-bearing record instead of replacing it with the next
+        # stream of acknowledgements. Other records retain the earliest samples.
+        if len(self.throw_diagnostics)<8:self.throw_diagnostics.append(entry)
+        elif entry['containsClicked']:
+            index=next((i for i,d in enumerate(self.throw_diagnostics) if not d['containsClicked']),0)
+            del self.throw_diagnostics[index];self.throw_diagnostics.append(entry)
+    def _decision(self,outcome,reason,plan,tick,call,power=None,detail=None):
+        # One bounded summary per decision, never a copy of the wire arguments.
+        clicked=plan.get('clickAt',0)
+        if plan.get('mode')!='ff3-qb' or not isinstance(clicked,(int,float)) or isinstance(clicked,bool) or not math.isfinite(clicked) or clicked<=0:return
+        key=(clicked,str(call.get('instance')),outcome,reason)
+        if any(item['_key']==key for item in self.history):return
+        self.decision_sequence+=1
+        self.history.append(dict(_key=key,sequence=self.decision_sequence,at=tick,outcome=outcome,reason=reason,power=power,detail=str(detail)[:160] if detail else None))
+    def decision_history(self):
+        return [{k:v for k,v in item.items() if k!='_key'} for item in self.history]
     def _reset_reader(self):
         self.wires={mode:Wire(self.schema,MAPS[mode]) for mode in set(REPLICATION_MODES.values())}
         self.wire=self.wires['3'];self.profile_wire=self.wires['4'];self.tracker=RecordTracker(self.schema)
@@ -388,7 +498,7 @@ class Editor:
         self.parser_failures.clear();self.last_recovery=tick;self.recovering=not bool(decoded);self.stats['parserRecoveries']+=1
         self.stats['recoveredCalls']+=decoded
     def update_schema(self,schema,tick):
-        self.schema=schema;self._recover(tick);self.stats['schemaRefreshes']+=1
+        self.schema=schema;self.format_verified=False;self._recover(tick);self.stats['schemaRefreshes']+=1
     def _decline(self,error,plan,tick,body,parser=False):
         self.stats['declinedRecords']+=1
         self.last_decline=dict(reason=str(error)[:160],at=tick,clickAt=plan.get('clickAt'),planActive=plan.get('active'),selectionReason=plan.get('selectionReason'),sampleAgeMs=plan.get('sampleAgeMs'),lockedTarget=plan.get('lockedTarget'),selectedTarget=plan.get('selectedTarget'),angle=plan.get('angle'),anglePower=plan.get('anglePower'),plannedPower=plan.get('plannedPower'),input=plan.get('input'),recordMode=REPLICATION_MODES.get(body[0]) if body else None,parserFailure=parser,property=getattr(error,'context',None))
@@ -402,9 +512,11 @@ class Editor:
             except DecodeError:self.stats['trackingFailures']+=1
         recover=False
         for stream,start,body in records:
+            self._trace_throw(stream,start,body,plan,tick)
             if not body or body[0] not in REPLICATION_MODES:continue
             try:calls=self._calls(body)
             except (DecodeError,UnicodeError,KeyError,TypeError,ValueError) as error:
+                self.recovering=True
                 self._decline(error,plan,tick,body,True);self.parser_failures[stream]+=1
                 recover=recover or (self.parser_failures[stream]>=3 and tick-self.last_recovery>=5000)
                 continue
@@ -412,6 +524,9 @@ class Editor:
             for call in calls:
                 self.stats['decodedCalls']+=1
                 if call['method']=='FireServer' and call['args'] and call['args'][0]=='Clicked':self.stats['clickedCalls']+=1
+                try:
+                    if throw_fields(body,call,plan.get('environment')) is not None:self.format_verified=True;self.stats['validatedThrowCalls']+=1
+                except (DecodeError,UnicodeError,KeyError,TypeError,ValueError):pass
                 # Setup/draining still primes dictionaries, but never creates
                 # an edit or consumes a physical click from a previous record.
                 if not allow or self.recovering:continue
@@ -430,7 +545,17 @@ class Editor:
                         planned.append((stream,absolute,value,detail['clickAt']))
                     else:
                         self.ledger.extend(planned);self.claimed.add(detail['clickAt']);self.last=detail;self.stats['modifiedThrows']+=1
-                except (DecodeError,UnicodeError,KeyError,TypeError,ValueError) as error:self._decline(error,plan,tick,body)
+                        self._decision('assisted','Assist applied',plan,tick,call,detail['newPower'],('Validated alternative '+str(detail['alternativeRank'])) if 'alternativeRank' in detail else None)
+                except (DecodeError,UnicodeError,KeyError,TypeError,ValueError) as error:
+                    self._decline(error,plan,tick,body)
+                    reason=str(error)
+                    label=('OOB limit' if 'OOB limit' in reason else 'Arguments changed' if 'arguments changed' in reason else
+                           'Wheel not ready' if reason.startswith('Wheel power') else
+                           'Plan expired' if 'expired' in reason or 'sample age' in reason else
+                           'Assist not ready' if reason.startswith('No active') else
+                           'Ball position changed' if 'origin' in reason.lower() else 'No valid assisted throw')
+                    power=call['args'][3] if len(call['args'])>3 and isinstance(call['args'][3],(int,float)) and not isinstance(call['args'][3],bool) and math.isfinite(call['args'][3]) else None
+                    self._decision('normal',label,plan,tick,call,power,reason)
         if recover:self._recover(tick)
         touched=False;coverage=collections.defaultdict(list);self.covered=set()
         for stream,start,value,clicked in self.ledger:

@@ -73,14 +73,22 @@ def main():
         assert LiveDecoder([]).state('Stopped')['calls']==[]
         found,stats=candidates(0,0);assert not found and stats['bytesRead']==0
         from qb_packet_host import Driver,GAME_FILTER
+        from early_join_listener import JoinBuffer
+        assert JoinBuffer().snapshot(None,set(),0)==[]
         assert Driver().validate(GAME_FILTER)
         print('Host imports and AES runtime validated; no capture or process scan started')
         return
-    parser=argparse.ArgumentParser();parser.add_argument('--session',type=pathlib.Path,required=True);parser.add_argument('--pid',type=int,required=True);parser.add_argument('--parent',type=int,default=0);parser.add_argument('--seconds',type=int,default=60);parser.add_argument('--qb-mode',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--session',type=pathlib.Path,required=True);parser.add_argument('--pid',type=int,required=True);parser.add_argument('--parent',type=int,default=0);parser.add_argument('--seconds',type=int,default=60);parser.add_argument('--qb-mode',action='store_true');parser.add_argument('--join-listener',action='store_true');parser.add_argument('--join-buffer',type=pathlib.Path);args=parser.parse_args()
+    if args.join_listener:
+        if args.qb_mode or args.pid!=0 or args.parent<=0:parser.error('Join listener requires its Vanta parent and no target PID')
+        from early_join_listener import run as listen
+        raise SystemExit(listen(args.session.resolve(),args.parent))
     if not 5<=args.seconds<=90 or args.pid<=0:parser.error('Requires a Roblox PID and 5–90 seconds')
     if args.qb_mode:
-        from qb_packet_host import run as qb_run
-        raise SystemExit(qb_run(args.session.resolve(),args.pid,args.parent,args.seconds if '--seconds' in sys.argv else None))
+        from qb_packet_host import run_recovering as qb_run
+        from early_join_listener import request_seed
+        source=(lambda connection:request_seed(args.join_buffer.resolve(),args.pid,connection)) if args.join_buffer else None
+        raise SystemExit(qb_run(args.session.resolve(),args.pid,args.parent,args.seconds if '--seconds' in sys.argv else None,seed_provider=source))
     raise SystemExit(run(args.session.resolve(),args.pid,args.seconds,args.parent))
 
 if __name__=='__main__':main()

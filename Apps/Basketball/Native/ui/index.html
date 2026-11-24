@@ -546,19 +546,20 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   .ff3-panel .card{border-radius:12px;background:#ffffff03;box-shadow:inset 0 0 0 1px var(--line)}
   .ff3-panel .card.on{background:#ffffff04}.ff3-panel .card .sheen,.ff3-panel .card .state,.ff3-panel .card-meta{display:none}
   .ff3-panel .card-head{height:56px;gap:10px}.ff3-panel .card-icon{width:28px;height:28px;border-radius:8px}
+  .ff3-panel.enter > *{animation:ff3SectionIn .16s ease-out both;animation-delay:0s!important}.ff3-heading.swap{animation:none}@keyframes ff3SectionIn{from{opacity:.8;transform:translateY(3px)}}
   .ff3-panel .card.open .row{animation:none}.ff3-panel .card:hover{box-shadow:inset 0 0 0 1px var(--line-2)}
   .ff3-panel .card-title{font-size:13px}.ff3-panel .card-rows{padding-top:4px}.ff3-panel .row{min-height:46px;gap:16px;grid-template-columns:180px minmax(80px,1fr)104px}
   .ff3-panel .row-wide{grid-template-columns:1fr auto}.ff3-panel .row-keybind{grid-template-columns:1fr auto}
   .ff3-panel .row-label{font-size:12px}.ff3-panel .choice{flex-wrap:wrap}.ff3-panel .choice button{padding:6px 9px;font-size:11px}
   .ff3-panel .settings-advanced{padding:6px 0}.ff3-panel .settings-advanced summary{cursor:pointer;color:var(--muted);font-size:11px;padding:10px 12px}
-  .qb-network{display:flex;align-items:flex-start;gap:10px;padding:11px 12px;border:1px solid var(--line-2);border-radius:10px;background:rgba(var(--accent-rgb),.055);font-size:11px;line-height:1.5;color:var(--muted)}
-  .qb-network[hidden]{display:none}.qb-network::before{content:'';flex:none;width:6px;height:6px;margin-top:6px;border-radius:50%;background:var(--accent)}
-  .qb-network[data-phase="ready"]::before{background:var(--good)}.qb-network.rejoin{border-color:rgba(232,183,104,.3);background:rgba(232,183,104,.055)}.qb-network.rejoin::before{background:#e8b768}
-  .qb-network-copy{flex:1;min-width:0}.qb-network b{display:block;color:var(--text);font-size:12px;font-weight:600}.qb-network button{flex:none;align-self:center;font-size:11px;border:1px solid var(--line-2);padding:5px 8px;border-radius:6px;color:var(--text)}
-  .lg-body>.qb-network{margin-bottom:15px}.main>.qb-network{margin:0 24px 12px}.reconnect-island>.qb-network{margin:10px 0}
-  .ff3-status-bar{display:flex;align-items:center;gap:9px;margin:8px 12px 12px;padding:9px 0;color:var(--muted);font-size:11px;line-height:1.5}
+  .settings-fold{margin:2px 12px 8px;border-top:1px solid var(--line)}.settings-fold>summary{padding:13px 0;color:var(--text-2);font-size:12px;cursor:pointer}.settings-fold[open]>summary{color:var(--accent)}.ff3-panel .settings-fold .row{padding-left:0;padding-right:0}
+  .ff3-status-bar{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:8px 12px 12px;padding:9px 0;color:var(--muted);font-size:11px;line-height:1.5}
   .ff3-status-bar>span{flex:1;min-width:0}.ff3-status-dot{width:6px;height:6px;flex:none;border-radius:50%;background:var(--muted)}.ff3-status-dot.ready{background:var(--good)}
   .ff3-status-bar button{font-size:11px;color:var(--text-2);border:1px solid var(--line-2);border-radius:6px;padding:4px 8px}
+  .ff3-throw-history{flex-basis:100%;border-top:1px solid var(--line-2);padding-top:8px}
+  .ff3-throw-history ol{list-style:none;padding:0;margin:8px 0 0;display:grid;gap:6px;max-height:210px;overflow:auto}
+  .ff3-throw-history li{display:flex;gap:8px;align-items:baseline;padding:6px 8px;border-radius:6px;background:var(--surface-2)}
+  .ff3-throw-history b{font-weight:500;color:var(--text-2);white-space:nowrap}.ff3-throw-history li span{min-width:0;overflow-wrap:anywhere}
   .ff3-check{flex:none;border-radius:99px;padding:4px 9px;font-size:10px;font-weight:700;letter-spacing:.04em;color:var(--muted);background:rgba(151,160,180,.12)}
   .ff3-check.clear{color:var(--good);background:rgba(62,207,142,.12)}.ff3-check.tight{color:#ffbf73;background:rgba(255,191,115,.12)}.ff3-check.intercept{color:#ff7d8f;background:rgba(255,125,143,.12)}
   @media(max-width:780px){.ff3-panel .row{grid-template-columns:130px minmax(60px,1fr)88px;gap:10px}.ff3-panel .row-wide,.ff3-panel .row-keybind{grid-template-columns:1fr auto}.ff3-panel .choice{max-width:285px}}
@@ -1177,7 +1178,6 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     <nav class="lg-steps" id="lgSteps" aria-label="Progress"><div id="lgStepList"></div><span class="lg-bar" id="lgBar"></span></nav>
 
     <div class="lg-body">
-      <div class="qb-network" data-qb-network hidden role="status" aria-live="polite"></div>
       <!-- 01 Account (sign in) -->
       <form class="lg-view" data-view="login" id="fLogin" novalidate>
         <h1 class="lg-h">Welcome back.</h1>
@@ -1333,8 +1333,6 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         <div class="ph-text"><h1 id="pageTitle"></h1><div class="page-sub" id="pageSub"></div></div>
         <div class="active-count surface" id="activeCount"></div>
       </div>
-
-      <div class="qb-network" data-qb-network hidden role="status" aria-live="polite"></div>
       <div class="scroll" id="scroll"><div class="stack" id="stack"></div></div>
 
       <footer class="dock glass">
@@ -1380,7 +1378,6 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
 <section class="reconnect-island" id="reconnectIsland" aria-label="Vanta connection status">
   <div class="rec-head"><span class="rec-logo">V</span><span class="rec-title" id="recTitle">Connection lost</span><span class="rec-state"><i></i><span id="recState">Searching</span></span><button class="rec-close" id="recClose" aria-label="Quit Vanta">×</button></div>
   <p class="rec-reason" id="recReason" aria-live="polite">Looking for a supported game.</p>
-  <div class="qb-network" data-qb-network hidden role="status" aria-live="polite"></div>
   <div class="rec-progress" id="recProgress"><i></i><i></i><i></i><i></i></div>
   <div class="rec-bottom"><span class="rec-step" id="recStep">Checking your connection</span><button class="isl-open" id="recContinue" disabled>Continue</button></div>
 </section>
@@ -1589,7 +1586,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   if(BB)PAGES.settings.tabs[0].features.find(f=>f.id==='theme').rows.push(
     {type:'switch',id:'topmost',label:'Always on top',value:true},
     {type:'switch',id:'capture',label:'Exclude Vanta from captures',value:true});
-  if(BB)PAGES.network={title:'Network',sub:'Inspect remote paths and decoded call logs',group:'system',icon:ICONS.trend,navMeta:'Remote inspector',tabs:[{id:'inspector',label:'Inspector',features:[]}]};
+  // QB transport remains a background service; no Network workspace page.
   const DEFAULTS = clone(PAGES);
   const basketballPages=BB?Object.fromEntries(Object.entries(PAGES).filter(([,p])=>p.group==='workspace')):{};
   const moduleViews={};
@@ -1609,23 +1606,27 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     else PAGES.ff3={title:'Football Fusion 3',sub:'Quarterback, receiving and defense',group:'workspace',icon:ICONS.launch,navMeta:'Football',tabs:[{id:'overview',label:'Quarterback',icon:ICONS.launch,features:[
       {id:'ff3_qb',name:'QB aim',meta:'Receiver lead · aim and power',icon:ICONS.launch,on:false,open:true,rows:[
         {type:'ff3status',id:'status',label:'Live throw plan'},
+        {type:'choice',id:'method',label:'Throw method',value:0,options:[[0,'Camera Aim'],[1,'Packet Aim'],[2,'Visual Aim']],description:'Switching methods turns QB aim off. Enable it again for the selected method.'},
         {type:'choice',id:'preset',label:'Pass library',value:0,options:[[0,'Auto route'],[1,'Bullet'],[2,'Lob'],[3,'Mag'],[4,'Slant'],[5,'Touch']]},
         {type:'switch',id:'autoangle',label:'Automatic angle',description:'Keeps a clear arc steady while power follows the receiver. Searches low-power touch passes when a new arc is needed.',value:true},
-        {type:'slider',id:'angle',label:'Manual angle · R / F',description:'R / F switch to manual angle with calculated power. Z or a pass button restores preset control.',value:35,min:5,max:85,step:1,unit:'°'},
-        {type:'switch',id:'power',label:'Calculate power for the angle',description:'Recomputes continuously, up to 95. R/F automatically enable it.',value:true},
-        {type:'switch',id:'force95',label:'Beam mode · adaptive power',description:'Prefers a high-power direct pass, up to 95. Uses an elevated fit when the direct route cannot clear coverage. Height 0 allows chest-level bullets.',value:false},
+        {type:'slider',id:'angle',label:'Manual angle',description:'Turn off Automatic angle to use this setting. R / F remain your game power controls.',value:35,min:5,max:85,step:1,unit:'°'},
+        {type:'switch',id:'power',label:'Select power on the game wheel',description:'Mouse / UI selects the exact power-wheel button. Packets edits the existing power field using a whole number. R / F are never sent.',value:true},
+        {type:'switch',id:'force95',label:'Beam mode',description:'Calculates a high-power pass. Packet mode sends whole-number power and the calculated destination without moving your cursor. Mouse / UI selects power on the wheel when you click; use third-person with shift-lock off.',value:false},
         {type:'switch',id:'fit',label:'Smart fit',description:'Uses measured catch-part dimensions when available and timed jump/dive reach. Keeps placement within the selected receiver’s observed route and catch reach, rather than assuming a new sideways sprint. Prefers clear placements and keeps the best available assisted throw ready when coverage is contested. Amber means the defense may still reach it; no guaranteed catch.',value:true},
+        {type:'slider',id:'oob',label:'Anti OOB limit',description:'Maximum planned catch-point distance outside the field line. Zero allows no outside distance; increasing this only extends the outside allowance. Receiver reach still applies. Practice ignores this field limit.',value:2,min:0,max:20,step:.5,unit:' st'},
         {type:'slider',id:'height',label:'Catch height adjustment',description:'Raise or lower the preferred catch point in regular and Beam mode. Smart fit can raise it further within the receiver’s estimated reach.',value:0,min:-3,max:8,step:1,unit:' studs'},
         {type:'slider',id:'lead',label:'Lead distance adjustment',description:'Negative pulls the catch point back; positive places it farther ahead. Added to automatic movement lead. Stationary targets use the direction from QB to receiver.',value:0,min:-12,max:12,step:1,unit:' studs'},
+        {type:'slider',id:'movement',label:'Aim movement time',description:'Smooth cursor movement per step. Moving the mouse yourself cancels the assisted throw.',value:70,min:15,max:180,step:5,unit:' ms'},
         {type:'slider',id:'radius',label:'Mouse selection radius',value:20,min:10,max:700,step:10,unit:' px'},
         {type:'slider',id:'dive',label:'Estimated dive reach',description:'Extra reach allowed to other catchers. Conservative estimate, not a measured game limit.',value:12,min:0,max:24,step:1,unit:' studs',advanced:true},
+        {type:'switch',id:'oobVisual',label:'OOB boundary',description:'Draw the complete field boundary in cyan and your selected outside allowance in violet. The shaded strip matches Anti OOB limit, including rounded corners. Visible while QB aim is on, even without a football or selected receiver. Hidden in practice and game menus.',value:true},
         {type:'switch',id:'visuals',label:'Aim beam and ground catch marker',value:true},
         {type:'switch',id:'trails',label:'Live ball trajectories',description:'Tracks visible workspace footballs, including other players’ throws. Full observed flight plus a forecast to the field, with a landing marker and countdown. Clears on catch, rest, or detected landing. Forecasts assume no collision before the field. Works with QB aim off.',value:true},
         {type:'switch',id:'hud',label:'Throw capsule HUD',value:true},
         {type:'switch',id:'candidates',label:'Small defender position markers',value:true},
         {type:'switch',id:'practice',label:'Practice receivers',value:true,advanced:true},
         {type:'choice',id:'arc',label:'Game-power arc',value:0,options:[[0,'Direct'],[1,'Lob']],advanced:true},
-        {type:'moduleinfo',id:'help',label:'Read the field',text:'Enable QB aim once. If asked to rejoin, keep Vanta open; Continue resumes QB aim automatically. Aim near a receiver’s body and click normally once Ready. Green means an estimated opening; amber means contested. Smart fit predicts movement, not a guaranteed catch. Mag is a high touch preset, not a change to catch range.'}
+        {type:'moduleinfo',id:'help',label:'Read the field',text:'Choose Packets or Mouse / UI, then enable QB aim. Packets preserves the origin and both original trailing match arguments, changing only destination and whole-number power. Packet Beam calculates power directly; Mouse / UI uses the game power wheel. Mouse mode uses the power wheel and smooth cursor movement; use third-person with shift-lock off and move the mouse or press Escape to cancel. Switching methods turns QB aim off. With Packets selected, setup listens before gameplay checks finish, including with QB aim off. Green means an estimated opening; amber means contested. Smart fit predicts movement, not a guaranteed catch. Mag is a high touch preset, not a change to catch range.'}
       ]}
     ]},{id:'receiving',label:'Receiving',icon:ICONS.target,features:[
       {id:'ff3_catch',name:'Auto Catch',meta:'Catch inputs timed to the observed pass',icon:ICONS.target,on:false,open:true,rows:[
@@ -1639,12 +1640,18 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         {type:'keybind',id:'input',label:'In-game jump input',keys:['Space'],single:true},
         {type:'moduleinfo',id:'help',label:'High passes',text:'Uses your current jump strength and gravity. Predicts the ball and your jump together; skips a jump when a standing catch arrives sooner. Enable Auto Catch too to time the catch input.'}
       ]},
-      {id:'ff3_mags',name:'Ball Mags',meta:'Ball size · external reach overlay',icon:ICONS.target,on:false,open:true,rows:[
-        {type:'ff3playstatus',id:'status',label:'Applied Mags size'},
-        {type:'slider',id:'studs',label:'Reach size',description:'Full football hitbox size in studs, on the ground and in the air. A verified existing collision group filters player bodies while retaining solid contact with the field and touch with the original catch zones. The visible mesh stays normal-sized. Normal catch input is still required.',value:20,min:1,max:50,step:.5,unit:' st'},
-        {type:'slider',id:'delay',label:'Activation delay',description:'How long a discovered football waits before resizing. Zero applies immediately.',value:0,min:0,max:500,step:10,unit:' ms'},
-        {type:'switch',id:'visual',label:'Reach visual',description:'Show a clean sphere around loose footballs in the air and after landing, with direct tracking and a small size label. Cyan means active, amber means guide only, and mint means measured ball/hand overlap. Overlap does not confirm a catch.',value:true},
-        {type:'moduleinfo',id:'help',label:'Ball Mags',text:'Enlarges loose football hitboxes on the ground and in the air. Uses an existing game collision group that excludes player bodies and permits the original catch zones and other world groups. Ball collision flags and hand sizes stay unchanged. In practice, catch collision groups temporarily adjust and restore with Mags. The visible mesh stays normal-sized. Original ball size and physics group restore on pickup, disable, pause, respawn or shutdown. Enlargement waits if a compatible collision group cannot be verified. Normal catch input is still required.'}
+      {id:'ff3_mags',name:'Ball Mags',meta:'Ball size with teleport +2 studs',icon:ICONS.target,on:false,open:true,rows:[
+        {type:'ff3playstatus',id:'status',label:'Ball size and teleport'},
+        {type:'slider',id:'studs',label:'Ball size',description:'Controls the football hitbox and its teleport range together. Size 20 uses a 20-stud hitbox and a 22-stud teleport sphere; size 50 uses 50 and 52. These sizes are full widths. Teleport follows your right palm continuously. Catching stays manual unless you enable a catch-assistance option.',value:20,min:1,max:50,step:.5,unit:' st'},
+        {type:'switch',id:'visual',label:'Reach visual',description:'Shows the ball-size sphere at the visible football. Teleport always starts at ball size plus 2.',value:true},
+        {type:'section',id:'catching',label:'Catch assistance'},
+        {type:'switch',id:'autoCatch',label:'Auto hands for passes',value:false,description:'Raises the normal catch input before an incoming ball reaches the applied Mags hitbox. Pauses when holding a football.'},
+        {type:'switch',id:'fastPass',label:'Fast-pass assist',value:true,description:'Raises hands earlier for fast incoming balls when automatic hands are enabled.'},
+        {type:'switch',id:'pickup',label:'Floor pickup assist',value:false,description:'Keeps the normal catch input ready when a loose floor ball touches your applied Mags reach. Does not move your character.'},
+        {type:'choice',id:'catchKey',label:'Catch input',value:0,options:[[0,'Left click'],[1,'E'],[2,'Middle mouse']]},
+        {type:'slider',id:'catchLead',label:'Hands lead time',value:250,min:50,max:500,step:10,unit:' ms',description:'How early to prepare the catch input before predicted contact.'},
+        {type:'slider',id:'holdMs',label:'Hold through contact',value:140,min:60,max:300,step:10,unit:' ms',description:'Briefly retains the catch input through contact or a tracking gap. Possession, menus and lost focus release it.'},
+        {type:'moduleinfo',id:'help',label:'Ball Mags',text:'One size controls both features. The football hitbox uses the selected size and teleport uses that size plus 2. Size 20 means size 20 with teleport 22. Teleport runs continuously toward the right palm while a verified loose football is in range. The visible mesh stays normal-sized. The existing collision filter preserves contact with the field and catch zones. Original ball size and collision group restore on pickup, disable, respawn or shutdown. Catch input remains manual unless an explicit catch-assistance option is enabled.'}
       ]}
     ]},{id:'defense',label:'Defense',icon:ICONS.target,features:[
       {id:'ff3_rush',name:'Auto Rush QB',meta:'Pursue the opposing player holding the ball',icon:ICONS.target,on:false,open:true,rows:[
@@ -1655,7 +1662,12 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         {type:'moduleinfo',id:'help',label:'Pursuit',text:'Uses normal movement toward a verified opposing ball carrier with a short movement lead. Stops when they release the ball. Your WASD takes priority. Does not navigate around walls or field obstacles.'}
       ]}
     ]}]};
-    if(next==='ff3')organizeFootballSettings(PAGES.ff3);
+    if(next==='ff3'){
+      const page=PAGES.ff3;page.tabs[0].label='Quarterback';
+      for(const [id,label,icon] of [['movement','Movement',ICONS.launch],['kicking','Kicking',ICONS.target],['match','Match tools',ICONS.grid],['visuals','Visuals',ICONS.eye]])if(!page.tabs.some(t=>t.id===id))page.tabs.push({id,label,icon:icon||ICONS.target,features:[]});
+      for(const definition of message.assistCatalog||[]){const f=JSON.parse(JSON.stringify(definition)),tid=f.section==='quarterback'?'overview':f.section,tab=page.tabs.find(t=>t.id===tid);if(!tab||tab.features.some(x=>x.id===f.id))continue;f.icon=ICONS.target;f.meta='';f.pending=f.id==='ff3_kick'||f.id==='ff3_kickwalk';if(f.pending){f.help='Kicking is deferred until the next live session.';f.rows=[{type:'ff3assiststatus',id:'status',label:'Kicking scheduled for your next session'}];}tab.features.push(f);}
+      organizeFootballSettings(page);
+    }
     const saved=moduleViews[next];state.page=saved?.page||(next==='ff3'?'ff3':'home');
     if(state.page!=='home'&&!PAGES[state.page])state.page='home';
     state.tab={...Object.fromEntries(Object.entries(PAGES).map(([id,p])=>[id,p.tabs[0].id])),...(saved?.tab||{})};
@@ -1667,21 +1679,37 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
 
   function organizeFootballSettings(page){
     for(const tab of page.tabs)for(const f of tab.features){
-      f.help=[f.meta,...f.rows.filter(r=>r.type==='moduleinfo').map(r=>r.text)].filter(Boolean).join('\n\n');
+      f.help=[f.help,f.meta,...f.rows.filter(r=>r.type==='moduleinfo').map(r=>r.text)].filter(Boolean).join('\n\n');
       f.rows=f.rows.filter(r=>r.type!=='moduleinfo');
     }
     const qb=page.tabs[0].features[0],byId=Object.fromEntries(qb.rows.map(r=>[r.id,r]));
     byId.preset.label='Pass mode';byId.preset.description='Auto route, Bullet, Lob, Mag, Slant or Touch. Q locks a receiver; Z cycles pass modes. Mag is a throw preset, separate from receiving Mags.';
-    byId.power.label='Automatic power';byId.force95.label='Beam mode';byId.height.label='Catch height';byId.lead.label='Lead distance';byId.radius.label='Selection radius';
-    byId.radius.description='Mouse distance used to select a receiver, in pixels. Q locks the current receiver.';
+    byId.fit.label='Smart fit';byId.fit.description='Auto route favors the fastest receiver-reachable pass with estimated defender clearance. It adds loft when needed and preserves the other pass styles. Left click locks the displayed power, arc and catch point through release.';byId.force95.label='Beam mode';byId.height.label='Catch height';byId.lead.label='Lead distance';
+    byId.method.label='Aim method';byId.method.description='Camera Aim keeps Smart Fit, the beam and power live. Your real left click starts the throw. Left click locks the displayed power, arc and catch point. Camera correction holds that throw through the animation, then restores your original view after ball release. Visual Aim provides a manual mouse marker using your current power and does not write aim input. Packet preparation runs only with Packet Aim selected. Switching methods turns QB aim off.';byId.preset.label='Pass style';byId.oob.label='Outside-field allowance';byId.oobVisual.label='Show OOB boundary';
     byId.visuals.label='Aim beam';byId.hud.label='Throw HUD';byId.candidates.label='Defender markers';
-    byId.visuals.description='Show the aim beam and catch marker. Green: CLEAR. Amber: TIGHT. Red: INTERCEPT risk. Gray: CHECKING. Anti out of bounds keeps the receiver’s body in the field while allowing reachable sideline catches.';byId.hud.description='Show the throw check before release and a landing countdown for your own verified thrown ball. Other balls are ignored; uncertain tracking shows no countdown.';byId.candidates.description='Show small position markers for nearby defenders.';
-    qb.help+='\n\nQ locks a receiver. Z changes pass type. R / F adjust the manual angle.';
-    const groups=[['Throw',['preset','force95','autoangle','power']],['Placement',['fit','height','lead']],['Controls',['angle','radius']],['Visuals',['visuals','trails','hud','candidates']]];
-    qb.rows=[byId.status,...groups.flatMap(([label,ids])=>[{type:'section',id:'section-'+label.toLowerCase(),label},...ids.map(id=>byId[id])]),...Object.values(byId).filter(r=>r.advanced)];
-    const receiving=page.tabs.find(t=>t.id==='receiving');receiving.features.sort((a,b)=>(a.id==='ff3_mags'?-1:b.id==='ff3_mags'?1:0));
-    for(const tab of page.tabs.slice(1))for(const f of tab.features){const status=f.rows.filter(r=>r.type==='ff3playstatus');f.rows=f.rows.filter(r=>r.type!=='ff3playstatus');if(f.id!=='ff3_catch')f.rows.push(...status);}
-    const mags=receiving.features.find(f=>f.id==='ff3_mags');mags.rows.find(r=>r.id==='studs').label='Reach size';mags.rows.find(r=>r.id==='delay').label='Delay';mags.rows.find(r=>r.id==='visual').label='Reach visual';
+    qb.help='Camera Aim keeps your view still while Smart Fit, the beam and power update. Aim near a receiver, optionally Q-lock it, then left click to throw. Your real click starts the animation; camera correction stays visible and the original view returns after ball release. Visual Aim shows where to put your mouse using the displayed wheel power; you aim and click manually. Z cycles pass styles. Packet Aim uses its separate preparation path. The failed cursor-cache test is no longer available.';
+    const group=(id,label,ids)=>[{type:'section',id:'group-'+id,label},...ids.map(key=>byId[key]).filter(Boolean)];
+    qb.rows=[byId.status,...group('throw','Throwing',['method','preset','force95']),...group('placement','Pass placement',['fit','height','lead']),...group('oob','Anti OOB',['oob']),...group('display','Throw preview',['visuals','hud']),{type:'section',id:'group-receivers',label:'Receiver awareness'},...['receivers','routes','window','race','threats'].map(id=>({type:'switch',id,label:({receivers:'Open receiver markers',routes:'Receiver route projection',window:'Selected contact window',race:'Estimated contact timing',threats:'Defender threat windows'})[id],value:!['routes','window','race'].includes(id),description:({receivers:'Show up to five receivers with measured nearby defender space. Open means current separation, not a guaranteed pass.',routes:'Project half a second of observed receiver motion. Routes can change.',window:'Outline the planned contact area at the selected receiver.',race:'Show the planned ball arrival and estimated defender contact window.',threats:'Mark the defender and flight segment limiting the selected throw.'})[id]}))];
+    page.tabs.find(t=>t.id==='visuals').features.push({id:'ff3_trajectories',name:'Ball trajectories',meta:'Every visible pass · independent of QB aim',icon:ICONS.trend,on:true,open:true,help:byId.trails.description+' Loose ball markers remain after landing until pickup or removal. Mags hitbox sizing is controlled separately in Receiving.',rows:[{type:'trajectorynote',id:'scope'},...['landing','future','highlight'].map(id=>({type:'switch',id,label:({landing:'Landing zones',future:'Ball position in 0.25 seconds',highlight:'Highlight footballs'})[id],value:id!=='future',description:'Read-only forecast from observed ball motion. Collisions can change the flight.'})),{type:'switch',id:'loose',label:'Loose ball markers',value:true,description:'Mark every discovered loose football, including floor balls and new balls whose flight is not confirmed yet. Markers are read-only; enable Mags separately for hitbox size.'}]});
+    const tab=id=>page.tabs.find(t=>t.id===id);
+    const move=(fid,destination)=>{let feature;for(const t of page.tabs){const found=t.features.find(f=>f.id===fid);if(found)feature=found;t.features=t.features.filter(f=>f.id!==fid);}if(feature)tab(destination).features.push(feature);};
+    move('ff3_antijam','defense');move('ff3_antiblock','defense');move('ff3_knee','receiving');move('ff3_pickup','overview');move('ff3_pocket','visuals');move('ff3_intercept','visuals');
+    const world=tab('visuals');world.features.push({id:'ff3_reachvisual',name:'Mags sphere',icon:ICONS.target,on:true,open:false,help:'Draw the actual Mags reach around discovered footballs. Enable Ball Mags in Catching to change reach. Amber indicates an unapplied guide; mint indicates observed overlap.',rows:[]},{id:'ff3_boundary',name:'Field boundary',icon:ICONS.grid,on:true,open:false,help:'Show the measured field edge and the current outside-field allowance. Requires QB aim, and is hidden in practice. Adjust the allowance under Quarterback → Placement.',rows:[]});
+    tab('receiving').label='Catching';tab('match').label='Servers';tab('visuals').label='World';
+    page.tabs.sort((a,b)=>['overview','receiving','defense','movement','kicking','visuals','match'].indexOf(a.id)-['overview','receiving','defense','movement','kicking','visuals','match'].indexOf(b.id));
+    const groupsBySection={
+      overview:[['aim','Throw',['ff3_qb','ff3_pickup'],['status','group-throw','method','preset','force95']],['placement','Placement',['ff3_qb'],['status','group-placement','fit','height','lead','group-oob','oob']],['display','Visuals',['ff3_qb'],['status','group-display','visuals','hud','group-receivers','receivers','routes','window','race','threats']]],
+      receiving:[['mags','Mags',['ff3_mags']],['guide','Catch inputs',['ff3_catch','ff3_jump','ff3_knee']],['dive','Dive & pull',['ff3_dive','ff3_diveboost','ff3_pull']]],
+      defense:[['coverage','Coverage',['ff3_rush','ff3_guard']],['actions','Actions & reach',['ff3_swat','ff3_tackle','ff3_block','ff3_swatreach']],['contact','Contact',['ff3_antijam','ff3_antiblock']]],
+      movement:[['jump','Jump & boost',['ff3_angle','ff3_customjump','ff3_boost','ff3_boostextra']],['player','Player',['ff3_bighead','ff3_freeze','ff3_quicktp','ff3_getup']]],
+      kicking:[['aim','Kicking',['ff3_kick','ff3_kickwalk']]],
+      match:[['servers','Servers',['ff3_travel','ff3_autohop']],['roles','Team',['ff3_teamchange','ff3_captain']]],
+      visuals:[['flight','Ball flight',['ff3_trajectories']],['guides','Player guides',['ff3_intercept','ff3_pocket']],['field','Field & reach',['ff3_boundary','ff3_reachvisual']]]
+    };
+    for(const t of page.tabs){t.subtabs=(groupsBySection[t.id]||[]).map(([id,label,features,rows])=>({id,label,features,rows}));for(const f of t.features)f.open=['ff3_qb','ff3_mags','ff3_travel','ff3_trajectories'].includes(f.id);}
+    const receiving=tab('receiving');receiving.features.sort((a,b)=>(a.id==='ff3_mags'?-1:b.id==='ff3_mags'?1:0));
+    for(const t of page.tabs.slice(1))for(const f of t.features){const status=f.rows.filter(r=>r.type==='ff3playstatus');f.rows=f.rows.filter(r=>r.type!=='ff3playstatus');if(f.id!=='ff3_catch')f.rows.push(...status);}
+    const mags=receiving.features.find(f=>f.id==='ff3_mags');mags.rows.find(r=>r.id==='studs').label='Ball size';mags.rows=mags.rows.filter(r=>r.id!=='visual');
     const catcher=receiving.features.find(f=>f.id==='ff3_catch');catcher.rows.find(r=>r.id==='refreshMs').advanced=true;
     const help={
       'ff3_qb.practice':'Include practice receivers when choosing a target.',
@@ -1922,22 +1950,25 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       <span class="nav-text"><b>${esc(m.title)}</b><span data-meta="${id}">${esc(m.navMeta || '')}</span></span>${extra}</button>`;
   }
   function renderNav() {
-    let html = `<div class="nav-sec">Overview</div>${navItem('home', HOME)}<div class="nav-sec">Modules</div>`;
-    for (const [id, p] of workspace()) html += navItem(id, p, `<span class="on-dot" data-ondot="${id}"></span>`);
+    let html = `<div class="nav-sec">Overview</div>${navItem('home', HOME)}<div class="nav-sec">${BBS.moduleId==='ff3'?'Football Fusion 3':'Modules'}</div>`;
+    for(const [id,p] of workspace()){
+      if(id==='ff3')for(const tab of p.tabs)html+=`<button class="nav-item nav-tip" data-nav="ff3" data-tab="${tab.id}" data-tip="${esc(tab.label)}"><span class="nav-ico">${tab.icon||p.icon}</span><span class="nav-text"><b>${esc(tab.label)}</b><span data-meta="ff3-${tab.id}"></span></span><span class="on-dot" data-ondot="ff3-${tab.id}"></span></button>`;
+      else html+=navItem(id,p,`<span class="on-dot" data-ondot="${id}"></span>`);
+    }
     html += `<div class="nav-sec">System</div>`;
     for (const [id, p] of Object.entries(PAGES).filter(([, p]) => p.group === 'system')) html += navItem(id, p);
     $('#navList').innerHTML = html;
   }
   let lastNav = null;
   function updateNav() {
-    $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.nav === state.page));
-    for (const [id, p] of workspace()) {
+    $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.nav === state.page&&(!b.dataset.tab||b.dataset.tab===state.tab[state.page])));
+    for (const [id,p] of workspace()) {
+      if(id==='ff3'){for(const tab of p.tabs){const features=tab.features.filter(f=>!f.fixed&&!f.pending),on=features.filter(f=>f.on).length;const label=$(`[data-meta="ff3-${tab.id}"]`),dot=$(`[data-ondot="ff3-${tab.id}"]`);if(label)label.textContent=features.length?`${on} of ${features.length} on`:'Next session';if(dot)dot.classList.toggle('show',on>0);}continue;}
       const feats = p.tabs.flatMap(t => t.features).filter(f => !f.fixed), on = feats.filter(f => f.on).length;
       $(`[data-meta="${id}"]`).textContent = feats.length ? `${on} of ${feats.length} on` : p.navMeta || `${p.count ?? 0} feature${p.count === 1 ? '' : 's'}`;
       $(`[data-ondot="${id}"]`).classList.toggle('show', on > 0);
     }
-    placeIndicator(lastNav !== null && lastNav !== state.page);
-    lastNav = state.page;
+    const navKey=state.page==='ff3'?'ff3:'+state.tab.ff3:state.page;placeIndicator(lastNav!==null&&lastNav!==navKey);lastNav=navKey;
   }
   function placeIndicator(animate) {
     const ind = $('#navInd'), nav = $('#nav'), el = $('.nav-item.active');
@@ -1997,12 +2028,12 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
 
   // ================= Page rendering =================
   function renderPage({ enter = true } = {}) {
-    const m = meta(state.page);
+    const base=meta(state.page),selected=state.page==='ff3'?PAGES.ff3.tabs.find(t=>t.id===state.tab.ff3):null,m=selected?{...base,title:selected.label,sub:'Football Fusion 3',icon:selected.icon||base.icon}:base;
     if(BB){$('#resetBtn').hidden=state.page==='network'||BBS.moduleId==='ff3';$('#profilesBtn').hidden=state.page==='network'||BBS.moduleId==='ff3';}
     $('#pageTitle').textContent = m.title;
     $('#pageSub').textContent = m.sub;
     $('#pageIcon').innerHTML = m.icon;
-    const head = $('#pageHead'); head.classList.remove('swap'); void head.offsetWidth; head.classList.add('swap');
+    const head = $('#pageHead');head.classList.toggle('ff3-heading',state.page==='ff3'); head.classList.remove('swap'); void head.offsetWidth; head.classList.add('swap');
     $('#crumb').innerHTML = `<span>${esc(m.title)}</span>`;
     document.title = `Vanta — ${m.title}`;
     updateNav(); renderTabs(); renderStack({ enter });
@@ -2010,8 +2041,17 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     if(state.page==='network')hostSend('networkInspector',{action:'get'});
   }
 
+  const footballSubtabs={};
+  function footballSubtab(tab){if(!tab?.subtabs?.length)return null;return tab.subtabs.find(s=>s.id===footballSubtabs[tab.id])||tab.subtabs[0];}
+  function footballVisible(tab){const sub=footballSubtab(tab);return !sub?tab.features:tab.features.filter(f=>sub.features.includes(f.id)).sort((a,b)=>sub.features.indexOf(a.id)-sub.features.indexOf(b.id)).map(f=>sub.rows&&f.id==='ff3_qb'?{...f,rows:f.rows.filter(r=>sub.rows.includes(r.id))}:f);}
+  function selectFootballFeature(tid,fid,rid){const tab=PAGES.ff3?.tabs.find(t=>t.id===tid),sub=tab?.subtabs?.find(s=>s.features.includes(fid)&&(!rid||fid!=='ff3_qb'||!s.rows||s.rows.includes(rid)));if(sub)footballSubtabs[tid]=sub.id;}
+
   function renderTabs() {
     const tabs = $('#tabs'), p = PAGES[state.page];
+    if(state.page==='ff3'){
+      const tab=p.tabs.find(t=>t.id===state.tab.ff3),sub=footballSubtab(tab);tabs.hidden=!sub||tab.subtabs.length<2;
+      tabs.innerHTML=tabs.hidden?'':'<span class="tab-pill pill"></span>'+tab.subtabs.map(t=>`<button class="tab${t.id===sub.id?' active':''}" role="tab" aria-selected="${t.id===sub.id}" data-subtab="${t.id}">${esc(t.label)}</button>`).join('');requestAnimationFrame(()=>moveTabPill(false));return;
+    }
     tabs.hidden = !p || p.tabs.length < 2;
     if (tabs.hidden) return;
     tabs.innerHTML = '<span class="tab-pill pill"></span>' + p.tabs.map(t =>
@@ -2033,8 +2073,9 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     if(state.page==='network'){stack.innerHTML=networkHTML();renderNetworkPanels();renderCount();return;}
     if (state.page === 'home') { stack.innerHTML = homeHTML(); initSpark(); renderCount(); return; }
     const tab = PAGES[state.page].tabs.find(t => t.id === state.tab[state.page]);
-    stack.innerHTML = (FB && PAGES[state.page].group === 'workspace' ? fbNoteHTML() : '') + (tab.features.length
-      ? tab.features.map((f, i) => cardHTML(f, i + 1)).join('')
+    const visible=state.page==='ff3'?footballVisible(tab):tab.features;
+    stack.innerHTML = (FB && PAGES[state.page].group === 'workspace' ? fbNoteHTML() : '') + (visible.length
+      ? visible.map((f, i) => cardHTML(f, i + 1)).join('')
       : emptyHTML(PAGES[state.page], tab));
     $$('.slider', stack).forEach(el => paintSlider(el, { instant: true }));
     renderCount();
@@ -2051,7 +2092,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   }
 
   const switchHTML = attrs => `<button class="switch" role="switch" ${attrs}><span class="knob"></span></button>`;
-  const fswitch = f => switchHTML(`aria-checked="${!!f.on}" aria-label="${esc(f.name)}" data-fsw="${f.id}"`);
+  const fswitch = f => switchHTML(`${f.pending?'disabled ':''}aria-checked="${!!f.on}" aria-label="${esc(f.name)}" data-fsw="${f.id}"`);
 
   function cardHTML(f, i) {
     return `
@@ -2065,10 +2106,24 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
         <button class="chev" data-act="expand" aria-label="Expand ${esc(f.name)}" aria-expanded="${!!f.open}">${ICONS.chev}</button>
         ${f.fixed ? '' : fswitch(f)}
       </div>
-      <div class="card-body"><div class="inner"><div class="card-rows">${f.rows.filter(r=>!r.advanced).map((r,j)=>rowHTML(f,r,j)).join('')}${f.rows.some(r=>r.advanced)?`<details class="settings-advanced"><summary>Advanced controls</summary>${f.rows.filter(r=>r.advanced).map((r,j)=>rowHTML(f,r,j)).join('')}</details>`:''}</div></div></div>
+      <div class="card-body"><div class="inner"><div class="card-rows">${cardRowsHTML(f)}</div></div></div>
     </section>`;
   }
 
+  function cardRowsHTML(f){
+    if(f.id!=='ff3_mags')return f.rows.map((r,j)=>rowHTML(f,r,j)).join('');
+    const timing=new Set(['catchKey','catchLead','holdMs']),rows=f.rows.filter(r=>!timing.has(r.id)),index=rows.findIndex(r=>r.type==='ff3playstatus');
+    const folded='<details class="settings-fold"><summary>Catch timing</summary>'+f.rows.filter(r=>timing.has(r.id)).map((r,j)=>rowHTML(f,r,j)).join('')+'</details>';
+    return rows.map((r,j)=>(j===index?folded:'')+rowHTML(f,r,j)).join('')+(index<0?folded:'');
+  }
+  function focusFootballCard(f){
+    const located=locate(f.id),tab=PAGES.ff3?.tabs.find(t=>t.id===located?.tid);if(!tab)return;
+    for(const other of tab.features)if(other.id!==f.id&&!other.fixed)other.open=false;
+    f.open=true;for(const node of $$('.card[data-feature]')){const item=find(node.dataset.feature).f;if(item){node.classList.toggle('open',!!item.open);$('.chev',node)?.setAttribute('aria-expanded',!!item.open);}}
+  }
+  function openFootballPageDetails(){
+    if(state.page!=='ff3')return;const tab=PAGES.ff3?.tabs.find(t=>t.id===state.tab.ff3),visible=footballVisible(tab).filter(f=>f.rows.length&&!f.pending);if(visible.length&&!visible.some(f=>find(f.id).f.open))focusFootballCard(find(visible[0].id).f);
+  }
   function settingHelp(text,label){return text?`<button type="button" class="setting-help" data-help data-tip="${esc(text)}" aria-label="Info: ${esc(label)}">?</button>`:'';}
   const settingTip={node:null,target:null,timer:0,hideTimer:0};
   function hideSettingTip(){
@@ -2101,10 +2156,14 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
 
   function rowHTML(f, r, i) {
     const key = `${f.id}.${r.id}`;
-    const open = (cls = '') => `<div class="row ${cls}" data-row="${key}" style="--i:${i}"><span class="row-label"><span>${esc(r.label)}</span>${settingHelp(r.description||r.hint||'',r.label)}</span>`;
-    if(r.type==='section')return `<h3 class="settings-section">${esc(r.label)}</h3>`;
+    const rules=r.showWhen?(r.showWhen.all||[r.showWhen]):[];const condition=rules.length?` data-show-all="${esc(JSON.stringify(rules.map(x=>({key:f.id+'.'+x.row,value:x.value}))))}"${rules.every(x=>f.rows.find(row=>row.id===x.row)?.value===x.value)?'':' hidden'}`:'';
+    const open = (cls = '') => `<div class="row ${cls}" data-row="${key}"${condition} style="--i:${i}"><span class="row-label"><span>${esc(r.label)}</span>${settingHelp(r.description||r.hint||'',r.label)}</span>`;
+    if(r.type==='section')return `<h3 class="settings-section" data-row="${key}"${condition}>${esc(r.label)}</h3>`;
     if(r.type==='moduleinfo')return `${open('row-wide')}${settingHelp(r.text,r.label)}</div>`;
     if(r.type==='ff3status')return `<div class="ff3-status-bar" data-ff3-summary role="status">${ff3Summary()}</div>`;
+    if(r.type==='trajectorynote')return `<div class="ff3-status-bar">Air trajectories · persistent loose-ball markers</div>`;
+    if(r.type==='ff3assiststatus')return `<div class="ff3-status-bar" data-row="${key}" role="status"><span data-ff3-assist-status="${f.id}">${esc(f.pending?'Kicking scheduled for your next session':ff3Live.assistStatuses?.[f.id]||'Off')}</span></div>`;
+    if(r.type==='assistaction')return `${open()}<button class="mini-btn" data-assist-action="${r.id}" ${f.fixed||f.on?"":"disabled"}>${r.id==="hop"?"Find server":"Rejoin"}</button></div>`;
     if(r.type==='ff3playstatus')return `<div class="ff3-status-bar" data-row="${key}" role="status"><span data-ff3-play-status>${esc(ff3Live.playStatus||'Receiving and defense assists off')}</span></div>`;
 
     if (r.type === 'slider') return `${open()}
@@ -2303,7 +2362,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
 
   function renderCount() {
     const el = $('#activeCount');
-    const all = state.page === 'home' ? [] : PAGES[state.page].tabs.flatMap(t => t.features).filter(f => !f.fixed);
+    const all=state.page==='home'?[]:(state.page==='ff3'?PAGES.ff3.tabs.find(t=>t.id===state.tab.ff3).features:PAGES[state.page].tabs.flatMap(t=>t.features)).filter(f=>!f.fixed&&!f.pending);
     const on = all.filter(f => f.on).length;
     el.style.opacity = all.length ? 1 : 0;
     const bars = $$('.bars i', el);
@@ -2563,7 +2622,9 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
 
   // ================= Sync every view from data =================
   function syncDom(before = {}) {
+    $$('[data-show-all]').forEach(row=>{const hidden=!JSON.parse(row.dataset.showAll).every(x=>find(x.key).r?.value===x.value),wasHidden=row.hidden;if(hidden&&row.contains(document.activeElement))document.activeElement.blur();row.hidden=hidden;if(wasHidden&&!hidden&&!matchMedia('(prefers-reduced-motion: reduce)').matches)row.animate([{opacity:0,transform:'translateY(-5px)'},{opacity:1,transform:'none'}],{duration:160,easing:'ease-out'});});
     $$('[data-fsw]').forEach(s => s.setAttribute('aria-checked', !!find(s.dataset.fsw).f.on));
+    $$('[data-assist-action]').forEach(b=>{const f=find(b.closest('[data-feature]').dataset.feature).f;b.disabled=!f.fixed&&!f.on;});
     $$('.card[data-feature]').forEach(c => { const { f } = find(c.dataset.feature); c.classList.toggle('on', !!f.on && !f.fixed); });
     $$('[data-on-count]').forEach(n => n.textContent = `${allFeatures().filter(x => x.f.on).length} on`);
     $$('.slider').forEach(el => {
@@ -2776,6 +2837,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   const paletteOpen = () => $('#palette').classList.contains('show');
   function jumpTo(pid, tid, fid, rid) {
     if (tid) state.tab[pid] = tid;
+    if(pid==='ff3'&&fid)selectFootballFeature(tid,fid,rid);
     if (fid) find(fid).f.open = true;
     const same = state.page === pid;
     state.page = pid; renderPage({ enter: !same });
@@ -2795,7 +2857,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
 
   // ================= Clicks =================
   function toggleFeature(fid) {
-    const { f } = find(fid); f.on = !f.on;
+    const { f } = find(fid); f.on = !f.on;if(BBS.moduleId==='ff3'&&f.on)focusFootballCard(f);
     syncDom(); changed(); log(`${f.name} turned ${f.on ? 'on' : 'off'}`, ICONS.power);
     hostSend('feature', { feature: fid, on: f.on });
   }
@@ -2805,6 +2867,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     const pi = t.closest('.pal-item'); if (pi) { const i = pal.items[+pi.dataset.n]; closePalette(); return jumpTo(i.pid, i.tid, i.fid, i.rid); }
     if (t.closest('[data-restore]')) return restore();
 
+    const subtab=t.closest('[data-subtab]');if(subtab){stopListening();closeMenu();footballSubtabs[state.tab.ff3]=subtab.dataset.subtab;openFootballPageDetails();renderTabs();renderStack({enter:false});syncDom();$('#scroll').scrollTop=0;return;}
     const fsw = t.closest('[data-fsw]'); if (fsw) return toggleFeature(fsw.dataset.fsw);
 
     // football: game actions / modes, click-to-run on the live field
@@ -2827,8 +2890,9 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       return;
     }
 
+    const assistAction=t.closest('[data-assist-action]');if(assistAction){hostSend('assistAction',{action:assistAction.dataset.assistAction});return;}
     const nav = t.closest('[data-nav]');
-    if (nav) { if (nav.dataset.nav !== state.page) { state.page = nav.dataset.nav; renderPage(); } return; }
+    if(nav){if(nav.dataset.nav!==state.page||nav.dataset.tab&&nav.dataset.tab!==state.tab.ff3){state.page=nav.dataset.nav;if(nav.dataset.tab)state.tab.ff3=nav.dataset.tab;openFootballPageDetails();renderPage();}return;}
     const jump = t.closest('[data-jump]'); if (jump && !t.closest('.switch')) { const l = locate(jump.dataset.jump); return jumpTo(l.pid, l.tid, jump.dataset.jump); }
     const jr = t.closest('[data-jumprow]');
     if (jr) { const [fid, rid] = jr.dataset.jumprow.split('.'), l = locate(fid); return jumpTo(l.pid, l.tid, fid, rid); }
@@ -2874,7 +2938,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     const ex = t.closest('[data-act="expand"]');
     if (ex) {
       const card = ex.closest('.card'), { f } = find(card.dataset.feature);
-      f.open = !card.classList.contains('open');
+      f.open = !card.classList.contains('open');if(BBS.moduleId==='ff3'&&f.open)focusFootballCard(f);
       card.classList.toggle('open', f.open); $('.chev', card).setAttribute('aria-expanded', f.open);
       return;
     }
@@ -3033,26 +3097,54 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
     hostSend('drag');
   });
   // Messages from the C++ host
-  function renderQbNetworking(){
-    const n=qbNetworking,visible=BB&&n.phase!=='waiting'&&(BBS.detectedId==='ff3'||BBS.moduleId==='ff3');
-    const title=n.requiresRejoin?'Rejoin without holding a football':n.ready?'Networking ready':n.retryable?'Networking needs attention':'Preparing networking';
-    const detail=n.requiresRejoin?'Keep Vanta open while you rejoin FF3. Setup will continue automatically.':n.ready?(n.editing?'Ready for QBA.':'QBA is off. Your connection is prepared.'):(n.detail||'Preparing the current game connection.');
-    const html=`<span class="qb-network-copy"><b>${esc(title)}</b><span>${esc(detail)}</span></span>${n.retryable?'<button type="button" data-ff3-retry>Retry setup</button>':''}`;
-    $$('[data-qb-network]').forEach(el=>{el.hidden=!visible;el.classList.toggle('rejoin',!!n.requiresRejoin);el.dataset.phase=n.ready?'ready':n.phase;if(el.innerHTML!==html)el.innerHTML=html;});
+  function refreshQbStatus(){
+    const html=ff3Summary();
+    $$('[data-ff3-summary]').forEach(el=>{if(el.innerHTML!==html)el.innerHTML=html;});
+  }
+  function ff3UsesPackets(){return (find('ff3_qb.method')?.r?.value??ff3Live.modules?.ff3_qb?.rows?.method)===1;}
+  function ff3NetworkProblem(){
+    if(!ff3UsesPackets())return null;
+    const n=ff3Live.networking||qbNetworking;
+    if(n.requiresRejoin)return {text:'Rejoin without holding a football',retryable:!!n.retryable};
+    if(n.phase==='recovering'||n.phase==='update-required')return {text:n.detail||'Recovering the current connection automatically',retryable:false};
+    if(n.retryable)return {text:n.detail||'Networking unavailable. Retry setup.',retryable:true};
+    return null;
+  }
+  let ff3HistoryOpen=false;
+  function ff3HistoryItems(){
+    const packet=ff3UsesPackets();
+    const local=Array.isArray(ff3Live.throwHistory)?ff3Live.throwHistory:[];
+    const remote=packet&&Array.isArray(ff3Live.networking?.history)?ff3Live.networking.history:[];
+    return [...local,...remote].filter(x=>x&&['assisted','normal','sent','cancelled'].includes(x.outcome)).sort((a,b)=>(Number(a.at)||0)-(Number(b.at)||0)).slice(-8).reverse();
+  }
+  function ff3OutcomeLabel(item){return {assisted:'Assisted throw',normal:'Normal throw',sent:'Throw input sent',cancelled:'Assist cancelled'}[item.outcome]||'Throw';}
+  function ff3DecisionText(item){
+    const power=Number.isInteger(item.power)&&item.power>=1&&item.power<=95?` · power ${item.power}`:'';
+    return `${ff3OutcomeLabel(item)}${item.outcome==='normal'||item.outcome==='cancelled'?` · ${item.reason||'Assist unavailable'}`:power}`;
   }
   function ff3Summary(){
     const check=ff3Live.ready?ff3Live.check:null;
-    return `<i class="ff3-status-dot ${ff3Live.ready?'ready':''}" aria-hidden="true"></i><span data-ff3-status>${esc(ff3StatusText())}</span>${check?`<b class="ff3-check ${['CLEAR','TIGHT','INTERCEPT'].includes(check)?check.toLowerCase():''}" data-ff3-check>${esc(check)}</b>`:''}${ff3Live.setupFailed?'<button data-ff3-retry>Retry setup</button>':''}`;
+    const history=ff3HistoryItems();
+    const rows=history.map(item=>`<li title="${esc(item.detail||item.reason||'')}"><b>${esc(ff3OutcomeLabel(item))}</b><span>${esc(item.reason)}${Number.isInteger(item.power)&&item.power>=1&&item.power<=95?` · power ${item.power}`:''}${item.detail&&item.outcome==='normal'?` · ${esc(item.detail)}`:''}</span></li>`).join('');
+    return `<i class="ff3-status-dot ${ff3Live.ready?'ready':''}" aria-hidden="true"></i><span data-ff3-status>${esc(ff3StatusText())}</span>${check?`<b class="ff3-check ${['CLEAR','TIGHT','INTERCEPT'].includes(check)?check.toLowerCase():''}" data-ff3-check>${esc(check)}</b>`:''}${ff3UsesPackets()&&(ff3Live.setupFailed||ff3NetworkProblem()?.retryable)?'<button data-ff3-retry>Retry setup</button>':''}${history.length?`<div class="ff3-throw-history"><button type="button" data-ff3-history-toggle aria-expanded="${ff3HistoryOpen}">${ff3HistoryOpen?'Hide':'Recent'} throws · ${history.length}</button>${ff3HistoryOpen?`<ol aria-label="Recent throws">${rows}</ol>`:''}</div>`:''}`;
   }
   document.addEventListener('click',e=>{if(e.target.closest('[data-ff3-retry]'))hostSend('qbRetry');});
-  function ff3StatusText(){return ff3Live.setup&&!ff3Live.transportReady?ff3Live.setup:(ff3Live.reason||'QB aim off');}
+  document.addEventListener('click',e=>{if(e.target.closest('[data-ff3-history-toggle]')){ff3HistoryOpen=!ff3HistoryOpen;$$('[data-ff3-summary]').forEach(n=>n.innerHTML=ff3Summary());}});
+  function ff3StatusText(){
+    const problem=ff3NetworkProblem();if(problem)return problem.text;
+    if((find('ff3_qb.method')?.r?.value)===2)return ff3Live.ready?'Visual Aim: move your mouse to the aim marker':(ff3Live.reason||'Visual Aim: choose a receiver');
+    if(ff3UsesPackets()&&ff3Live.setup&&!ff3Live.transportReady)return ff3Live.setup;
+    const latest=ff3HistoryItems()[0];
+    if(latest&&Number.isFinite(latest.ageMs)&&latest.ageMs>=0&&latest.ageMs<5000)return `Last throw: ${ff3DecisionText(latest)}`;
+    return ff3Live.lastAction?.startsWith('Throw cancelled')?ff3Live.lastAction:(ff3Live.reason||'QB aim off');
+  }
   function onHostMessage(m) {
     if (!m || typeof m !== 'object') return;
-    if(BB&&m.type==='qbNetworking'){qbNetworking=m;renderQbNetworking();return;}
+    if(BB&&m.type==='qbNetworking'){qbNetworking=m;ff3Live.networking=m;refreshQbStatus();return;}
     if(BB&&m.type==='networkInspector'){applyNetworkReport(m);return;}
     if(m.type==='closeRequested'){requestQuit();return;}
     if(BB&&m.type==='gameModule'){openGameModule(m);return;}
-    if(BB&&m.type==='ff3Live'){if(window.__VANTA_HOST__?.testMode&&ff3PreviewTest)return;if(BBS.moduleId==='ff3'){ff3Live=m;if(m.modules)applySnapshot(m.modules,true);syncDom();$$('[data-ff3-summary]').forEach(n=>n.innerHTML=ff3Summary());$$('[data-ff3-status]').forEach(n=>n.textContent=ff3StatusText());$$('[data-ff3-play-status]').forEach(n=>n.textContent=m.playStatus||'Receiving and defense assists off');$$('[data-bb-reason]').forEach(n=>n.textContent=m.reason);}return;}
+    if(BB&&m.type==='ff3Live'){if(window.__VANTA_HOST__?.testMode&&ff3PreviewTest)return;if(BBS.moduleId==='ff3'){ff3Live=m;if(m.modules)applySnapshot(m.modules,true);syncDom();$$('[data-ff3-summary]').forEach(n=>n.innerHTML=ff3Summary());$$('[data-ff3-status]').forEach(n=>n.textContent=ff3StatusText());$$('[data-ff3-play-status]').forEach(n=>n.textContent=m.playStatus||'Receiving and defense assists off');$$('[data-ff3-assist-status]').forEach(n=>{const f=find(n.dataset.ff3AssistStatus).f;n.textContent=f.pending?'Kicking scheduled for your next session':m.assistStatuses?.[f.id]||'Off';});$$('[data-bb-reason]').forEach(n=>n.textContent=m.reason);}return;}
     if(BB&&m.type==='basketballConnection'){
       if(BBS.detectedId!==(m.moduleId||'')){BBS.sequence={stage:0,at:performance.now()};BBS.noticeSequence={stage:0,at:performance.now()};}
       BBS.detectedId=m.moduleId||'';BBS.gameName=m.gameName||'Supported game';
@@ -3062,7 +3154,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       $$('[data-bb-title]').forEach(n=>n.textContent=BBS.ready?'Connected to '+BBS.gameName:'Waiting for a supported game');
       $$('[data-rbx]').forEach(n=>{n.textContent=BBS.ready?'Connected to '+BBS.gameName:'Waiting for game';n.title=m.detail;});
       if(!BBS.ready){hostPing=false;$$('[data-ping]').forEach(n=>n.textContent='—');}
-      renderBasketballConnection();renderReconnectNotice();renderQbNetworking();
+      renderBasketballConnection();renderReconnectNotice();refreshQbStatus();
       if(BBS.everOpened&&!BBS.workspaceOpen&&!BBS.signingOut&&!document.body.classList.contains('booting'))reconnectBasketball();
       return;
     }
@@ -3586,7 +3678,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
   // workers and uses isolated browser storage; the ordinary message bridge is real.
   if(HINFO?.testMode)(async()=>{
     const checks=[];const delay=ms=>new Promise(r=>setTimeout(r,ms));
-    const check=(ok,name)=>{if(!ok)throw Error(name);checks.push(name);};
+    const check=(ok,name)=>{if(!ok)throw Error(name);checks.push(name);if(checks.length%10===0)hostSend('testProgress',{count:checks.length,last:name});};
     const until=async(fn)=>{for(let i=0;i<300;i++){if(fn())return;await delay(50);}throw Error('Timed out waiting for UI');};
     const native=()=>hostAsk('testState');
     try{
@@ -3630,25 +3722,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       check((await native()).authenticated,'Local 1/1 login opens workspace');
       check(!(await native()).inputs,'Test mode has no input hooks or unlocked engine');
       check((await hostAsk('testCapture',{name:'home'})).ok,'Home captured');
-      $('[data-nav="network"]').click();await delay(250);
-      check($('#stack').textContent.includes('Live call decoder unavailable'),'Inspector states live decoder unavailable');
-      check($('#stack').textContent.includes('Capture stopped'),'Inspector does not auto-start capture');
-      onHostMessage({type:'networkInspector',catalog:[{id:'fixture',path:'Workspace.Football.RemoteEvent',class:'RemoteEvent'}],calls:[{path:'Workspace.Football.RemoteEvent',method:'FireServer',timestamp:'Synthetic fixture',args:['Clicked',{x:1,y:2,z:3},95],source:'Imported log'},{path:'Workspace.<img src=x onerror=alert(1)>.RemoteEvent',method:'OnClientEvent',timestamp:'Synthetic fixture',args:[false,'<script>'],source:'Imported log'}],status:'Synthetic catalog fixture',decoder:'Live call decoder unavailable',capture:'Stopped'});
-      check($$('[data-net-call]').length===2,'Imported calls render without invented live data');
-      $('[data-net-call="0"]').click();
-      check($('.net-args').textContent.includes('Clicked')&&$('#netDetail').textContent.includes('Imported log'),'Selected arguments identify imported source');
-      check(!$('#netTree img')&&!$('#netDetail script'),'Inspector escapes untrusted paths and arguments');
-      const methodBox=$('[data-net-method="OnClientEvent"]');methodBox.checked=false;methodBox.dispatchEvent(new Event('change',{bubbles:true}));
-      check($$('[data-net-call]').length===1,'Method filter removes incoming records');
-      $('[data-net="ignore"]').click();check($$('[data-net-call]').length===0,'Ignore remote hides matching calls');
-      $('[data-net="unignore"]').click();check($$('[data-net-call]').length===1,'Ignored remotes can be restored');
-      const capturedNetwork=await hostAsk('testNetworkLog',{});
-      if(capturedNetwork.ok){
-        onHostMessage(capturedNetwork.data);const search=$('#netSearch');search.value='Clicked';search.dispatchEvent(new Event('input',{bubbles:true}));
-        check($$('[data-net-call]').length>0,'Captured throw survives decoding, native validation and UI search');
-        $('[data-net-call]').click();check($('.net-args').textContent.includes('Clicked')&&$('#netDetail').textContent.includes('Captured traffic'),'Captured throw arguments display with their recorded source');
-      }
-      await delay(750);check((await hostAsk('testCapture',{name:'network'})).ok,'Network inspector captured');
+      check(!$('[data-nav="network"]')&&!PAGES.network,'Network page is removed from the workspace');
       $('[data-nav="shooting"]').click();await delay(300);
       onHostMessage({type:'basketballLive',shot:{count:1,reason:'Maximum limit',percent:81,leadMs:85}});
       check($('[data-bb-shot]').textContent.includes('Maximum limit')&&!('last' in snapshot().autotime.rows),'Release reason is visible and read-only telemetry stays out of profiles');
@@ -3759,94 +3833,150 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       check(BBS.detectedId==='ff3'&&BBS.moduleId==='basketball'&&$('#recReason').textContent.includes('Football Fusion 3'),'FF3 identified before Continue without switching the old workspace');
       $('#recContinue').click();await until(()=>!BBS.reconnecting&&BBS.moduleId==='ff3');
       check(!!$('[data-nav="ff3"]')&&!$('[data-nav="shooting"]')&&!$('[data-nav="defense"]'),'FF3 opens only its own module');
-      check(!!$('#stack [data-fsw="ff3_qb"]')&&!!$('[data-ff3-status]'),'FF3 has QB controls and live throw status');
-      $('[data-fsw="ff3_qb"]').click();check((await native()).ff3.ff3_qb.on,'QB toggle reaches FF3 state');
-      check(!(await native()).ff3.ff3_qb.rows.force95,'Beam is optional and starts off');
-      check(!$('[data-row="ff3_qb.dragangle"]')&&!('dragangle' in (await native()).ff3.ff3_qb.rows),'Angle dragging is removed from controls and native state');
-      hostSend('setting',{key:'ff3_qb.trails',value:false});check(!(await native()).ff3.ff3_qb.rows.trails,'Ball trajectories can be disabled');
-      hostSend('setting',{key:'ff3_qb.trails',value:true});check((await native()).ff3.ff3_qb.rows.trails,'Ball trajectories can be enabled independently');
-      hostSend('setting',{key:'ff3_qb.force95',value:true});check((await native()).ff3.ff3_qb.rows.force95,'Beam option reaches native state');
-      hostSend('setting',{key:'ff3_qb.force95',value:false});check(!(await native()).ff3.ff3_qb.rows.force95,'Adaptive power can be restored');
-      $('[data-key="ff3_qb.preset"][data-choice="1"]').click();await until(()=>find('ff3_qb.preset').r.value===1);$('[data-key="ff3_qb.preset"][data-choice="2"]').click();check((await native()).ff3.ff3_qb.rows.preset===2,'Compact pass selector reaches native state');
-      hostSend('setting',{key:'ff3_qb.height',value:4});check((await native()).ff3.ff3_qb.rows.height===4,'Catch height reaches native state');hostSend('setting',{key:'ff3_qb.height',value:0});
-      hostSend('setting',{key:'ff3_qb.lead',value:-4});check((await native()).ff3.ff3_qb.rows.lead===-4,'Signed lead slider reaches native state');hostSend('setting',{key:'ff3_qb.lead',value:0});
+      check($$('[data-nav="ff3"][data-tab]').length===7&&!$('[data-nav="network"]')&&!$('#tabs').hidden,'FF3 uses seven clear sidebar sections and compact task tabs without a Network tab');
       {
-        const el=$('.slider[data-key="ff3_qb.lead"]'),r=find('ff3_qb.lead').r,old=r.value;
-        const stale=snapshot();drag={el,start:old,lx:0,lt:performance.now(),pointerId:71};
-        const rect=el.getBoundingClientRect();moveDrag({clientX:rect.left+rect.width*.75},true);
-        const chosen=r.value,position=$('.thumb',el).style.left;
-        applySnapshot(stale,true);syncDom();
-        check(r.value===chosen&&$('.thumb',el).style.left===position,'Live settings preserve an active slider drag');
-        finishSliderDrag();applySnapshot(stale,true);syncDom();
-        check(r.value===chosen,'Stale snapshot cannot undo a just-committed slider');
-        check((await native()).ff3.ff3_qb.rows.lead===chosen,'Dragged value reaches the native setting');
-        hostSend('setting',{key:'ff3_qb.lead',value:0});pendingSettings.delete('ff3_qb.lead');
-      }
-      hostSend('setting',{key:'ff3_qb.angle',value:42});check((await native()).ff3.ff3_qb.rows.angle===42,'Angle control reaches native state');
-      hostSend('setting',{key:'ff3_qb.autoangle',value:false});check(!(await native()).ff3.ff3_qb.rows.autoangle,'Manual angle mode reaches native state');
-      hostSend('setting',{key:'ff3_qb.fit',value:true});check((await native()).ff3.ff3_qb.rows.fit,'Smart fit reaches native state');
-      hostSend('setting',{key:'ff3_qb.arc',value:1});check((await native()).ff3.ff3_qb.rows.arc===1,'QB arc reaches native state');
-      hostSend('setting',{key:'ff3_qb.arc',value:7});check((await native()).ff3.ff3_qb.rows.arc===1,'Invalid QB arc is rejected');
-      check($('#profilesBtn').hidden&&$('#resetBtn').hidden,'Basketball profiles and resets are unavailable in FF3');
-      {
-        const qbBefore=JSON.stringify((await native()).ff3.ff3_qb);
-        $('[data-tab="receiving"]').click();check(!!$('[data-fsw="ff3_catch"]')&&!!$('[data-fsw="ff3_jump"]')&&!!$('[data-fsw="ff3_mags"]'),'Receiving tab renders Catch, Jump and Mags controls');
-        check($('#stack .card').dataset.feature==='ff3_mags'&&!$('#stack .row-description'),'Mags is first and receiving descriptions are hover-only');
-        check($('#stack .card').textContent.includes('Ball Mags')&&$('[data-row="ff3_mags.studs"]').textContent.includes('Reach size')&&$('[data-row="ff3_mags.visual"]').textContent.includes('Reach visual'),'Reach size and external visual controls are labeled clearly');
-        check((await native()).ff3.ff3_mags.rows.studs===20,'Ball Mags starts at 20 studs');
-        $('[data-fsw="ff3_catch"]').click();check((await native()).ff3.ff3_catch.on,'Auto Catch toggle reaches native state');
-        $('[data-fsw="ff3_jump"]').click();check((await native()).ff3.ff3_jump.on,'Auto Jump toggle reaches native state');
-        $('[data-fsw="ff3_mags"]').click();check((await native()).ff3.ff3_mags.on,'Mags toggle reaches native state without test memory writes');
-        hostSend('setting',{key:'ff3_mags.studs',value:50});check((await native()).ff3.ff3_mags.rows.studs===50,'Mags accepts the 50-stud maximum');
-        check((await native()).ff3.ff3_mags.rows.visual&&!!$('[data-row="ff3_mags.visual"]'),'Mags volume visuals start enabled and render a control');
-        hostSend('setting',{key:'ff3_mags.visual',value:false});check(!(await native()).ff3.ff3_mags.rows.visual,'Mags volume visuals can be disabled');
-        hostSend('setting',{key:'ff3_mags.visual',value:true});check((await native()).ff3.ff3_mags.rows.visual,'Mags volume visuals can be restored');
-        hostSend('setting',{key:'ff3_mags.delay',value:120});check((await native()).ff3.ff3_mags.rows.delay===120,'Ball Mags delay reaches native state');
-        check(!('shape' in (await native()).ff3.ff3_mags.rows)&&!!$('[data-row="ff3_mags.studs"]')&&!$('[data-row="ff3_mags.width"]'),'Mags uses one size slider without shape or axis controls');
-        $('[data-row="ff3_mags.studs"]').scrollIntoView({block:'start'});await delay(300);check((await hostAsk('testCapture',{name:'ff3-mags'})).ok,'Simplified ball Mags controls captured');
-        hostSend('setting',{key:'ff3_catch.input',value:1});check((await native()).ff3.ff3_catch.rows.input===1,'Catch binding reaches native state');
-        await delay(300);check((await hostAsk('testCapture',{name:'ff3-receiving'})).ok,'Receiving controls captured');
-        hostSend('feature',{feature:'ff3_catch',on:false});hostSend('feature',{feature:'ff3_jump',on:false});hostSend('feature',{feature:'ff3_mags',on:false});
-        $('[data-tab="defense"]').click();check(!!$('[data-fsw="ff3_rush"]')&&!!$('[data-ff3-play-status]'),'Defense tab renders rush controls and live status');
-        $('[data-fsw="ff3_rush"]').click();check((await native()).ff3.ff3_rush.on,'Auto Rush toggle reaches native state');
-        hostSend('setting',{key:'ff3_rush.input',value:['Mouse4']});check((await native()).ff3.ff3_rush.rows.input[0]==='Mouse4','Rush activation is rebindable');
-        hostSend('setting',{key:'ff3_rush.hold',value:false});check(!(await native()).ff3.ff3_rush.rows.hold,'Rush can use toggle activation');
-        await delay(300);check((await hostAsk('testCapture',{name:'ff3-defense'})).ok,'Rush controls captured');
-        hostSend('feature',{feature:'ff3_rush',on:false});check(JSON.stringify((await native()).ff3.ff3_qb)===qbBefore,'Receiving and defense changes preserve every QB setting');
-        $('[data-tab="overview"]').click();
+        const expected=['overview','receiving','defense','movement','kicking','match','visuals'];const initial=await native();
+        check(Object.keys(initial.ff3).filter(k=>k.startsWith('ff3_')).length===36,'Every FF3 module including the new player and server tools has native state');
+        check(!!initial.ff3.ff3_intercept&&!initial.ff3.ff3_bestcatch&&!initial.ff3.ff3_receive,'Interception guide replaces Best Catch with a new native module');check(locate('ff3_intercept').tid==='visuals'&&locate('ff3_pocket').tid==='visuals'&&locate('ff3_reachvisual').tid==='visuals','Read-only player and reach guides live in World');
+        check(locate('ff3_bighead').tid==='movement'&&locate('ff3_freeze').tid==='movement'&&locate('ff3_quicktp').tid==='movement','Player tools live together in Movement');
+        check(locate('ff3_autohop').tid==='match'&&locate('ff3_teamchange').tid==='match'&&PAGES.ff3.tabs.find(t=>t.id==='match').label==='Servers','Server and team automation have their own workspace');
+        check(locate('ff3_antijam').tid==='defense'&&locate('ff3_knee').tid==='receiving'&&locate('ff3_pickup').tid==='overview','Contact defense, after-catch actions and QB pickup have semantic homes');
+        check(PAGES.ff3.tabs.find(t=>t.id==='receiving').subtabs.length===3&&PAGES.ff3.tabs.find(t=>t.id==='movement').subtabs.length===2,'Catching and Movement avoid excessive tiny subtabs');
+        const managed=initial.ff3.ff3_qb.rows;check(managed.power&&managed.autoangle&&managed.practice&&managed.radius===120&&managed.movement===70,'QB uses app-managed power, angle, practice and input defaults');
+        for(const tid of expected){const nav=$(`[data-nav="ff3"][data-tab="${tid}"]`);check(!!nav,'Sidebar section exists: '+tid);nav.click();
+          check($('.nav-item.active')===nav&&$('#pageTitle').textContent===PAGES.ff3.tabs.find(t=>t.id===tid).label,'Sidebar selection and heading agree: '+tid);
+          for(const f of PAGES.ff3.tabs.find(t=>t.id===tid).features.filter(f=>!f.fixed&&f.id!=='ff3_qb'&&!['ff3_catch','ff3_jump','ff3_mags','ff3_rush'].includes(f.id))){selectFootballFeature(tid,f.id);renderTabs();renderStack({enter:false});const control=$(`[data-fsw="${f.id}"]`);if(f.pending){check(control.disabled&&!(await native()).ff3[f.id].on,'Deferred kicking remains unavailable: '+f.id);continue;}if(f.on){control.click();await native();}control.click();check((await native()).ff3[f.id].on,'Feature enables through native bridge: '+f.id);control.click();check(!(await native()).ff3[f.id].on,'Feature disables through native bridge: '+f.id);}
+        }
+        for(const [key,value] of [['ff3_bighead.width',9],['ff3_bighead.smart',false],['ff3_quicktp.distance',4.5],['ff3_autohop.minimum',10]]){hostSend('setting',{key,value});const [id,row]=key.split('.');check((await native()).ff3[id].rows[row]===value,'New tool setting reaches native: '+key);}
+        for(const tab of PAGES.ff3.tabs){$(`[data-nav="ff3"][data-tab="${tab.id}"]`).click();for(const sub of tab.subtabs){if(tab.subtabs.length>1)$(`[data-subtab="${sub.id}"]`).click();check(state.tab.ff3===tab.id&&$$('#stack [data-feature]').every(n=>sub.features.includes(n.dataset.feature)),'Sub-tab isolates controls: '+tab.id+'/'+sub.id);}}
+        $('[data-nav="ff3"][data-tab="overview"]').click();
+        for(const key of ['angle','autoangle','power','practice','arc','radius','movement','dive'])check(!$(`[data-row="ff3_qb.${key}"]`)&&!PAGES.ff3.tabs[0].features[0].rows.some(r=>r.id===key),'Retired QB control is absent: '+key);
+        $('[data-subtab="placement"]').click();check($('[data-row="ff3_qb.fit"]').textContent.includes('Smart fit'),'Smart fit name is restored');
+        check(!$('.settings-advanced')&&!$('#stack').textContent.includes('Advanced controls'),'Advanced control dropdowns are removed');
+        const oob=$('[data-row="ff3_qb.oob"]');check(!!oob&&!$('[data-row="ff3_qb.oobVisual"]'),'Outside allowance stays in Placement while its visual lives in World');
+        $('[data-row="ff3_qb.oob"] [data-dir="1"]').click();check((await native()).ff3.ff3_qb.rows.oob===2.5,'Outside allowance still adjusts by half a stud');hostSend('setting',{key:'ff3_qb.oob',value:2});await native();
+        $('[data-subtab="aim"]').click();$('[data-key="ff3_qb.method"][data-choice="2"]').click();await native();check((await native()).ff3.ff3_qb.rows.method===2,'Visual Aim is a native preview-only mode');check(!$('[data-key="ff3_qb.method"][data-choice="3"]'),'Unverified cursor test is unavailable');$('[data-key="ff3_qb.method"][data-choice="1"]').click();await native();check((await native()).ff3.ff3_qb.rows.method===1,'Packet method remains available');$('[data-key="ff3_qb.method"][data-choice="0"]').click();await native();
+        $('[data-row="ff3_qb.force95"] [role="switch"]').click();check((await native()).ff3.ff3_qb.rows.force95,'Beam mode is retained');$('[data-row="ff3_qb.force95"] [role="switch"]').click();await native();
+        for(const value of [1,2,0]){$(`[data-key="ff3_qb.preset"][data-choice="${value}"]`).click();check((await native()).ff3.ff3_qb.rows.preset===value,'Pass style remains connected: '+value);}
+        $('[data-subtab="display"]').click();check($('[data-subtab="display"]').textContent.includes('Visuals')&&$('[data-feature="ff3_qb"]').classList.contains('open'),'QB Visuals opens its settings without a blank collapsed page');for(const id of ['receivers','routes','window','race','threats']){const control=$(`[data-row="ff3_qb.${id}"] [role="switch"]`),before=(await native()).ff3.ff3_qb.rows[id];check(!!control,'Active QB visual control exists: '+id);control.click();check((await native()).ff3.ff3_qb.rows[id]===!before,'QB visual setting persists: '+id);control.click();await native();}
+        await delay(160);check((await hostAsk('testCapture',{name:'ff3-qb-visuals'})).ok,'Advanced QB visual controls captured');
+        $('[data-subtab="aim"]').click();
+        hostSend('feature',{feature:'ff3_qb',on:true});check((await native()).ff3.ff3_qb.on,'QB toggle reaches native state');
+        $('[data-nav="ff3"][data-tab="receiving"]').click();$('[data-subtab="mags"]').click();check(!!$('[data-fsw="ff3_mags"]')&&!$('[data-subtab="reach"]'),'Receiving keeps Mags first and has no catch-guide tab');
+        check(!$('[data-row="ff3_mags.mode"]')&&!$('[data-row="ff3_mags.snapRange"]')&&!$('[data-row="ff3_mags.snapVisual"]'),'Combined Mags has no separate mode or snap controls');
+        check(!$('[data-row="ff3_mags.studs"]').hidden&&(await native()).ff3.ff3_mags.rows.studs===20&&(await native()).ff3.ff3_mags.rows.teleportSize===22,'Combined Mags uses size 20 and teleport 22');
+        $('[data-row="ff3_mags.studs"] [data-dir="1"]').click();check((await native()).ff3.ff3_mags.rows.studs===20.5&&(await native()).ff3.ff3_mags.rows.teleportSize===22.5,'Changing ball size updates teleport by the same amount');
+        hostSend('setting',{key:'ff3_mags.studs',value:50});check((await native()).ff3.ff3_mags.rows.studs===50&&(await native()).ff3.ff3_mags.rows.teleportSize===52,'Maximum ball size keeps the full plus-two teleport margin');
+        hostSend('setting',{key:'ff3_mags.studs',value:20});await native();check((await native()).ff3.ff3_mags.rows.teleportSize===22,'Restoring ball size restores the derived teleport range');
+        check(!$('[data-row="ff3_mags.autoCatch"]').hidden&&!(await native()).ff3.ff3_mags.rows.autoCatch&&!(await native()).ff3.ff3_mags.rows.pickup,'Combined Mags preserves manual catching by default');
+        await delay(160);check((await hostAsk('testCapture',{name:'ff3-combined-mags'})).ok,'Combined Mags controls captured');
+        for(const key of ['autoCatch','fastPass','pickup']){const before=(await native()).ff3.ff3_mags.rows[key];$(`[data-row="ff3_mags.${key}"] [role="switch"]`).click();check((await native()).ff3.ff3_mags.rows[key]===!before,'Mags assistance reaches native: '+key);$(`[data-row="ff3_mags.${key}"] [role="switch"]`).click();await native();}
+        check(!$('[data-row="ff3_mags.target"]')&&!$('[data-row="ff3_mags.nearby"]')&&!$('[data-row="ff3_mags.activation"]'),'Mags scope and apply-to controls are removed');
+        hostSend('setting',{key:'ff3_mags.catchLead',value:300});check((await native()).ff3.ff3_mags.rows.catchLead===300,'Mags hands lead reaches native timing');hostSend('setting',{key:'ff3_mags.catchLead',value:250});await native();
+        hostSend('setting',{key:'ff3_mags.holdMs',value:180});check((await native()).ff3.ff3_mags.rows.holdMs===180,'Mags contact hold reaches native timing');hostSend('setting',{key:'ff3_mags.holdMs',value:140});await native();
+        $('[data-fsw="ff3_mags"]').click();check((await native()).ff3.ff3_mags.on,'Mags can enable without test game writes');$('[data-fsw="ff3_mags"]').click();await native();
+        await until(()=>!$('.toast.show'));await delay(160);check((await hostAsk('testCapture',{name:'ff3-receiving'})).ok,'Mags catch-assistance controls captured');
+        $('[data-nav="ff3"][data-tab="visuals"]').click();$('[data-subtab="guides"]').click();focusFootballCard(find('ff3_intercept').f);check(!!$('[data-feature="ff3_intercept"]')&&!find('ff3_bestcatch').f,'New interception planner replaces Best Catch in World');
+        for(const id of ['contact','race'])check(!!$(`[data-row="ff3_intercept.${id}"]`),'New guide option is visible: '+id);
+        await delay(160);check((await hostAsk('testCapture',{name:'ff3-catch-guide'})).ok,'Interception guide controls captured');
+        $('[data-subtab="flight"]').click();check($('[data-feature="ff3_trajectories"]').classList.contains('open'),'World flight opens its controls automatically');for(const id of ['landing','future','highlight','loose']){const key=id==='loose'?'looseMarkers':id,control=$(`[data-row="ff3_trajectories.${id}"] [role="switch"]`),before=(await native()).ff3.ff3_qb.rows[key];control.click();check((await native()).ff3.ff3_qb.rows[key]===!before,'World ball visual reaches its renderer setting: '+id);control.click();await native();}
+        $('[data-subtab="field"]').click();for(const id of ['ff3_boundary','ff3_reachvisual']){const control=$(`[data-fsw="${id}"]`);const before=(await native()).ff3[id].on;control.click();check((await native()).ff3[id].on===!before,'World visual switch reaches persisted native state: '+id);control.click();await native();}
+        $('[data-nav="ff3"][data-tab="receiving"]').click();
+        $('[data-subtab="dive"]').click();focusFootballCard(find('ff3_diveboost').f);check(!!$('[data-feature="ff3_dive"]')&&!!$('[data-feature="ff3_diveboost"]'),'Dive Assist and Dive Boost are separate features on Diving');
+        check(!!$('[data-row="ff3_dive.range"]')&&!$('[data-row="ff3_dive.speed"]')&&!$('[data-row="ff3_dive.steering"]'),'Dive Assist uses a distance limit instead of boost speed');
+        check(!!$('[data-row="ff3_diveboost.catchOnly"]')&&!(await native()).ff3.ff3_diveboost.rows.catchOnly,'Hands-out-only gate is available and defaults off');
+        $('[data-row="ff3_diveboost.catchOnly"] [role="switch"]').click();check((await native()).ff3.ff3_diveboost.rows.catchOnly,'Hands-out-only toggle reaches native state');
+        $('[data-row="ff3_diveboost.catchOnly"] [role="switch"]').click();check(!(await native()).ff3.ff3_diveboost.rows.catchOnly,'Hands-out-only can be disabled independently of Smart Boost');
+        check(!!$('[data-row="ff3_diveboost.distance"]')&&!!$('[data-row="ff3_diveboost.range"]'),'Dive Boost exposes travel budget and target distance');
+        check($('[data-row="ff3_diveboost.smartLimit"]').hidden&&!$('[data-row="ff3_diveboost.distance"]').hidden,'Smart distance stays hidden while manual Boost is selected');
+        check($('[data-row="ff3_diveboost.range"]').hidden,'Manual propulsion has no ball-target distance control');
+        $('[data-row="ff3_diveboost.smart"] [role="switch"]').click();check((await native()).ff3.ff3_diveboost.rows.smart,'Smart Boost toggle reaches native');
+        check(!$('[data-row="ff3_diveboost.smartLimit"]').hidden&&$('[data-row="ff3_diveboost.distance"]').hidden,'Smart Boost reveals its limit and hides manual distance');
+        check(!$('[data-row="ff3_diveboost.range"]').hidden,'Only optional Smart distance shows the catch-target range');
+        check($('[data-row="ff3_diveboost.smart"]').nextElementSibling?.dataset.row==='ff3_diveboost.smartLimit','Smart limit appears directly underneath its toggle');
+        hostSend('setting',{key:'ff3_diveboost.smartLimit',value:14});check((await native()).ff3.ff3_diveboost.rows.smartLimit===14,'Smart distance limit reaches native');
+        await delay(180);check((await hostAsk('testCapture',{name:'ff3-smart-boost'})).ok,'Smart Boost dropdown captured with its bounded distance slider');
+        $('[data-row="ff3_diveboost.smart"] [role="switch"]').click();check(!(await native()).ff3.ff3_diveboost.rows.smart,'Smart Boost returns to manual mode without resetting its limit');
+        check($('[data-row="ff3_diveboost.smartLimit"]').hidden&&!$('[data-row="ff3_diveboost.distance"]').hidden,'Disabling Smart Boost collapses its distance row');
+        for(const [key,value] of [['ff3_dive.range',28],['ff3_diveboost.distance',9],['ff3_diveboost.range',45]]){hostSend('setting',{key,value});const [id,row]=key.split('.');check((await native()).ff3[id].rows[row]===value,'Distance control reaches native: '+key);}
+        await delay(160);check((await hostAsk('testCapture',{name:'ff3-diving'})).ok,'Independent distance-based dive controls captured');
+        $('[data-subtab="dive"]').click();focusFootballCard(find('ff3_pull').f);
+        for(const value of [0,1,2]){$(`[data-key="ff3_pull.activation"][data-choice="${value}"]`).click();check((await native()).ff3.ff3_pull.rows.activation===value,['Press','Hold','Always on'][value]+' pull mode reaches native state');}hostSend('setting',{key:'ff3_pull.activation',value:0});await native();
+        await delay(160);check((await hostAsk('testCapture',{name:'ff3-velocity'})).ok,'Pull controls remain separate from Diving');
+        for(const [tab,sub,name] of [['movement','jump','ff3-movement'],['kicking','aim','ff3-kicking'],['match','servers','ff3-match'],['visuals','flight','ff3-ball-tracking']]){$(`[data-nav="ff3"][data-tab="${tab}"]`).click();if($(`[data-subtab="${sub}"]`))$(`[data-subtab="${sub}"]`).click();await delay(160);check((await hostAsk('testCapture',{name})).ok,'Workspace section captured: '+tab);}
+        $('[data-nav="ff3"][data-tab="overview"]').click();
+        check($('#profilesBtn').hidden&&$('#resetBtn').hidden,'Basketball profiles remain unavailable in FF3');
       }
       hostSend('feature',{feature:'autotime',on:true});hostSend('setting',{key:'autotime.release',value:59});hostSend('snapshot',{data:PROFILES[0].data});
       check(JSON.stringify((await native()).modules)===basketballBefore&&!(await native()).inputs,'FF3 rejects Basketball commands; test mode never installs inputs');
       await until(()=>!$('.toast.show')); // Capture after the deliberate invalid-setting notification clears.
       await delay(800); // Let recovery fade and native resize finish before visual verification.
       check((await hostAsk('testCapture',{name:'ff3'})).ok,'FF3 workspace captured');
-      $('[data-row="ff3_qb.autoangle"]').scrollIntoView({block:'end'});await delay(300);
+      $('[data-nav="ff3"][data-tab="movement"]').click();$('[data-subtab="player"]').click();focusFootballCard(find('ff3_bighead').f);hostSend('setting',{key:'ff3_bighead.smart',value:true});hostSend('setting',{key:'ff3_bighead.width',value:7.5});await native();
+      check(!$('[data-row="ff3_bighead.reset"]').hidden&&!$('[data-row="ff3_bighead.delay"]').hidden,'Smart head exposes contact reset and its default half-second delay');
+      $('[data-row="ff3_bighead.reset"] [role="switch"]').click();await native();check($('[data-row="ff3_bighead.delay"]').hidden,'Head delay collapses when contact reset is off');$('[data-row="ff3_bighead.reset"] [role="switch"]').click();await native();
+      hostSend('setting',{key:'ff3_bighead.smart',value:false});await native();check($('[data-row="ff3_bighead.reset"]').hidden&&$('[data-row="ff3_bighead.delay"]').hidden,'Normal head mode hides both smart-only reset controls');hostSend('setting',{key:'ff3_bighead.smart',value:true});await native();
+
+      check($$('#stack .card.open').length===1&&$('[data-feature="ff3_bighead"]').classList.contains('open'),'Player workspace opens one feature at a time');
+      await delay(180);check((await hostAsk('testCapture',{name:'ff3-player-tools'})).ok,'New Big Head, freeze and teleport workspace captured');
+      focusFootballCard(find('ff3_quicktp').f);check(!find('ff3_bighead').f.open&&find('ff3_quicktp').f.open&&(await native()).ff3.ff3_bighead.rows.width===7.5,'Focusing another tool keeps settings and closes the previous details');
+      $('[data-nav="ff3"][data-tab="match"]').click();$('[data-subtab="roles"]').click();focusFootballCard(find('ff3_teamchange').f);await delay(180);check((await hostAsk('testCapture',{name:'ff3-team-tools'})).ok,'Team automation workspace captured');
+      $('[data-nav="ff3"][data-tab="receiving"]').click();$('[data-subtab="mags"]').click();focusFootballCard(find('ff3_mags').f);check(!!$('[data-feature="ff3_mags"] details.settings-fold')&&!$('[data-feature="ff3_mags"] details.settings-fold').open,'Mags keeps catch timing in a named collapsed group');await delay(180);check((await hostAsk('testCapture',{name:'ff3-organized-catching'})).ok,'Organized Catching workspace captured');
+      $('[data-nav="ff3"][data-tab="overview"]').click();$('[data-subtab="placement"]').click();focusFootballCard(find('ff3_qb').f);await delay(180);check((await hostAsk('testCapture',{name:'ff3-organized-placement'})).ok,'Placement and Anti OOB workspace captured');
+      $('[data-subtab="aim"]').click();focusFootballCard(find('ff3_qb').f);await delay(180);check((await hostAsk('testCapture',{name:'ff3-organized-qb'})).ok,'Organized QB workspace captured');
+      $('[data-subtab="aim"]').click();focusFootballCard(find('ff3_qb').f);$('[data-row="ff3_qb.preset"]').scrollIntoView({block:'end'});await delay(300);
       check((await hostAsk('testCapture',{name:'ff3passes'})).ok,'Pass library captured');
       check(!$('.qb-dashboard')&&!$('.qb-library')&&!$('.qb-flight-view')&&!!$('[data-ff3-summary]'),'QB dashboard and illustrated pass cards are removed');
-      check($$('.settings-section').map(n=>n.textContent).join(',')==='Throw,Placement,Controls,Visuals','QB controls have clear sections');
+      check(!$('#tabs').hidden&&PAGES.ff3.tabs.find(t=>t.id==='overview').subtabs.length===3&&!!$('[data-feature="ff3_qb"]'),'QB separates Throw, Placement and Display without duplicating native state');
       check(!buildIndex().some(item=>item.r?.type==='section'),'Section headings do not appear as fake settings in search');
       const passButton=$('[data-key="ff3_qb.preset"][data-choice="4"]');syncDom();check(passButton===$('[data-key="ff3_qb.preset"][data-choice="4"]'),'Live updates preserve the compact pass selector');
       passButton.click();check((await native()).ff3.ff3_qb.rows.preset===4,'Compact Slant selector reaches native mode');
-      const previousLive=ff3Live;ff3PreviewTest=true;ff3Live={ready:true,held:true,reason:'Ready: click to throw to Practice receiver'};
+      const previousLive=ff3Live,previousStatusMethod=find('ff3_qb.method').r.value;find('ff3_qb.method').r.value=1;ff3PreviewTest=true;ff3Live={ready:true,held:true,reason:'Ready: click to throw to Practice receiver'};
       $('[data-ff3-summary]').innerHTML=ff3Summary();check($('[data-ff3-status]').textContent.includes('Practice receiver')&&!!$('.ff3-status-dot.ready'),'Compact status preserves live readiness');
+      {const before=ff3Live,openBefore=ff3HistoryOpen;
+        ff3Live={...before,modules:{ff3_qb:{rows:{method:1}}},networking:{history:[{at:100,outcome:'normal',reason:'Wheel not ready',power:60,ageMs:40}]}};
+        $('[data-ff3-summary]').innerHTML=ff3Summary();
+        check($('[data-ff3-status]').textContent.includes('Normal throw')&&$('[data-ff3-status]').textContent.includes('Wheel not ready'),'Skipped assists show normal throw and a clear reason');
+        $('[data-ff3-history-toggle]').click();check($('[data-ff3-history-toggle]').getAttribute('aria-expanded')==='true'&&!!$('.ff3-throw-history ol'),'Recent throws expand without changing QB settings');
+        ff3Live.networking.history.push({at:101,outcome:'assisted',reason:'Assist applied',power:73,ageMs:10});$('[data-ff3-summary]').innerHTML=ff3Summary();
+        check($('[data-ff3-status]').textContent.includes('Assisted throw')&&$('[data-ff3-status]').textContent.includes('73')&&!!$('.ff3-throw-history ol'),'Assisted result and expanded history survive live refresh');
+        ff3Live.networking.history=Array.from({length:12},(_,i)=>({at:100+i,outcome:'normal',reason:i===11?'<img data-injected>':'Plan expired',power:60,ageMs:10}));$('[data-ff3-summary]').innerHTML=ff3Summary();
+        check($$('.ff3-throw-history li').length===8&&!$('.ff3-throw-history [data-injected]'),'History is limited to eight and escapes log text');
+        ff3Live.networking.history=[{at:200,outcome:'normal',reason:'Plan expired',ageMs:10}];check(ff3StatusText().includes('Plan expired'),'Expired plans have a clear status');
+        ff3Live.networking.history[0].ageMs=5001;check(ff3StatusText()===before.reason,'Old results stop covering current readiness');
+        ff3Live.networking.history=[{at:201,outcome:'normal',reason:'Arguments changed',power:60,ageMs:10}];$('[data-ff3-summary]').innerHTML=ff3Summary();
+        $('.ff3-throw-history').scrollIntoView({block:'center'});await delay(100);check((await hostAsk('testCapture',{name:'ff3-throw-history'})).ok,'Recent throw history captured');
+        ff3Live=before;ff3HistoryOpen=openBefore;$('[data-ff3-summary]').innerHTML=ff3Summary();
+      }
       for(const status of ['CLEAR','TIGHT','INTERCEPT']){ff3Live.check=status;$('[data-ff3-summary]').innerHTML=ff3Summary();check($('[data-ff3-check]').textContent===status&&$('[data-ff3-check]').classList.contains(status.toLowerCase()),'Visible throw check: '+status);}
       ff3Live={ready:false,setupFailed:true,transportReady:false,setup:'Reconnect to finish setup',reason:'Not ready'};$('[data-ff3-summary]').innerHTML=ff3Summary();
       check($('[data-ff3-status]').textContent.includes('Reconnect')&&!!$('[data-ff3-retry]')&&!$('.ff3-status-dot.ready'),'Compact status preserves setup errors and retry');
       ff3PreviewTest=false;ff3Live=previousLive;$('[data-ff3-summary]').innerHTML=ff3Summary();
-      const previousNetworking=qbNetworking,qbBeforeNetwork=JSON.stringify((await native()).ff3);
+      const previousNetworking=qbNetworking,previousNetworkLive=ff3Live,previousNetworkPreview=ff3PreviewTest,qbBeforeNetwork=JSON.stringify((await native()).ff3);
+      ff3PreviewTest=true;find('ff3_qb.method').r.value=1;ff3Live={...ff3Live,modules:{ff3_qb:{rows:{method:1}}}};
       onHostMessage({type:'qbNetworking',phase:'rejoin',requiresRejoin:true,detail:'Join schema missing'});
-      check(!$('.main>[data-qb-network]').hidden&&$('.main>[data-qb-network]').textContent.includes('without holding a football')&&$('.main>[data-qb-network]').textContent.includes('Keep Vanta open'),'Rejoin instruction appears independently of QBA');
-      check(!!$('.lg-body>[data-qb-network]')&&!!$('#reconnectIsland [data-qb-network]'),'Networking notice is available at startup and during reconnect');
-      await delay(100);check((await hostAsk('testCapture',{name:'networking-rejoin'})).ok,'Rejoin networking notice captured');
+      check(!$('[data-qb-network]'),'Networking popup is removed from login, workspace and reconnect');
+      check($('[data-ff3-status]').textContent.includes('Rejoin without holding a football'),'Rejoin guidance stays in the existing QB status');
+      $('[data-ff3-summary]').scrollIntoView({block:'center'});await delay(100);check((await hostAsk('testCapture',{name:'networking-rejoin'})).ok,'Inline connection status captured without a popup');
       onHostMessage({type:'qbNetworking',phase:'ready',ready:true,editing:false});
-      check($('.main>[data-qb-network]').textContent.includes('QBA is off')&&!$('.main>[data-qb-network]').classList.contains('rejoin'),'Prepared networking clears the rejoin notice while QBA is off');
-      onHostMessage({type:'qbNetworking',phase:'failed',retryable:true,detail:'Administrator approval needed'});
-      check(!!$('.main>[data-qb-network] [data-ff3-retry]')&&$('.main>[data-qb-network]').textContent.includes('Administrator'),'Setup failure exposes a manual retry without toggling QBA');
+      check(!$('[data-ff3-status]').textContent.includes('Rejoin'),'Ready connection clears the inline rejoin message');
+      onHostMessage({type:'qbNetworking',phase:'input',ready:true,requiresRejoin:false,detail:'Use the game power wheel.'});
+      check(!$('[data-qb-network]')&&!$('[data-ff3-retry]'),'Mouse input status does not create a networking popup');
+      check(!$('[data-row="ff3_qb.movement"]')&&(await native()).ff3.ff3_qb.rows.movement===70,'Input timing stays managed rather than exposed as a control');
+      onHostMessage({type:'qbNetworking',phase:'recovering',ready:false,detail:'No verified outgoing keys after 5 seconds. Recovering automatically'});
+      check($('[data-ff3-status]').textContent.includes('after 5 seconds')&&!$('[data-ff3-retry]'),'Five-second timeout shows automatic recovery without a manual Retry button');
+      onHostMessage({type:'qbNetworking',phase:'update-required',ready:false,retryable:true,detail:'A compatible helper update is required'});
+      check($('[data-ff3-status]').textContent.includes('helper update')&&!$('[data-ff3-retry]'),'Unsupported transport clearly requires an update instead of claiming readiness');
+      onHostMessage({type:'qbNetworking',phase:'waiting',listenerReady:true,ready:false,detail:'Join listener ready'});
+      check(JSON.stringify((await native()).ff3)===qbBeforeNetwork&&!$('[data-qb-network]'),'Passive startup listener never enables QB aim or creates a networking popup');
+      onHostMessage({type:'qbNetworking',phase:'failed',retryable:true,detail:'Helper could not start'});
+      check(!!$('[data-ff3-summary] [data-ff3-retry]')&&$('[data-ff3-status]').textContent.includes('Helper could not start'),'Helper failure exposes Retry in the QB status bar');
+      ff3Live.modules.ff3_qb.rows.method=0;find('ff3_qb.method').r.value=0;refreshQbStatus();check(!$('[data-ff3-retry]')&&!$('[data-ff3-status]').textContent.includes('Helper could not start'),'Packet errors do not cover Mouse mode status');
       check(JSON.stringify((await native()).ff3)===qbBeforeNetwork,'Networking messages do not enable or change QB settings');
-      qbNetworking=previousNetworking;renderQbNetworking();
+      qbNetworking=previousNetworking;ff3Live=previousNetworkLive;ff3PreviewTest=previousNetworkPreview;find('ff3_qb.method').r.value=previousStatusMethod;refreshQbStatus();
 
-      const info=$('[data-row="ff3_qb.autoangle"] [data-help]'),beforeInfo=JSON.stringify((await native()).ff3);
-      check(!!info&&!$('.row-description')&&!$('#stack').textContent.includes(find('ff3_qb.autoangle').r.description),'Descriptions are not printed under settings');
+      $('[data-subtab="placement"]').click();const info=$('[data-row="ff3_qb.fit"] [data-help]'),beforeInfo=JSON.stringify((await native()).ff3);
+      check(!!info&&!$('.row-description')&&!$('#stack').textContent.includes(find('ff3_qb.fit').r.description),'Descriptions are not printed under settings');
       info.scrollIntoView({block:'center'});await delay(100);info.dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'}));await until(()=>settingTip.node&&!settingTip.node.hidden);
       check(settingTip.node.getAttribute('role')==='tooltip'&&settingTip.node.textContent===info.dataset.tip&&info.getAttribute('aria-describedby')===settingTip.node.id,'Hover opens a real accessible tooltip');
       let tipBounds=settingTip.node.getBoundingClientRect();check(tipBounds.left>=0&&tipBounds.right<=innerWidth&&tipBounds.top>=0&&tipBounds.bottom<=innerHeight,'Tooltip stays inside the app viewport');
@@ -3865,7 +3995,7 @@ if(window.__VANTA_HOST__?.testMode){localStorage.setItem('vanta.signedIn','1');f
       check(!!$('[data-nav="shooting"]')&&!$('[data-nav="ff3"]')&&JSON.stringify((await native()).modules)===basketballBefore,'Returning restores Basketball with its settings intact');
       check(localStorage.getItem(PROFILE_STORE)===profilesBefore,'Game switches preserve saved Basketball profiles');
       hostSend('feature',{feature:'ff3_qb',on:true});hostSend('setting',{key:'ff3_qb.arc',value:0});
-      check(!(await native()).ff3.ff3_qb.on&&(await native()).ff3.ff3_qb.rows.arc===1,'Basketball rejects FF3 commands');
+      check(!(await native()).ff3.ff3_qb.on&&(await native()).ff3.ff3_qb.rows.arc===0,'Basketball rejects FF3 commands');
       BBS.signingOut=true;
       hostSend('signout');hostSend('feature',{feature:'autotime',on:true});const out=await native();
       check(!out.authenticated&&!out.modules.autotime.on&&!out.inputs,'Logout closes input gate and rejects changes');

@@ -1,6 +1,6 @@
 $ErrorActionPreference='Stop'
 $native=Split-Path $PSScriptRoot -Parent
-$exe=Join-Path $native 'build\Vanta-Basketball.exe'
+$exe=Join-Path $native 'build\Vanta-Basketball-UiTest.exe'
 $started=[DateTime]::UtcNow
 $process=Start-Process -FilePath $exe -ArgumentList '--hud-test' -WorkingDirectory $native -WindowStyle Hidden -PassThru
 if(-not $process.WaitForExit(60000)){$process.Kill();throw 'Isolated QB HUD test timed out.'}

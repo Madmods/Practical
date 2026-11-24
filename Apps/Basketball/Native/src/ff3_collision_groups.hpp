@@ -25,7 +25,7 @@ struct NativeCollisionPlan {
  }
  bool sample(HANDLE h,const Scene& s,addr ws){
   loaded=complete=false;failure.clear();parts.clear();bodies=catches=0;scene=s;
-  if(!h||!observing(s,now())||!ws||!registry(h,ws))return false;
+  if(!h||!backgroundObserving(s,now())||!ws||!registry(h,ws))return false;
   auto hands=ff3Native::catchParts(h,s.own);if(!hands.first||!hands.second||hands.first==hands.second)return false;
   for(auto id:{hands.first,hands.second}){
    auto primitive=rd<addr>(h,id+Offsets::BasePart::Primitive);auto flags=rd<unsigned char>(h,primitive+Offsets::Primitive::Flags,255),group=rd<unsigned char>(h,primitive+physicsGroupOffset,255);
@@ -48,7 +48,7 @@ struct NativeCollisionPlan {
   for(int depth=0;depth<5&&node;++depth){if(node==workspace)return true;if(instanceClassIs(h,node,"Tool")||child(h,node,"Humanoid"))return false;node=rd<addr>(h,node+Offsets::Instance::Parent);}return false;
  }
  bool protects(HANDLE h,const BallPart& ball,unsigned group,bool applied=true)const{
-  if(!loaded||group>=32||!observing(scene,now())||!ff3Native::focused(scene.pid)||rd<addr>(h,scene.player+Offsets::Player::ModelInstance)!=scene.own||!ball.part.ball||choose(ball)!=int(group)||!loose(h,ball.part.id))return false;
+  if(!loaded||group>=32||!backgroundObserving(scene,now())||rd<addr>(h,scene.player+Offsets::Player::ModelInstance)!=scene.own||!ball.part.ball||choose(ball)!=int(group)||!loose(h,ball.part.id))return false;
   if(rd<addr>(h,workspace+worldOffset)!=world||rd<addr>(h,world+0x3f8)!=records||rd<std::uint32_t>(h,records+0x400+group*4)!=rules.masks[group])return false;
   std::string name;if(!collisionName(h,records+group*32,name)||name!=rules.names[group])return false;
   for(const auto& p:parts){auto flags=rd<unsigned char>(h,p.primitive+Offsets::Primitive::Flags,255);

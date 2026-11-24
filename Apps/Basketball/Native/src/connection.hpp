@@ -21,7 +21,15 @@ inline bool supportedClientPath(const std::wstring& file){
  std::wstring expected(Offsets::ClientVersion.begin(),Offsets::ClientVersion.end());
  return !_wcsicmp(folder.c_str(),expected.c_str());
 }
-inline std::array<int,3> robloxClientPriority(bool pinned,int compatibility,bool foreground){return {int(pinned),compatibility,int(foreground)};}
+// Foreground changes must never retarget a running companion. Prefer the
+// newest version-checked client; explicit diagnostic PID pins still win.
+inline std::array<std::uint64_t,4> robloxClientPriority(bool pinned,int compatibility,bool /*foreground*/,std::uint64_t created=0){return {std::uint64_t(pinned),created,std::uint64_t(std::max(0,compatibility)),0};}
+inline std::uint64_t robloxCreated(HANDLE process){FILETIME born{},exit{},kernel{},user{};if(!GetProcessTimes(process,&born,&exit,&kernel,&user))return 0;return (std::uint64_t(born.dwHighDateTime)<<32)|born.dwLowDateTime;}
+inline bool supportedRobloxPid(DWORD pid){
+ HANDLE process=pid?OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid):nullptr;if(!process)return false;
+ wchar_t file[32768]{};DWORD size=32768;bool ok=QueryFullProcessImageNameW(process,0,file,&size)&&supportedClientPath(file);CloseHandle(process);
+ const auto name=std::wstring(file).find_last_of(L"\\/");return ok&&name!=std::wstring::npos&&!_wcsicmp(file+name+1,L"RobloxPlayerBeta.exe");
+}
 inline bool connectRoblox(HANDLE& handle,DWORD& pid,addr& base,int(*rank)(HANDLE,addr,DWORD)=nullptr){
  bool present=false,versionMatches=false;
  ConnectionState result=ConnectionState::Waiting;
@@ -35,9 +43,7 @@ inline bool connectRoblox(HANDLE& handle,DWORD& pid,addr& base,int(*rank)(HANDLE
  DWORD foregroundPid=0;GetWindowThreadProcessId(GetForegroundWindow(),&foregroundPid);
  wchar_t preferredText[16]{};GetEnvironmentVariableW(L"VANTA_ROBLOX_PID",preferredText,16);
  const DWORD preferredPid=wcstoul(preferredText,nullptr,10);
- auto priority=[&](DWORD value){return preferredPid&&value==preferredPid?2:value==foregroundPid?1:0;};
- std::stable_sort(clients.begin(),clients.end(),[&](const PROCESSENTRY32W& a,const PROCESSENTRY32W& b){return priority(a.th32ProcessID)>priority(b.th32ProcessID);});
- HANDLE bestHandle=nullptr;DWORD bestPid=0;addr bestBase=0;std::array<int,3> bestPriority{-1,-1,-1};
+ HANDLE bestHandle=nullptr;DWORD bestPid=0;addr bestBase=0;std::array<std::uint64_t,4> bestPriority{};
  for(const auto& process:clients){
   if(_wcsicmp(process.szExeFile,L"RobloxPlayerBeta.exe"))continue;
   present=true;
@@ -57,8 +63,8 @@ inline bool connectRoblox(HANDLE& handle,DWORD& pid,addr& base,int(*rank)(HANDLE
   }
   if(!found){CloseHandle(candidate);result=ConnectionState::ModuleUnavailable;continue;}
   const addr candidateBase=(addr)module.modBaseAddr;
-  auto priority=robloxClientPriority(preferredPid&&process.th32ProcessID==preferredPid,rank?rank(candidate,candidateBase,process.th32ProcessID):0,process.th32ProcessID==foregroundPid);
-  if(priority>bestPriority){if(bestHandle)CloseHandle(bestHandle);bestHandle=candidate;bestPid=process.th32ProcessID;bestBase=candidateBase;bestPriority=priority;}
+  auto priority=robloxClientPriority(preferredPid&&process.th32ProcessID==preferredPid,rank?rank(candidate,candidateBase,process.th32ProcessID):0,process.th32ProcessID==foregroundPid,robloxCreated(candidate));
+  if(!bestHandle||priority>bestPriority){if(bestHandle)CloseHandle(bestHandle);bestHandle=candidate;bestPid=process.th32ProcessID;bestBase=candidateBase;bestPriority=priority;}
   else CloseHandle(candidate);
  }
  CloseHandle(snapshot);

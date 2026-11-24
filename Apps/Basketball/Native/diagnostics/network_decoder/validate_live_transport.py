@@ -49,21 +49,31 @@ def packets(filename):
 
 def discover(sample,keys,wrapper):
     if len(sample)<2:return None
-    # Each accepted candidate must authenticate TWO different captured datagrams.
+    # Bound the probe, but do not pin it to sample[0]: a capture can start in an
+    # old key epoch. Prefer wider packet numbers so a short first counter cannot
+    # give a later, wider counter the wrong reconstructed high bits.
+    sample=sample[:12]
+    verifiers={key:NonceVerifier(key) for key in keys if len(key)==32}
     for hp in keys:
-        try:first=unprotect(sample[0]['payload'],hp,wrapper)
-        except DecodeError:continue
-        for key in keys:
-            recovered=recover_nonce(first,key)
-            if recovered is None:continue
-            nonce,plain=recovered;iv=nonce_for(nonce,first.packet_number)
-            for other in sample[1:12]:
-                try:
-                    u,p=decrypt(other['payload'],hp,key,iv,wrapper,first.packet_number)
-                    if u.cid!=first.cid or u.key_phase!=first.key_phase or u.packet_number==first.packet_number:continue
-                    # The context is now independently authenticated; malformed frames are still rejected separately.
-                    return dict(hp=hp,key=key,iv=iv,cid=first.cid,phase=first.key_phase,largest=first.packet_number)
-                except DecodeError:continue
+        anchors=[]
+        for index,row in enumerate(sample):
+            try:anchors.append((index,unprotect(row['payload'],hp,wrapper)))
+            except DecodeError:continue
+        anchors.sort(key=lambda item:(len(item[1].header),item[0]),reverse=True)
+        for key,verifier in verifiers.items():
+            for index,first in anchors:
+                recovered=verifier.recover(first)
+                if recovered is None:continue
+                nonce,plain=recovered;iv=nonce_for(nonce,first.packet_number)
+                for other_index,other in enumerate(sample):
+                    if other_index==index:continue
+                    try:
+                        u,p=decrypt(other['payload'],hp,key,iv,wrapper,first.packet_number)
+                        if u.cid!=first.cid or u.key_phase!=first.key_phase or u.packet_number==first.packet_number:continue
+                        # TWO distinct datagrams must authenticate with the same
+                        # keys, IV, connection ID and phase. No weaker fallback.
+                        return dict(hp=hp,key=key,iv=iv,cid=first.cid,phase=first.key_phase,largest=max(first.packet_number,u.packet_number))
+                    except DecodeError:continue
     return None
 
 def main():

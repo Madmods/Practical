@@ -88,11 +88,12 @@ int main(){
   check(updateBallMags(editor,scene,selected,true,10),"worker gate invokes ball sizing for focused fresh gameplay");
   check(sameSize(live[0].part.size,{10,10,10})&&sameSize(live[0].meshScale,original.meshScale),"worker enlarges football hitbox with normal visible mesh");
   check(sameSize(live[1].part.size,left.part.size)&&sameSize(live[2].part.size,right.part.size)&&edits.edits.size()==1&&edits.edits[0].original.part.ball,"worker cannot resize either hand catch zone");
-  auto applications=editor.applications;
+  scene.focused=false;check(updateBallMags(editor,scene,selected,true,10)&&edits.edits.size()==1&&sameSize(live[0].part.size,{10,10,10}),"background Mags retains ball size after switching apps");
+  scene.focused=true;auto applications=editor.applications;
   check(updateBallMags(editor,scene,selected,false,10)&&editor.applications==applications&&edits.edits.empty()&&sameSize(live[0].part.size,original.part.size)&&live[0].canCollide,"disable or recovery block restores balls without new applications");
   for(int reason=0;reason<8;++reason){
    check(updateBallMags(editor,scene,selected,true,10),"acquire ball before pause");auto paused=scene;
-   switch(reason){case 0:paused.focused=false;break;case 1:paused.menu=true;break;case 2:paused.typing=true;break;case 3:paused.valid=false;break;case 4:paused.at=9;break;case 5:paused.at=11;break;case 6:paused.pid=0;break;case 7:paused.velocity.x=NAN;break;}
+   switch(reason){case 0:paused.model=0;break;case 1:paused.menu=true;break;case 2:paused.typing=true;break;case 3:paused.valid=false;break;case 4:paused.at=9;break;case 5:paused.at=11;break;case 6:paused.pid=0;break;case 7:paused.velocity.x=NAN;break;}
    applications=editor.applications;
    check(updateBallMags(editor,paused,selected,true,10)&&editor.applications==applications&&edits.edits.empty()&&sameSize(live[0].part.size,original.part.size)&&live[0].canCollide,"pause restores original ball size and collision without applying");
   }
@@ -139,7 +140,8 @@ int main(){
   check(sameSize(live[1].part.size,original.part.size)&&live[1].physicsGroup==31&&!live[1].canCollide&&sameSize(live[2].part.size,original.part.size)&&live[2].physicsGroup==0,"unsupported and failed balls retain their original state");
   badWrite=0;check(updateBallMags(worker,frame,live,true,10,false)&&edits.edits.size()==2&&sameSize(live[2].part.size,twenty),"a recovered ball joins healthy Mags while unverified groups remain skipped");
   check(updateBallMags(worker,frame,live,false,10,false)&&edits.edits.empty()&&live[0].physicsGroup==0&&live[2].physicsGroup==0&&sameSize(live[0].part.size,original.part.size)&&sameSize(live[2].part.size,original.part.size),"disable still restores every healthy record in partial-update mode");
-  updateBallMags(worker,frame,live,true,10,false);frame.focused=false;check(updateBallMags(worker,frame,live,true,10,false)&&edits.edits.empty(),"focus loss always restores all balls even after mixed availability");
+  updateBallMags(worker,frame,live,true,10,false);frame.focused=false;check(updateBallMags(worker,frame,live,true,10,false)&&edits.edits.size()==2,"focus loss keeps healthy balls active despite mixed availability");
+  check(updateBallMags(worker,frame,live,false,10,false)&&edits.edits.empty(),"background disable restores all owned balls");
   frame.focused=true;live={ball(1000),ball(1001),ball(1002)};live[1].canCollide=false;
   check(updateBallMags(worker,frame,live,true,10,false)&&edits.edits.size()==3&&worker.skipped==0,"mixed naturally solid and non-solid balls all participate in Mags");
   check(live[0].canCollide&&!live[1].canCollide&&live[2].canCollide&&sameSize(live[1].part.size,twenty),"mixed batch keeps each ball's game-controlled collision flag intact");

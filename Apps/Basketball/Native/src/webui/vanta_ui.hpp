@@ -156,7 +156,7 @@ public:
         // the fallback timer shows the whole window so the app can't end up invisible.
         SetWindowRgn(hwnd_, CreateRectRgn(0, 0, 0, 0), FALSE);
         if(!info_.overlay)SetTimer(hwnd_, kShapeFallbackTimer, 5000, nullptr);
-        if (info_.testMode) SetTimer(hwnd_, 73, 55000, nullptr);
+        if (info_.testMode) SetTimer(hwnd_, 73, 80000, nullptr);
         else if(!info_.overlay&&info_.product == L"basketball") SetTimer(hwnd_, 74, 50, nullptr);
         if(!info_.overlay)ShowWindow(hwnd_, SW_SHOW);
         UpdateWindow(hwnd_);

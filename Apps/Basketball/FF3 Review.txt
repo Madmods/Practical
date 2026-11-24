@@ -1,0 +1,678 @@
+VANTA - LIVE VIEW / STABLE PHYSICAL PLAN
+
+Installed executable/catalog hash:
+30950b858ab8731628d83743758d95d846ce45b412f83ee600e25047784d7142
+
+Removed the held-frame screenshot overlay completely. The viewport stays live;
+there is no image capture, frozen game image or QB overlay suppression in the
+throw path. Camera correction remains visible with this external method.
+
+Receiver selection now requires a brief stable hover before switching among
+nearby candidates. A freshly re-solved current power/root/fit can survive small
+ranking changes or a failed fresh search, while current catch, angle and OOB
+validation still apply. Material coverage improvements replace the old plan.
+The Camera Aim beam renders the selected physical parabola directly rather
+than an interpolation between different candidate arcs.
+
+The physical click still starts the game's animation. Its chosen forecast,
+arc and actual power remain fixed through that short animation; changing
+receiver samples no longer silently substitute a different advertised throw.
+Camera updates continue between slower scene scans. View restoration follows
+verified release or explicit interruption/timeout.
+
+1744 native/compositor checks pass. Interface and HUD checks passed for the
+same interface. Installed executable/catalog hash verified; saved settings
+and network helpers preserved. A live check of this build is still required.
+Earlier independent flight samples showed five paths about 0.5-2 studs from
+the planned catch point and one approximately 22-stud outlier. These are model
+comparisons, not a perfect-throw or reliable-catch guarantee.
+Backup: Native/build/before-stable-live-view.
+
+PREVIOUS UPDATE NOTES
+VANTA - PHYSICAL CLICK / ANIMATION PLAN
+
+Installed executable/catalog hash:
+a0715412d8774580a1aa7c7ab73fd2aac369c0188eb3dabf59ed6f2a2a78daa7
+
+Camera Aim now passes the user's real down/up to the game and follows that
+throw animation. It does not block the physical throw or send a replacement
+mouse click. Power is prepared before clicking; after clicking, aim uses the
+actual displayed power and retains the chosen fit/arc through the animation.
+
+The preview projects receiver/defender movement through an initial 350 ms
+animation estimate. Verified release timing updates that estimate for this
+app session. As the animation runs, its remaining lead shrinks, keeping the
+pre-click forecast and release-time aim on the same moving target.
+
+Smart Fit also checks alternative reachable wheel powers/arcs if rounding
+leaves the preferred angle band without a valid catch. Catch and boundary
+checks still apply. The held-frame display hides temporary camera movement;
+restoration waits for the verified owned ball to appear in the world.
+
+1735 native/compositor checks, 323 interface checks, 36 HTML HUD and 30 native
+HUD ownership checks passed. Executable/catalog hash verified. Saved settings
+and network helpers preserved. Independent read-only flight verification is
+running; final live accuracy and consistency are not claimed yet.
+Backup: Native/build/before-physical-animation.
+
+PREVIOUS UPDATE NOTES
+VANTA - ANIMATION-AWARE RELEASE AND HELD VIEW
+
+Installed executable/catalog hash:
+e84959d3378afbdddecd352489308c22ffa44bb8be3ea51664cefe7481d8a887
+
+The user's live report identified delayed ball release during the throw
+animation. Temporary cursor locking, event replacement or power-wheel removal
+must not return the camera while that animation is still aiming the throw.
+The new tracker keeps correcting the aim until a verified owned world ball
+appears. Explicit user/session interruption and a three-second failure limit
+still end the operation. Reused held-ball identities count as actual release.
+
+A transient in-memory image holds the pre-click game view and beam onscreen
+while the temporary camera aim and animation run. The image is removed after
+restoring the original camera and allowing the renderer to catch up. The game
+continues underneath; the held image is never saved or transmitted.
+
+Camera-ray construction now uses renderer projection intrinsics independently
+of its older pose, avoiding mixed current-camera/previous-renderer geometry.
+The target continues updating through temporary animation GUI/input changes.
+
+1720 native/compositor, 323 interface, 36 HTML HUD and 30 native HUD ownership
+checks passed. Installed hash verified; saved settings and network helpers
+preserved. Live verification of this particular build remains pending.
+Backup: Native/build/before-animation-release.
+
+PREVIOUS UPDATE NOTES
+VANTA - CLICK INPUT HANDOFF CORRECTION
+
+Installed executable/catalog hash:
+0e710874f9e162916cb87fada644ef4902f59b8e3d3f2d34b4592c073532a85d
+
+The previous live log captured six assisted clicks and confirmed their power,
+but none reached alignment or replacement throw dispatch. The captured frame's
+InputObject was treated as permanent through click/power input processing.
+
+The click transaction now refreshes this event-object binding from a fresh
+frame after power preparation and during alignment/release tracking. Player,
+session, camera, MouseService, viewport and revision checks remain required.
+Restoration separately retains the input object that was actually saved;
+replacing that object cannot prevent restoration of the original camera.
+Cancellation messages now identify authorization, pointer, power and capture
+stages instead of reporting only a generic interrupted preparation.
+
+1700 native/compositor checks pass, including input-object replacement,
+replacement rejection across camera/session changes, and view restoration.
+Installation hash verified. The corrected installed build still requires
+live confirmation of throw dispatch and view restoration. Saved settings and
+network helpers were preserved. Backup: Native/build/before-flick-input-correction.
+
+PREVIOUS UPDATE NOTES
+VANTA - LEFT-CLICK FLICK AND VIEW RESTORE
+
+Installed Camera Aim now keeps the view still before left click. The beam,
+Smart Fit plan and power remain live; pre-click input only adjusts the power
+wheel, one acknowledged step at a time between refreshed previews.
+
+A fresh assisted left click is captured together with its matching release.
+The worker confirms power, saves the original camera transform and game
+cursor, aligns the rendered throw ray, and sends one replacement click.
+It then maintains the aim until a new owned ball is observed, or a bounded
+release interval ends, and restores the original camera position/rotation.
+The Windows cursor is not moved by the aiming sequence.
+
+Cleanup also restores the saved view after failed alignment or cancellation.
+A replacement camera or the user's right-button camera control takes
+precedence. Clicks on the power wheel remain ordinary GUI clicks. The failed
+cursor-only prototype is still unavailable. No packet helper is replaced.
+
+Validation: 1687 native/compositor checks, 323 interface checks, 36 HTML HUD
+checks and 30 native HUD ownership checks passed. Installed executable and
+release catalog hashes match. This specific installed click-to-flick behavior
+still requires a live throw check; perfect throws or an invisible flick are
+not claimed. Previous executable/catalog/settings: Native/build/before-click-flick.
+
+PREVIOUS UPDATE NOTES
+VANTA - CAMERA AIM READINESS RECOVERY
+
+Camera Aim is selected in this installation. It prepares power and aligns
+camera/cursor data before the user's normal click. It visibly adjusts the
+camera. The failed cursor-cache-only prototype remains unavailable.
+
+Fixes:
+- Hidden Windows cursors no longer imply a locked pointer. Confinement,
+  first-person/camera mode and right-button checks remain separate.
+- Repeated mouse events at the same position no longer keep resetting the
+  preparation timer. Real movement still interrupts preparation.
+- Camera readiness now uses the same strict less-than-four-pixel agreement
+  bound as dispatch. Live traces repeatedly settled roughly 2.2 pixels from
+  the cursor and were rejected by the former two-pixel readiness bound.
+  Two separate confirmations and the minimum acknowledgement interval remain.
+
+The user reported that the camera trial worked. That is live user feedback,
+not proof that every pass is perfect. The final four-pixel-readiness build has
+passed offline checks; its full installed behavior still merits live use.
+No invisible-aim or perfect-pass claim is made. No packet helper is changed.
+
+Validation: 183 ballistic cases; 1639 native/compositor checks; 323 interface
+checks; 36 HTML HUD and 30 native HUD ownership checks. Executable and release
+catalog hashes match. Previous executable, catalog and QB settings are in
+Native/build/before-aim-recovery. QB aim remains off on app startup.
+
+PREVIOUS UPDATE NOTES
+VANTA - FAILED CURSOR TEST DISABLED
+
+Live evidence: the app logged three cursor-cache writes on physical clicks,
+with planned elevations about 18, 28 and 47 degrees. The user reported that
+these throws went into the ground. R/F wheel changes were acknowledged.
+This does not identify whether the game overwrote the cache, ignored it or
+used a different aim source. It establishes that this test is not a reliable
+throw correction in the current setup.
+
+The failed mode is removed from the available choices. Old method-3 profiles
+load as Visual Aim. The backend rejects selecting method 3 and guards against
+its cursor write or automated-power path running. This installation selects
+Visual Aim and leaves QB aim off at startup. Visual Aim provides a manual
+mouse marker; it does not redirect the throw or prepare power automatically.
+Camera Aim remains the separate visible option. No packet feature is enabled
+by this fallback.
+
+The requested invisible external aim is not implemented reliably. This update
+retires the failed prototype; it does not claim to supply a working silent
+replacement. No unknown offsets, additional packet edits or faster write loop
+are introduced.
+
+Automated checks cover profile migration, rejecting the failed method and
+the existing native/UI/HUD behavior. No game inputs or live Roblox writes were
+performed by the agent during this diagnosis. Settings other than aim method
+and the installed network runtime are preserved.
+
+PREVIOUS UPDATE NOTES
+VANTA - CURSOR AIM TEST
+
+New aim method: Cursor Aim - Test (method 3).
+
+This is an experimental external alternative. It prepares five-point power
+with the existing R/F controller before the real click. While armed, it does
+not write the camera or game cursor. The real throw click starts a bounded
+game-cursor-position write, followed by a short tracking interval. The Windows
+cursor is not moved. The real click is neither blocked nor replayed.
+
+The code writes only the known InputObject position field in this method.
+It does not write camera rotation, position, type or field of view. It does
+not edit packets, call a remote, inject code or require an executor. Packet
+preparation remains off while this method is selected.
+
+Restoration only occurs if the same objects remain current and the cursor
+field still contains this operation's last value. Engine/user changes take
+priority. Loss of focus, input override, settings/session/object changes or
+the short deadline end the write interval.
+
+The planned ray must project in front of the existing camera within bounded
+coordinates. Unsupported directions remain unarmed; the camera is not moved
+as a fallback. Off-screen cursor coordinates may be tested, but engine use
+of these cached values has not been established.
+
+Armed means power and geometry are prepared. A successful memory write or
+readback does not prove that Roblox used it for Mouse.Hit or the throw.
+Actual ball movement and throw direction must be verified in a live test.
+Camera Aim remains available as the separately verified visible method.
+
+Native fixture checks cover cursor-only write boundaries, camera/neighbor
+preservation, ownership-aware restoration and method switching/persistence.
+UI and HUD checks are separate. The agent has not sent game inputs or written
+live Roblox memory during this implementation. No ban-safety claim is made.
+
+PREVIOUS UPDATE NOTES
+VANTA - CAMERA PREPARATION BEFORE THE REAL CLICK
+
+The previous Camera implementation tried to change power after intercepting
+the throw click. The game still received that physical click and started a
+normal throw. The log recorded an R/F acknowledgement timeout; the user
+confirmed manual R/F changes work and cancelled attempts still throw normally.
+
+Camera Aim now prepares power and aim before the user clicks. Pause over a
+receiver, optionally press Q to lock that receiver, and wait for Camera ready.
+Then click normally. Camera Aim does not consume or replay the real click.
+It briefly maintains the prepared ray while the game processes that click.
+
+Power uses distinct scan-code key-down and key-up events. A press is held until
+the wheel responds or a short hold ends. Each change must be acknowledged and
+separate presses have a release interval. It only targets powers reachable in
+five-point steps from the displayed value.
+
+Wheel sampling no longer requires a complete ballistic plan during every
+power step. The full trajectory is validated after power is ready. Physical
+clicks during preparation interrupt it and are identified as manual throws.
+Mouse movement, Escape, physical power keys and focus/identity changes yield
+control to the user. Normal pointer movement does not create failed-throw rows.
+
+Camera and Visual Aim still leave packet preparation off. No network helper,
+driver or user settings are replaced by this follow-up.
+
+Automated tests cover the before-click state, stale acknowledgement after a
+click, key ownership/release, wheel-step responses, preparation context without
+a trajectory, direct-aim geometry and write bounds, UI and HUD behavior.
+They do not prove live synthetic-key acknowledgement or live throw accuracy.
+The read-only probe found no equipped football during its available samples;
+it did not provide a live wheel-change verification. No game inputs or live
+Roblox writes were performed by the agent. This is not a ban-safety guarantee.
+
+PREVIOUS UPDATE NOTES
+VANTA - DIRECT CAMERA AIM / FIVE-POINT POWER
+
+Camera Aim uses Smart Fit's current trajectory and aligns the client camera
+rotation to place that ray under the user's original click position. It also
+synchronizes the primary InputObject's stored cursor position to that same
+pixel. Camera position, field of view and camera type are not written.
+
+The Windows cursor is not moved for aim or power selection. Power is selected
+with R (up) and F (down) in five-point steps. The planner selects powers
+reachable from the currently displayed value, then re-solves the trajectory
+at the selected power. Every key step must be acknowledged by the wheel.
+
+Only the user's throw click starts this operation. The current rendered
+projection and game/Windows cursor positions must agree twice before the
+normal throw click is sent. Readback of a stored value alone is insufficient.
+Aim is maintained briefly while the normal click is processed; mouse movement,
+Escape, a physical power-key press, loss of focus or identity changes cancel it.
+Ball tracking continues during this interval.
+
+Camera and Visual Aim do not start the packet listener or preparation helper.
+Packet mode is left available; this installation selects Camera Aim. The
+network helper and driver are not replaced by this update.
+
+Native checks cover off-axis projection across FOVs and viewport sizes, write
+boundaries in the test process, partial-write handling, five-point planning,
+key-edge ownership and preparation startup/stop behavior. Interface, HUD and
+ballistic checks are run separately.
+
+These checks do not verify live throw accuracy, actual engine acknowledgement
+or server acceptance. Direct memory writes still modify the client. This
+update is not demonstrated to prevent bans or reverse an existing ban.
+
+No game inputs or live Roblox writes were performed by the agent during
+validation. Memory-write fixtures operate only on the test process itself.
+
+PREVIOUS UPDATE NOTES
+VANTA ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â VISUAL AIM AND CAMERA AIM
+
+Visual Aim now places a crosshair at the mouse position for the selected throw, labelled MOVE MOUSE HERE with the actual displayed wheel power. It keeps the receiver while the cursor moves toward the aim point and allows a new receiver to be selected. Off-screen points get a directional camera cue. The marker uses the live camera and current throw prediction and remains available when the optional trajectory beam is off. Visual Aim does not select power, move the mouse or send a throw.
+
+Camera Aim updates its cursor target while the receiver moves. It requires agreement between the current aim, Windows cursor and game cursor before dispatch, instead of waiting for the receiver to remain at the point sampled before the initial mouse movement. If a valid arc lies outside the view, the user's throw click can trigger a bounded camera adjustment using the normal right-mouse control. The adjustment owns only its synthetic button edge, yields to a real right-button press, and releases on interruption. Normal third-person and free-cursor requirements still apply at entry.
+
+Both methods now align the launch direction with the camera's 1000-stud sky-ray endpoint rather than an arbitrary point 1000 studs from the QB. Scene intersections still belong to Roblox's mouse raycast. Geometry or changing receiver movement can affect the real result; live deep-pass accuracy has not yet been verified for this build.
+
+The combined Mags behavior is retained: ball size 20 with teleport 22, controlled by the same size slider.
+
+Validation: 603 native/compositor checks; 183 ballistic interception cases and invalid-data/click ownership checks; 225 receiving checks; 8356 feature checks; 155 ball checks; 97 sphere checks; 322 interface checks; 36 HTML HUD checks and 30 native HUD ownership checks. Native input ownership tests use mock senders and do not send game inputs.
+
+
+PREVIOUS UPDATE NOTES
+VANTA ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â COMBINED BALL MAGS
+
+Mags now has one Ball size setting. Size 20 enlarges the football hitbox to 20 and uses a teleport sphere of 22. Size 20.5 uses 22.5; the maximum size 50 uses teleport 52. Both values use the existing full-width scale. Teleport is always exactly size +2.
+
+Ball enlargement and continuous right-palm teleport run together. The mode selector, independent Snap size, and separate Snap preview controls are removed. The existing World reach visual shows the ball-size sphere at the visible football position.
+
+Original geometry and collision groups restore on pickup, disable and shutdown. The teleport worker refreshes its motion-buffer reference for every write and releases the previous ball after a catch. The ball-size limit remains 50; only the derived teleport sphere extends to 52.
+
+Catching remains manual by default. Explicit automatic catch options still work, and hidden options from the old Hand Snap mode cannot turn on catch inputs during migration. Existing saved Ball size is retained; an old independent Snap size no longer overrides it. Automation remains off on app startup.
+
+Validation: 225 football checks, 8356 feature checks, 155 ball checks, 97 sphere checks, and the interface integration suite. Tests include the plus-two relation, sphere boundaries, legacy settings migration, repeated ball acquisition and adjacent-field preservation. Reliable server catches with this new combined build have not yet been verified live.
+
+
+PREVIOUS UPDATE NOTES
+VANTA ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â CONTINUOUS HAND SNAP
+
+Hand Snap now updates the ball's validated motion frames as well as its stored world poses. The earlier build could report a position at the hand while the visible football remained elsewhere.
+
+The worker rereads the optional motion buffer on every update. It handles replacement and removal, releases the previous ball identity after a catch, and can select the next football without toggling Mags. Range checks use the current motion origin, so writing a stored position cannot create extra range.
+
+Hand Snap still uses the actual right palm, normal football geometry, and the original sphere renderer. Snap size remains full diameter. Hand Snap sends no catch inputs. Catching remains manual unless the separate Catch feature is enabled.
+
+The bounded live prototype performed 195 motion updates over three seconds. Independent graphics reads were within one stud of the palm in 169 of 195 samples; the user also observed the actual football moving. This is evidence of local visible movement, not verification of reliable catches or server acceptance. Repeated catches with the installed continuous build still need a live check.
+
+Validation: 220 football checks, including repeated motion resets, pointer replacement/removal, unchanged adjacent fields, range rejection, and four successive catch cycles. Other native and interface checks are recorded by the installer.
+
+
+PREVIOUS UPDATE NOTES
+HAND SNAP - ACTUAL PALM TARGET FROM THE LUA TEST
+
+The comparison found a concrete mismatch in the previous external target. It
+used the game's CatchR collider, parked roughly 1 to 1.47 studs below the palm
+in the captured poses. The Lua test used the actual hand or arm palm instead.
+The ball's primary world pose and graphics transform agreed at that actual palm.
+
+Hand Snap now uses the same target calculation as the Lua test: the RightHand
+center on R15, or a point 0.15 studs inside the bottom of Right Arm on R6. The
+offset follows the live arm rotation. The scanner, dedicated fast writer and
+preview range check all use that palm. CatchR is no longer the transfer target.
+
+The continuous fast worker remains, targeting a 2 ms interval independently of
+full scene scans. The prior fast build's live diagnostic measured a mean around
+2.5 ms. This candidate samples both the current hand translation and rotation.
+Hand Snap sends no catch input and has no click-to-arm condition.
+
+The exact size-changer sphere renderer and width-to-radius conversion are
+preserved. Snap size 20 means a 10-stud radius; the separate Lua test's RANGE 20
+means a 20-stud radius. Settings have not been changed to hide that difference.
+
+This target correction does not prove that raw external writes reproduce every
+engine update performed by a Lua CFrame setter. Actual external movement still
+needs checking with the Lua test stopped. Local readbacks, rendered proximity and
+game possession remain separate. No renderer writes, injected code, client Luau
+companion, ownership changes or packet changes are added by this candidate.
+
+Saved settings and networking helpers are preserved. Disable the Lua test before
+checking Vanta alone so the two movement paths do not overlap.
+
+
+PREVIOUS UPDATE NOTES
+HAND SNAP - DEDICATED FAST HAND TRACKING
+
+Hand Snap keeps attempting transfers whenever enabled with an eligible ball in
+its sphere. A manual click does not arm this feature. It never clicks, holds or
+refreshes catch input; Auto Catch remains controlled by its separate feature.
+
+The transfer loop now runs on its own worker with a 2 ms target interval. It
+samples the current hand position and velocity between full ball/scene scans.
+Cached instance bindings avoid repeated tree searches for each write. Identity,
+parent, health, focus, typing/menu, range and live-scene checks remain in the
+fast path. Bindings undergo full revalidation regularly and expire if the main
+scene stops refreshing. Actual write intervals are reported in the diagnostic.
+The 2 ms interval is a scheduling target, not a guaranteed Windows or game rate.
+
+Catch-contact closing does not stop transfers. They continue while the selected
+ball remains valid and uncaught in range. Disable, an invalid or stale scene,
+replacement instances, pickup, changed parent or loss of range stop the writer.
+Stopping or quitting Vanta waits for any in-flight fast write to finish.
+
+The same sphere size and renderer are preserved. The preview uses independent
+graphics-position reads. Only the inspected ball world-pose position/velocity
+fields are written; graphics bindings, mesh offsets, hand geometry and network
+ownership are not changed. No executor, client Luau, injection or packet changes
+were added. Saved settings and the networking helper are preserved.
+
+The earlier live trial of a separate motion-buffer method made zero writes
+because no eligible target entered the sphere. That method is not integrated.
+Actual game movement after the speed update requires a live check. Local write
+readbacks and scheduler tests do not prove server acceptance or prevent every
+game correction. The earlier automatic catch experiment is superseded.
+
+Reopen Vanta, choose Catching > Mags > Hand Snap and enable Mags. It continuously
+attempts transfers; use your normal manual catch input when desired.
+
+
+PREVIOUS UPDATE NOTES
+HAND SNAP - PAIRED WORLD POSES, NO AUTOMATIC CATCH INPUT
+
+Hand Snap never clicks, holds or refreshes catch input. Its transfer request no
+longer depends on a physical click, an owned catch input or the right-hand
+CanTouch flag. Auto Catch remains controlled by its separate feature.
+
+The previous writer changed only the primary ball position/velocity fields.
+The candidate updates both validated world-pose positions in the ball primitive
+and matches the hand velocity. Extra pose access is restricted to the inspected
+client version and requires valid rotation matrices and finite coordinates.
+Unrecognized layouts reject writes. Read-only inspection validated the pose
+pair on eight live loose footballs before the candidate was built.
+
+Snap preview now reads the independently identified SpecialMesh graphics
+binding transform. It keeps the exact size-changer sphere renderer and scale.
+It cannot fall back to the field Hand Snap writes and display a false transfer.
+Graphics bindings are only read. Mesh offsets, network ownership, ball geometry,
+catch flags and character sizes are not changed by Hand Snap.
+
+The app reports local position readback separately from rendered proximity and
+observed possession. The candidate's actual live ball movement still requires
+verification; passing fixtures and raw readbacks do not prove a working teleport
+or server acceptance. No executor, injected code, Luau companion or packet
+changes were added. The saved settings and networking helper are preserved.
+
+The previous automatic catch experiment is superseded by this update. Features
+start disabled on reopening. Select Catching > Mags > Hand Snap and enable Mags.
+
+
+PREVIOUS UPDATE NOTES
+HAND SNAP - CONTINUOUS TRANSFERS BETWEEN CATCH WINDOWS
+
+The previous controller waited for a held catch input and the right catch part's
+CanTouch flag. A closed catch-animation window stopped transfers until another
+click reopened it. The live record captured that waiting state.
+
+Hand Snap now requests the position transfer on the first eligible update and
+continues on every eligible update, independently of catch-input ownership and
+the CanTouch flag. It does not change that flag or enlarge the player's hands.
+Normal catch input remains separate. If the game's catch-contact window closes,
+Vanta refreshes only its own held catch input with a release/repress, allowing
+at least 300 ms of hold and 50 ms after a successful release. It respects manual
+input, retries failed releases, and cancels pending refreshes when disabled,
+unfocused, no longer targeting a ball or holding a football.
+
+The size-changer sphere and its scale are preserved. The ball stays normal-sized.
+Transfer still requires a verified live loose ball within that sphere, a valid
+right catch part, a healthy current character and a valid focused game scene.
+
+This remains entirely external. No executor, client Luau companion, injected
+code, new packet changes or writes to guessed physics/render fields were added.
+Local position readbacks remain separate from observed game possession. The
+source fix removes a confirmed transfer gate; it does not prove that the server
+will accept every transfer. The installed candidate needs an in-game check.
+
+Validation uses mock inputs, self-process memory fixtures, sphere rendering and
+isolated WebView checks. Saved settings and networking helpers are preserved.
+Open Catching > Mags, select Hand Snap and enable Mags after reopening Vanta.
+
+
+PREVIOUS UPDATE NOTES
+HAND SNAP - MATCHED SIZE-CHANGER SPHERE
+
+Hand Snap uses the existing size-changer sphere renderer, including its scale,
+lines, colors and size label. Snap size is the full sphere width: 20 studs means
+20 across and a 10-stud radius. The center of the right-hand catch part must enter
+that same sphere before transfer starts. The ball's physical size cannot extend
+the trigger distance. Snap preview shows nearby loose footballs before transfer.
+
+Hand Snap restores normal football size and collision leases before transferring.
+Reach size remains available in Ball Size mode. Hand Snap has its own Snap size
+and Snap preview controls; unused enlargement controls are hidden in this mode.
+
+Transfers repeatedly read the current ball and right-hand catch position. The
+destination sits up to 0.25 studs inward toward the actual right hand or arm.
+Catch input preparation is 16 ms; total update latency also includes the worker,
+game reads and input processing. An unrelated football in Backpack no longer
+blocks a new attempt. The selected ball becoming possessed stops transfers.
+
+This method writes the client ball position and velocity. Local write readbacks,
+correction samples and observed possession are recorded separately. Client writes
+cannot guarantee server acceptance or prevent server corrections. There is no
+fake football or visual suppression of corrections.
+
+Verification: native controller and render fixtures, exact sphere render parity,
+ball geometry/restoration fixtures and isolated WebView integration checks. No
+agent game inputs or live game-memory writes were used for verification. The
+new build's catch behavior and server acceptance still need a user game test.
+
+Installation preserves saved settings and all networking helper files. Features
+start disabled when Vanta reopens. Open Catching > Mags, choose Hand Snap, enable
+Mags and leave Snap preview enabled to inspect the sphere.
+
+
+PREVIOUS UPDATE NOTES
+VANTA - CONTINUOUS HAND SNAP WITH BALL SIZING
+
+Catching > Mags > Hand Snap now repeatedly transfers the selected eligible
+football to the current right-hand catch part on every receiving-worker
+update. The old 0.1-second transfer limit and two-attempt retry cap are removed.
+Transfer continues while enabled, in range, with a valid character/ball and
+normal catch contact. Possession stops it. Menus, lost focus, disable, death,
+identity changes and leaving the three-dimensional snap distance stop writes.
+The normal catch-input preparation remains; missing catch contact waits for
+it to resume instead of ending the attempt after a fixed timeout.
+
+The selected football receives a direct live position/size/identity read each
+update, including brief absences from the discovery list. Its valid identity
+is retained for the existing sizing pipeline during such gaps. The writer
+refreshes the right-hand destination immediately before each transfer.
+Rejected writes retry on subsequent eligible updates. Local write success,
+overlap samples and observed game possession remain separate metrics.
+
+All ordinary Mags settings remain visible and active in Hand Snap:
+Reach size, Auto hands, Fast-pass assist, Floor pickup assist, Catch input,
+Hands lead time and Hold through contact. The Mags sphere visual works too.
+Snap distance is an additional separate control. Ball sizing uses the same
+existing collision filtering and restoration as Ball Size mode. The visible
+football mesh remains normal-sized. Hand Snap accepts enlarged footballs
+through the existing 50-stud size ceiling. Its motion write preserves size.
+
+VALIDATION
+177 football checks passed, including continuous transfer across 400 updates,
+moving hands, corrected-away balls, enlarged geometry, disable/range stopping,
+exact-ball possession and actual own-process position/velocity writes.
+An own-process instance graph verifies direct pinned-ball reads with an empty
+discovery list, updated coordinates/size and rejection after reparenting.
+8356 feature checks, 155 ball geometry/restoration checks, 85 Mags visual
+checks and the refreshed WebView integration checks passed. The interface
+checks change Reach size and catch-assistance controls while Hand Snap is
+selected. Exact UI count and hashes are in the verification JSON.
+
+Actual FF3 possession from this continuous transfer remains unverified.
+No agent game inputs or live game-memory writes were sent. The user's saved
+settings and networking/helper/scanner/driver files are preserved. No GitHub
+upload or ZIP is made. Feature masters still start off on reopening Vanta.
+
+
+PREVIOUS UPDATE NOTES
+VANTA - HAND SNAP MAGS PROTOTYPE
+
+Open Catching > Mags. Mags mode now offers Ball Size and Hand Snap.
+Ball Size remains the default. Hand Snap has a separate Snap distance,
+default 20 studs, maximum 50, measured in 3D to the right-hand catch part.
+Preferences persist; Mags still starts off when Vanta opens.
+
+Hand Snap prepares the normal configured catch input before a short transfer.
+It targets the measured CatchR/CatchRight part, follows its current position
+and matches its linear velocity. It moves one eligible loose football at a
+time. Verified loose scripted/anchored footballs can be inspected without
+changing their Anchored flag. Own outgoing throws and held balls are excluded.
+Roblox must be focused so normal catch input reaches the game.
+
+Enlargement leases restore before transfer. Hand Snap leaves ball size, mesh,
+rotation, angular velocity, collision, ownership and character fields unchanged.
+Its write is limited to adjacent ball-position and linear-velocity fields.
+The layout is checked at build time; existing client admission guards remain.
+
+The attempt waits for catch-input preparation and enabled right-hand touch,
+transfers for at most 0.1 seconds and observes possession for 0.3 seconds.
+Only the selected football becoming possessed by the local character or
+Backpack counts as an observed catch. Local write success and hand-overlap
+samples are separate diagnostic counts. Two unconfirmed attempts per ball
+entry are allowed. Leaving range or toggling Mags rearms. Brief discovery gaps
+do not clear the retry limit.
+Mode, activation, range, scene freshness, foreground, health, character and
+ball identity are rechecked. Disable, mode changes, menus, lost focus, death,
+reparenting and possession stop new writes.
+
+VALIDATION
+171 football checks, 8356 feature checks, 155 ball sizing/restoration checks,
+85 Mags visual checks and 321 isolated WebView checks passed. Hand Snap checks
+cover input preparation, moving hands, exact-ball possession, 3D range, stale
+identity, rejected writes, bounded retries, discovery gaps and preferences.
+Actual position/velocity writes are tested against this process's memory;
+unrelated primitive bytes remain unchanged. The application/test-host
+manifests and a fresh Hand Snap screenshot were checked.
+
+LIVE STATUS
+A read-only probe found the real right-hand catch part valid, touch enabled,
+approximately 1.4 x 1.65 x 1.4 studs. Five loose footballs were observed, all
+outside 200 studs, and Roblox was not focused. No live ball transfer or game
+input was sent by the agent. The user cannot test now.
+Actual FF3 possession from Hand Snap remains UNVERIFIED.
+The prototype is installed for a later user test and starts disabled.
+
+The handSnap object in ff3-play-state.json records attempts, localWrites,
+writeFailures, contactSamples, movedAwaySamples, possessionObserved,
+unconfirmed and current detail.
+Saved settings, network helper, scanner and drivers are preserved.
+No GitHub upload or ZIP is made.
+
+
+PREVIOUS UPDATE NOTES
+VANTA - E-ONLY DIVES / INTERCEPTION / ORGANIZED VISUALS
+
+CATCHING > DIVE & PULL
+Dive Assist activates from a fresh E press without a mouse click or native
+dive-state flag. Steering stays forward or sideways, never backward.
+Normal Dive Boost activates from E without requiring a ball or click. A
+stationary jump-dive uses camera forward; vertical momentum is preserved.
+Smart Boost starts forward propulsion, then refines it using a feasible
+contact, position feedback and a bounded extra-travel budget. Precision
+considers both observed and anticipated catch postures; lowered hands no
+longer force a click. Hands out only remains an independent optional gate.
+Velocity commands reach both the root and torso body drivers. Diagnostic
+motion confirmation uses independent position samples, not write success.
+
+MOVEMENT > PLAYER / JUMP & BOOST
+Smart Big Head retains the flat OTHER-PLAYER platform through contact jitter.
+Reset after contact defaults on, with an adjustable 0.5-second restore delay.
+Reset off retains the head while you remain on/above it. After a timed reset,
+a fresh rise above the original head is needed before it rearms. Delay appears
+only with Smart Big Head and contact reset on. Restoration remains journaled.
+Quick Teleport replaces raw position writes with short forward movement,
+controller preparation, position feedback and braking. Arrival is counted
+only when the observed root actually reaches the endpoint.
+Auto Boost now requests upward body velocity once per player-head contact.
+Boost Enhancer adds its configured amount. Require incoming pass is optional;
+off does not gate the contact boost on a football. Busy movement controllers
+cannot silently consume the next contact trigger.
+Freeze remains a secondary utility for holding position, not catch assistance.
+
+WORLD > PLAYER GUIDES - INTERCEPTION GUIDE
+The old Best Catch implementation and renderer are removed. The replacement
+searches the closest incoming pass for earlier run, jump, dive and jump-then-
+dive contacts. It includes momentum, acceleration, reaction, jump strength,
+gravity, native dive speed and optional extra boost distance. Launch pads
+show where to act, separately from the contact window. No dotted route line.
+Absolute contact timing is retained during replanning. Amber OUT OF REACH
+shows the closest attempt when no reachable contact is found.
+Planning runs on a separate worker, updated at 10 Hz; camera projection stays
+live. Sampled fixture solves were under 1 ms on this PC, not a live guarantee.
+Opponent arrivals and future hand/dive postures remain estimates. A catch or
+winning a race cannot be guaranteed from observed motion alone.
+Practice actors support both grouped and direct rig layouts.
+
+QUARTERBACK > VISUALS
+Open receiver markers show observed teammate/practice receiver separation
+from the nearest defender; unknown coverage is labeled. Route projection
+shows half a second of observed motion. Optional contact window and estimated
+ball/defender timing default off. Threat windows show the critical defender
+and limiting flight segment. These controls affect actual rendered geometry.
+Camera Aim and Visual Aim enable without waiting for packet setup or helper
+shutdown. Packet status and Retry apply only to Packet Aim. Switching methods
+still disarms QB aim and requests cancellation of existing packet edits.
+Camera Aim uses the existing mouse/power-wheel method; Visual Aim is preview
+only. This update does not modify packet decoding or transport keys.
+
+WORLD ORGANIZATION
+Ball flight: trajectories, landing zones, future position, highlights, loose
+ball markers. Player guides: Interception and Pocket escape. Field & reach:
+Field boundary and Mags sphere. Mags behavior remains first in Catching.
+QB-specific visuals stay under Quarterback. Task tabs open the first details
+card automatically if none is open. One details card stays open per section.
+Kicking remains deferred.
+
+VALIDATION
+8356 movement/planning/restoration/rendering checks, 516 QB/compositor checks,
+135 football checks and 315 WebView checks passed. Fixtures use this process
+or mocks. UI checks use a separate host without game hooks or writes.
+Fresh actual-renderer screenshots were reviewed for Head delay, QB visuals,
+World controls, receiver awareness and interception launch/contact markers.
+Live FF3 movement, boost and catch accuracy still need user verification.
+No game inputs, game-memory writes, rejoin or server actions were sent.
+Saved settings, network helper, scanner and drivers are preserved.
+No ZIP or GitHub upload is made.
+
+START
+C:\Users\k\Downloads\External\3 - Start Vanta.bat
+Dive Assist / Dive Boost: Catching > Dive & pull.
+Interception guide: World > Player guides.
